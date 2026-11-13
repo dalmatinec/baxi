@@ -40,7 +40,7 @@ def _int(name: str, default: int) -> int:
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 OWNER_IDS = {int(x) for x in os.getenv("OWNER_IDS", "").replace(" ", "").split(",") if x.lstrip("-").isdigit()}
 
-# Нейросеть: любой сервис с API как у OpenAI (DeepSeek, OpenRouter, GigaChat через прокси и т.д.)
+# Нейросеть: любой сервис с API в формате OpenAI. Адрес и модель меняются в .env
 AI_BASE_URL = os.getenv("AI_BASE_URL", "https://api.deepseek.com").rstrip("/")
 AI_API_KEY = os.getenv("AI_API_KEY", "")
 AI_MODEL = os.getenv("AI_MODEL", "deepseek-chat")

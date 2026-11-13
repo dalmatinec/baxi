@@ -1,5 +1,5 @@
 # Запуск на любом сервере с Docker:
-#   cp .env.example .env && nano .env      # токен бота, свой Telegram ID, ключ DeepSeek
+#   cp .env.example .env && nano .env      # токен бота, свой Telegram ID, ключ нейросети
 #   docker compose up -d --build
 #   docker compose logs -f
 services:

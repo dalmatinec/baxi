@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Копии бота для клиентов (white label). Запускать от root:
-#   bash /opt/linkhub/deploy/client.sh add vasya      # новый клиент (спросит токен, ID, ключ DeepSeek)
+#   bash /opt/linkhub/deploy/client.sh add vasya      # новый клиент (спросит токен, ID, ключ нейросети)
 #   bash /opt/linkhub/deploy/client.sh list           # все копии и их состояние
 #   bash /opt/linkhub/deploy/client.sh logs vasya     # логи копии
 #   bash /opt/linkhub/deploy/client.sh restart vasya
@@ -23,7 +23,7 @@ add)
     systemctl daemon-reload
     read -rp "Токен бота клиента (от @BotFather): " TOKEN
     read -rp "Telegram ID клиента (он будет админом): " OWNER
-    read -rp "Ключ DeepSeek клиента (можно пусто, тогда без ИИ): " AIKEY
+    read -rp "Ключ нейросети клиента (можно пусто, тогда без ИИ): " AIKEY
     read -rp "Оплачено дней [30]: " DAYS; DAYS="${DAYS:-30}"
     read -rp "Лимит чатов (0 = без лимита) [3]: " LIMIT; LIMIT="${LIMIT:-3}"
     mkdir -p "$BASE/$NAME/data"

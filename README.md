@@ -159,11 +159,11 @@
 
 ## White label: копии бота для клиентов
 
-Каждый клиент: отдельная копия на этом же сервере со своим ботом, ключом DeepSeek, базой и админкой.
+Каждый клиент: отдельная копия на этом же сервере со своим ботом, ключом нейросети, базой и админкой.
 Лимит памяти на копию 180 МБ.
 
 ```bash
-bash /opt/linkhub/deploy/client.sh add vasya     # спросит токен бота клиента, его ID, ключ DeepSeek, дни и лимит чатов
+bash /opt/linkhub/deploy/client.sh add vasya     # спросит токен бота клиента, его ID, ключ нейросети, дни и лимит чатов
 bash /opt/linkhub/deploy/client.sh list          # кто работает
 bash /opt/linkhub/deploy/client.sh logs vasya
 bash /opt/linkhub/deploy/client.sh remove vasya
@@ -181,7 +181,7 @@ bash /opt/linkhub/deploy/client.sh remove vasya
 # на сервере клиента (нужны git и Docker)
 git clone <репозиторий> chatbot && cd chatbot
 cp .env.example .env
-nano .env                      # BOT_TOKEN, OWNER_IDS (ID клиента), AI_API_KEY (его ключ DeepSeek)
+nano .env                      # BOT_TOKEN, OWNER_IDS (ID клиента), AI_API_KEY (его ключ нейросети)
 mkdir -p data && sudo chown 10001 data
 docker compose up -d --build
 docker compose logs -f         # логи
@@ -198,7 +198,7 @@ docker compose logs -f         # логи
 
 1. В @BotFather: создай бота, затем **Bot Settings → Group Privacy → Turn off**. Без этого бот не видит
    обычные сообщения в группах.
-2. Заведи ключ на [platform.deepseek.com](https://platform.deepseek.com) и пополни баланс на $5.
+2. Заведи ключ API нейросети и пополни баланс на $5.
 3. На сервере от root:
 
 ```bash
@@ -207,7 +207,7 @@ git clone https://github.com/dalmatinec/linkhub /opt/linkhub
 bash /opt/linkhub/deploy/install.sh
 ```
 
-Скрипт спросит токен, твой Telegram ID и ключ DeepSeek, поставит всё и запустит бота как сервис.
+Скрипт спросит токен, твой Telegram ID и ключ нейросети, поставит всё и запустит бота как сервис.
 
 4. Напиши боту в личку /admin, добавь его в группу, в /admin → Чаты задай имя, характер и тему чата.
 

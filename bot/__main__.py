@@ -31,7 +31,7 @@ async def main() -> None:
 
     me = await bot.me()
     log.info("Бот @%s запущен. ИИ: %s", me.username,
-             f"{config.AI_MODEL} через {config.AI_BASE_URL}" if ai.enabled() else "выключен (нет AI_API_KEY)")
+             "включён" if ai.enabled() else "выключен (нет AI_API_KEY)")
     try:
         await bot.set_my_commands([BotCommand(command="start", description="Меню"),
                                    BotCommand(command="support", description="Поддержка"),

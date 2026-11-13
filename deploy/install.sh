@@ -23,7 +23,7 @@ if [ ! -f .env ]; then
     cp .env.example .env
     read -rp "Токен бота от @BotFather: " TOKEN
     read -rp "Твой Telegram ID (несколько через запятую): " OWNERS
-    read -rp "Ключ API нейросети (DeepSeek), можно пусто: " AIKEY
+    read -rp "Ключ API нейросети, можно пусто: " AIKEY
     sed -i "s|^BOT_TOKEN=.*|BOT_TOKEN=$TOKEN|; s|^OWNER_IDS=.*|OWNER_IDS=$OWNERS|; s|^AI_API_KEY=.*|AI_API_KEY=$AIKEY|" .env
 fi
 mkdir -p data

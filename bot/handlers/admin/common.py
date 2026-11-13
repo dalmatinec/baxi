@@ -178,8 +178,8 @@ async def cb_spend(cb: CallbackQuery) -> None:
     lines = [f"{r['day']}: ${r['usd']:.3f} · {r['requests']} запр." for r in rows[:7]]
     month = sum(r["usd"] for r in rows)
     text = ("🤖 <b>ИИ и расход</b>\n\n"
-            f"Модель: <code>{config.AI_MODEL}</code>\n"
-            f"Лимит в сутки: <b>${config.DAILY_LIMIT_USD:.2f}</b> (меняется в .env, DAILY_LIMIT_USD)\n"
+            + (f"Модель: <code>{config.AI_MODEL}</code>\n" if config.IS_MAIN else "")
+            + f"Лимит в сутки: <b>${config.DAILY_LIMIT_USD:.2f}</b> (меняется в .env, DAILY_LIMIT_USD)\n"
             f"За 30 дней: <b>${month:.3f}</b>\n\n"
             + ("\n".join(lines) if lines else "Пока ни одного запроса.")
             + "\n\nКогда лимит на сегодня кончается, бот до полуночи отвечает фразами из базы.")
