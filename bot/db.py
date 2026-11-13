@@ -364,10 +364,26 @@ async def ensure_chat(chat_id: int, title: str) -> aiosqlite.Row:
                               approved)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
            ON CONFLICT(chat_id) DO UPDATE SET title = excluded.title, active = 1""",
-        (chat_id, title, config.DEFAULT_NAME, config.DEFAULT_PERSONA, config.DEFAULT_TOPIC,
+        (chat_id, title, config.DEFAULT_NAME or "бот", config.DEFAULT_PERSONA, config.DEFAULT_TOPIC,
          config.DEFAULT_CHANCE, config.DEFAULT_AI_SHARE, config.DEFAULT_COOLDOWN, time.time()))
     await conn().commit()
     return await get_chat(chat_id)
+
+
+async def fix_legacy_name(new_name: str) -> int:
+    """Чаты, где бот так и остался «Маратом» по умолчанию, переименовать в имя из профиля бота
+    и стереть заметки, где это имя могло прилипнуть к людям. Возвращает, сколько чатов поправлено."""
+    async with conn().execute("SELECT chat_id FROM chats WHERE bot_name = ?", (config.LEGACY_NAME,)) as cur:
+        ids = [r[0] for r in await cur.fetchall()]
+    for chat_id in ids:
+        await conn().execute("UPDATE chats SET bot_name = ? WHERE chat_id = ?", (new_name, chat_id))
+        await conn().execute("UPDATE users SET notes = '', notes_at = 0 WHERE chat_id = ? AND notes LIKE ?",
+                             (chat_id, f"%{config.LEGACY_NAME}%"))
+        await conn().execute("UPDATE history SET name = ? WHERE chat_id = ? AND is_bot = 1", (new_name, chat_id))
+        await conn().execute("UPDATE history SET reply_name = ? WHERE chat_id = ? AND reply_name = ?",
+                             (new_name, chat_id, config.LEGACY_NAME))
+    await conn().commit()
+    return len(ids)
 
 
 async def pending_chats() -> list[aiosqlite.Row]:

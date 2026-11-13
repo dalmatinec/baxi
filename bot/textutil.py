@@ -24,8 +24,13 @@ def mention(user_id: int, name: str) -> str:
     return f'{icon} <b><a href="tg://user?id={user_id}">{esc(nick or name) or "аноним"}</a></b>'
 
 
-def full_name(first: str | None, last: str | None) -> str:
-    return " ".join(x for x in (first, last) if x).strip() or "аноним"
+def full_name(first: str | None, last: str | None, username: str | None = None) -> str:
+    """Имя человека. Если в имени нет ни одной буквы (одни эмодзи), берём юзернейм:
+    иначе нейросеть не может обратиться к человеку и начинает путать имена."""
+    name = " ".join(x for x in (first, last) if x).strip()
+    if not any(ch.isalpha() for ch in name):
+        return username or name or "аноним"
+    return name
 
 
 COLORS = {"зел": "success", "green": "success", "син": "primary", "blue": "primary",

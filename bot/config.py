@@ -67,7 +67,10 @@ DB_PATH = DATA_DIR / "bot.db"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 # Значения по умолчанию для нового чата (потом меняются в /admin)
-DEFAULT_NAME = os.getenv("DEFAULT_NAME", "Марат")
+# имя бота в новых чатах. Пусто: берётся имя из профиля бота в Telegram (BotFather → /setname).
+# «Марат» было старым значением по умолчанию и тоже считается пустым
+DEFAULT_NAME = "" if os.getenv("DEFAULT_NAME", "") == "Марат" else os.getenv("DEFAULT_NAME", "")
+LEGACY_NAME = "Марат"
 DEFAULT_PERSONA = os.getenv(
     "DEFAULT_PERSONA",
     "свой пацан из чата, дерзкий и весёлый, любит подколоть, но не злой. "

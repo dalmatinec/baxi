@@ -67,7 +67,7 @@ class GroupTracker(BaseMiddleware):
             data["chat_row"] = chat
             user = event.from_user
             if user and not user.is_bot and not event.sender_chat and event.content_type in TRACKED:
-                name = full_name(user.first_name, user.last_name)
+                name = full_name(user.first_name, user.last_name, user.username)
                 data["user_row"] = await db.touch_user(event.chat.id, user.id, name, user.username or "")
                 reply_name, reply_user_id = "", 0
                 rt = real_reply(event)
@@ -75,7 +75,7 @@ class GroupTracker(BaseMiddleware):
                     bot = data["bot"]
                     reply_user_id = rt.from_user.id
                     reply_name = chat["bot_name"] if rt.from_user.id == bot.id else \
-                        full_name(rt.from_user.first_name, rt.from_user.last_name)
+                        full_name(rt.from_user.first_name, rt.from_user.last_name, rt.from_user.username)
                 text = describe(event)
                 await db.add_history(event.chat.id, event.message_id, user.id, name, text, reply_name,
                                      reply_user_id=reply_user_id)

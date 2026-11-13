@@ -31,6 +31,11 @@ async def main() -> None:
     dp.include_router(handlers.setup())
 
     me = await bot.me()
+    if not config.DEFAULT_NAME:
+        config.DEFAULT_NAME = me.first_name or "бот"
+        fixed = await db.fix_legacy_name(config.DEFAULT_NAME)
+        if fixed:
+            log.info("Переименовал бота из «%s» в «%s» в %s чатах", config.LEGACY_NAME, config.DEFAULT_NAME, fixed)
     log.info("Бот @%s запущен. ИИ: %s", me.username,
              "включён" if ai.enabled() else "выключен (нет AI_API_KEY)")
     try:
