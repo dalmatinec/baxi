@@ -34,7 +34,7 @@ def defaults() -> dict[str, dict]:
     start_buttons = [
         btn("🤖 Что я умею", "screen:help", 0, "primary"),
         btn("➕ Добавить в чат", "screen:add", 1), btn("📣 Реклама", "screen:ads", 1),
-        btn("🛒 Магазин", "screen:shop", 2, "success"), btn("👑 Топ донатеров", "act:donors", 2),
+        btn("🛒 Магазин", "screen:shop", 2), btn("👑 Топ донатеров", "act:donors", 2),
     ]
     if config.IS_MAIN:
         start_buttons.append(btn("💼 Свой бот", "screen:wl", 3, "success"))
