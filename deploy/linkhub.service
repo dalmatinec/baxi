@@ -21,7 +21,8 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/opt/linkhub/data
+# instances: сюда основной бот пишет сроки оплаты копий white label (папки может не быть)
+ReadWritePaths=/opt/linkhub/data -/opt/linkhub/instances
 MemoryMax=300M
 
 [Install]

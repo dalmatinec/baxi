@@ -11,7 +11,7 @@ from aiogram import Bot
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot import ai, config, db, games, nominations, prompts
-from bot.services import talk
+from bot.services import approval, license, talk
 from bot.services.fun import nominees_html, rude_line
 from bot.services.out import say
 from bot.textutil import MSGS, REACTS, esc, human_date, mention, plural
@@ -191,6 +191,9 @@ async def greet_birthdays(bot: Bot, chat) -> None:
 # ---------- планировщик ----------
 
 async def tick(bot: Bot) -> None:
+    if license.sleeping():
+        await license.tick(bot)
+        return
     now = datetime.now(config.TZ)
     day = db.today()
     for chat in await db.list_chats():
@@ -208,6 +211,9 @@ async def tick(bot: Bot) -> None:
         except Exception:
             log.exception("Плановая задача в чате %s не выполнилась", chat["chat_id"])
     await close_polls(bot)
+    await approval.tick(bot)
+    await license.tick(bot)
+    await license.remind_main(bot)
 
 
 async def run_scheduler(bot: Bot) -> None:

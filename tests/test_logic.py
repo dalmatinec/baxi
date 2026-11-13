@@ -216,3 +216,19 @@ def test_chat_commands():
     assert brain.detect_command("сводка за 3 часа") == "summary"
     assert brain.detect_command("итоги матча видел?") is None
     assert brain.detect_command("пара минут") is None
+
+
+def test_buttons_with_colors():
+    rows, errors = parse_buttons("Найти - t.me/bot - зелёная | Чат - https://t.me/c\nСтоп - https://x.com - красная")
+    assert errors == []
+    assert rows == [[["Найти", "https://t.me/bot", "success"], ["Чат", "https://t.me/c"]],
+                    [["Стоп", "https://x.com", "danger"]]]
+    assert parse_buttons(buttons_to_text(rows))[0] == rows
+    assert parse_buttons("А - https://x.com - фиолетовая")[1]
+
+
+def test_roast_full_intent_and_donors():
+    assert brain.detect_intent("спидермен прожарь по полной") == "roast_full"
+    assert brain.detect_intent("спидермен прожарь диму по полной") == "roast_full"
+    assert brain.detect_intent("спидермен прожарь его") == "roast"
+    assert games.match("топ донатеров")[0] == "donors_top"

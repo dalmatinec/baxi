@@ -18,7 +18,8 @@ def _load_env(path: Path) -> None:
 
 
 ROOT = Path(__file__).resolve().parent.parent
-_load_env(ROOT / ".env")
+# у копий white label свой файл настроек: LINKHUB_ENV=/opt/linkhub/instances/<имя>/.env
+_load_env(Path(os.getenv("LINKHUB_ENV") or ROOT / ".env"))
 
 
 def _float(name: str, default: float) -> float:
@@ -76,6 +77,24 @@ DEFAULT_TOPIC = os.getenv("DEFAULT_TOPIC", "общение обо всём, бо
 DEFAULT_CHANCE = _float("DEFAULT_CHANCE", 0.04)      # шанс влезть в чужой разговор
 DEFAULT_AI_SHARE = _float("DEFAULT_AI_SHARE", 0.30)  # доля таких влезаний через ИИ
 DEFAULT_COOLDOWN = _int("DEFAULT_COOLDOWN", 90)      # пауза между самовольными влезаниями, сек
+
+
+# main: твой основной бот (продаёт рекламу, аренду и white label). client: копия для клиента
+EDITION = os.getenv("EDITION", "main")
+IS_MAIN = EDITION == "main"
+INSTANCES_DIR = Path(os.getenv("INSTANCES_DIR", str(ROOT / "instances")))
+# у копии: имя в папке instances, по нему она находит свою лицензию
+INSTANCE_NAME = os.getenv("INSTANCE_NAME", "")
+
+# Оплата USDT в сети TON: адрес кошелька для приёма и бесплатный ключ toncenter
+PAY_TON_ADDRESS = os.getenv("PAY_TON_ADDRESS", "")
+TONCENTER_API_KEY = os.getenv("TONCENTER_API_KEY", "")
+TONCENTER_URL = os.getenv("TONCENTER_URL", "https://toncenter.com/api/v3").rstrip("/")
+USDT_MASTER = os.getenv("USDT_MASTER", "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs")
+# канал для формата «закреп в канале» (бот должен быть админом с правом закреплять), например -1001234567890
+AD_CHANNEL_ID = int(os.getenv("AD_CHANNEL_ID", "0") or 0)
+# сколько часов ждать одобрения чата, потом бот сам выходит
+APPROVAL_HOURS = _int("APPROVAL_HOURS", 24)
 
 
 def check() -> None:

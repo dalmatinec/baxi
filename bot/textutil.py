@@ -18,13 +18,18 @@ def full_name(first: str | None, last: str | None) -> str:
     return " ".join(x for x in (first, last) if x).strip() or "аноним"
 
 
+COLORS = {"зел": "success", "green": "success", "син": "primary", "blue": "primary",
+          "крас": "danger", "red": "danger"}
+COLOR_NAMES = {"success": "зелёная", "primary": "синяя", "danger": "красная"}
+
+
 def parse_buttons(text: str) -> tuple[list[list[list[str]]], list[str]]:
-    """Кнопки из текста. Каждая строка — ряд, кнопки в ряду через «|»:
+    """Кнопки из текста. Каждая строка — ряд, кнопки в ряду через «|», цвет можно дописать третьим:
 
-        Общение - https://t.me/chat | Найти - https://t.me/bot
-        Хочу 💋 - https://example.com
+        Общение - https://t.me/chat | Найти - https://t.me/bot - зелёная
+        Хочу 💋 - https://example.com - красная
 
-    Возвращает (ряды, ошибки). Ряд: [[текст, ссылка], ...]."""
+    Возвращает (ряды, ошибки). Кнопка: [текст, ссылка] или [текст, ссылка, primary|success|danger]."""
     rows, errors = [], []
     for n, line in enumerate((text or "").splitlines(), 1):
         line = line.strip()
@@ -33,24 +38,34 @@ def parse_buttons(text: str) -> tuple[list[list[list[str]]], list[str]]:
         row = []
         for part in line.split("|"):
             part = part.strip()
-            m = re.match(r"^(.+?)\s+[-—–]\s+(\S+)$", part)
-            if not m:
+            pieces = re.split(r"\s+[-—–]\s+", part)
+            if len(pieces) < 2:
                 errors.append(f"строка {n}: «{part}» — нужно «Текст - ссылка»")
                 continue
-            label, url = m.group(1).strip(), m.group(2).strip()
+            style = ""
+            if len(pieces) >= 3:
+                word = pieces[-1].strip().lower()
+                style = next((v for k, v in COLORS.items() if word.startswith(k)), "")
+                if not style:
+                    errors.append(f"строка {n}: цвет «{pieces[-1]}» не знаю, есть зелёная, синяя, красная")
+                    continue
+                pieces = pieces[:-1]
+            label, url = " - ".join(pieces[:-1]).strip(), pieces[-1].strip()
             if url.lower().startswith("t.me/"):
                 url = "https://" + url
             if not _URL.match(url):
                 errors.append(f"строка {n}: «{url}» не похоже на ссылку")
                 continue
-            row.append([label[:64], url])
+            row.append([label[:64], url] + ([style] if style else []))
         if row:
             rows.append(row[:8])
     return rows, errors
 
 
 def buttons_to_text(rows: list) -> str:
-    return "\n".join(" | ".join(f"{label} - {url}" for label, url in row) for row in rows)
+    def one(b: list) -> str:
+        return f"{b[0]} - {b[1]}" + (f" - {COLOR_NAMES[b[2]]}" if len(b) > 2 and b[2] in COLOR_NAMES else "")
+    return "\n".join(" | ".join(one(b) for b in row) for row in rows)
 
 
 def short(text: str, n: int = 40) -> str:

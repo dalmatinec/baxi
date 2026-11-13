@@ -1,7 +1,7 @@
 """Общее для админки: главное меню, клавиатуры, показ экранов."""
 
 from aiogram import Router
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, Message
 
@@ -11,10 +11,18 @@ router = Router(name="admin-common")
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)
 
 
-def kb(rows: list[list[tuple[str, str]]]) -> InlineKeyboardMarkup:
-    """[[('текст', 'callback'), ...], ...] → клавиатура."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t, callback_data=d) for t, d in row] for row in rows if row])
+def _button(item: tuple) -> InlineKeyboardButton:
+    text, data = item[0], item[1]
+    style = item[2] if len(item) > 2 and item[2] in ("primary", "success", "danger") else None
+    if data.startswith(("http://", "https://", "tg://")):
+        return InlineKeyboardButton(text=text, url=data, style=style)
+    return InlineKeyboardButton(text=text, callback_data=data, style=style)
+
+
+def kb(rows: list[list[tuple]]) -> InlineKeyboardMarkup:
+    """[[('текст', 'callback'), ('текст', 'callback', 'success'), ...], ...] → клавиатура.
+    Третий элемент: цвет кнопки primary (синяя), success (зелёная), danger (красная)."""
+    return InlineKeyboardMarkup(inline_keyboard=[[_button(item) for item in row] for row in rows if row])
 
 
 BACK_MENU = ("⬅️ Меню", "menu")
@@ -61,12 +69,14 @@ async def menu_text() -> str:
 
 
 MENU_KB = kb([
-    [("💬 Чаты", "ch:list"), ("📣 Реклама", "ad:list")],
-    [("🗯 Фразы и стикеры", "ph:menu"), ("📊 Расход", "spend")],
+    [("💬 Чаты", "ch:list", "primary"), ("📢 Рассылка", "bc:new", "primary")],
+    [("🧾 Заказы рекламы", "or:list"), ("🛍 Форматы и цены", "pr:list")],
+    [("📣 Свои рекламные посты", "ad:list"), ("🎨 Экраны и тексты", "se:list")],
+    [("⭐ Магазин звёзд", "sh:menu"), ("🗯 Фразы и стикеры", "ph:menu")],
+    [("📊 Расход ИИ", "spend")] + ([("💼 Клиенты", "cl:list", "success")] if config.IS_MAIN else []),
 ])
 
 
-@router.message(CommandStart())
 @router.message(Command("admin"))
 async def cmd_admin(message: Message, state: FSMContext) -> None:
     await state.clear()

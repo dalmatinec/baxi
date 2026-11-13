@@ -8,7 +8,7 @@ import time
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot import db
 
@@ -22,7 +22,27 @@ def markup(buttons) -> InlineKeyboardMarkup | None:
     if not rows:
         return None
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=label, url=url) for label, url in row] for row in rows])
+        [InlineKeyboardButton(text=b[0], url=b[1], style=b[2] if len(b) > 2 and b[2] else None) for b in row]
+        for row in rows])
+
+
+def extract_post(message: Message) -> tuple[str, str, str] | str:
+    """(тип медиа, file_id, html-текст) или строка с ошибкой."""
+    if message.photo:
+        kind, file_id = "photo", message.photo[-1].file_id
+    elif message.video:
+        kind, file_id = "video", message.video.file_id
+    elif message.animation:
+        kind, file_id = "gif", message.animation.file_id
+    elif message.text:
+        kind, file_id = "", ""
+    else:
+        return "Пришли текст, фото, видео или гифку (можно с подписью)."
+    if kind and message.caption and len(message.caption) > 1024:
+        return "Подпись к медиа длиннее 1024 символов, Telegram такое не отправит. Сократи."
+    html = message.html_text if (message.text or message.caption) else ""
+    return kind, file_id, html
+
 
 
 async def send_ad(bot: Bot, ad, chat_id: int) -> int:
@@ -67,6 +87,9 @@ async def post_to_chat(bot: Bot, ad, chat_id: int) -> bool:
 
 
 async def tick(bot: Bot) -> int:
+    from bot.services import license
+    if license.sleeping():
+        return 0
     sent = 0
     now = time.time()
     chats = [c for c in await db.list_chats() if c["ads"]]

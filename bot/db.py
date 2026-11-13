@@ -155,6 +155,93 @@ CREATE TABLE IF NOT EXISTS rep_log (
 );
 CREATE INDEX IF NOT EXISTS rep_log_giver ON rep_log (chat_id, giver, ts);
 
+CREATE TABLE IF NOT EXISTS screens (
+    key         TEXT    PRIMARY KEY,
+    text_html   TEXT    NOT NULL,
+    photo       TEXT    NOT NULL DEFAULT '',
+    buttons     TEXT    NOT NULL DEFAULT '[]'  -- [{"text","action","style","emoji","row"}]
+);
+
+CREATE TABLE IF NOT EXISTS ad_products (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT    NOT NULL,               -- groups | pin_groups | pin_channel | dm
+    title       TEXT    NOT NULL,
+    price       REAL    NOT NULL,               -- USDT
+    days        INTEGER NOT NULL DEFAULT 1,     -- для groups: сколько дней подряд по посту
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    sort        INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    user_name   TEXT    NOT NULL DEFAULT '',
+    kind        TEXT    NOT NULL,               -- как в ad_products, плюс both (рассылка везде)
+    title       TEXT    NOT NULL,
+    price       REAL    NOT NULL DEFAULT 0,
+    days        INTEGER NOT NULL DEFAULT 1,
+    media_kind  TEXT    NOT NULL DEFAULT '',
+    file_id     TEXT    NOT NULL DEFAULT '',
+    text_html   TEXT    NOT NULL DEFAULT '',
+    buttons     TEXT    NOT NULL DEFAULT '[]',
+    status      TEXT    NOT NULL,               -- moderation, awaiting, paid, running, done, rejected, expired
+    amount      INTEGER NOT NULL DEFAULT 0,     -- точная сумма к оплате в микро-USDT (6 знаков)
+    tx          TEXT    NOT NULL DEFAULT '',
+    created     REAL    NOT NULL,
+    paid_at     REAL    NOT NULL DEFAULT 0,
+    next_run    REAL    NOT NULL DEFAULT 0,
+    runs_left   INTEGER NOT NULL DEFAULT 0,
+    result      TEXT    NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS pins (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id     INTEGER NOT NULL,
+    message_id  INTEGER NOT NULL,
+    unpin_at    REAL    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ton_seen (
+    tx          TEXT    PRIMARY KEY,            -- уже учтённые входящие переводы
+    ts          REAL    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS shop_items (
+    key         TEXT    PRIMARY KEY,           -- don20, don100, title, shield, roast_full
+    title       TEXT    NOT NULL,
+    stars       INTEGER NOT NULL,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    sort        INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS star_payments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    name        TEXT    NOT NULL DEFAULT '',
+    item        TEXT    NOT NULL,
+    stars       INTEGER NOT NULL,
+    charge_id   TEXT    NOT NULL,
+    payload     TEXT    NOT NULL DEFAULT '',
+    ts          REAL    NOT NULL,
+    refunded    INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS perks (
+    user_id     INTEGER PRIMARY KEY,
+    title       TEXT    NOT NULL DEFAULT '',
+    title_until REAL    NOT NULL DEFAULT 0,
+    shield_until REAL   NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS dm_users (
+    user_id     INTEGER PRIMARY KEY,
+    name        TEXT    NOT NULL DEFAULT '',
+    username    TEXT    NOT NULL DEFAULT '',
+    started     REAL    NOT NULL,
+    last_seen   REAL    NOT NULL,
+    blocked     INTEGER NOT NULL DEFAULT 0       -- заблокировал бота: рассылки ему не шлём
+);
+
 CREATE TABLE IF NOT EXISTS quiz_scores (
     chat_id     INTEGER NOT NULL,
     user_id     INTEGER NOT NULL,
@@ -174,6 +261,13 @@ NEW_COLUMNS = {
         "last_results": "TEXT NOT NULL DEFAULT ''",
         "last_pairpoll": "TEXT NOT NULL DEFAULT ''",
         "results_manual": "REAL NOT NULL DEFAULT 0",      # когда последний раз звали «итоги»
+        # у старых чатов при обновлении approved = 1, новые чаты добавляются с approved = 0
+        "approved": "INTEGER NOT NULL DEFAULT 1",
+        "pending_since": "REAL NOT NULL DEFAULT 0",       # когда ушла заявка на одобрение
+        "added_by": "INTEGER NOT NULL DEFAULT 0",
+        "rent_until": "REAL NOT NULL DEFAULT 0",          # 0 = без срока
+        "rent_warned": "INTEGER NOT NULL DEFAULT 0",
+        "members": "INTEGER NOT NULL DEFAULT 0",          # участников, обновляется раз в сутки
     },
     "users": {
         "birthday": "TEXT NOT NULL DEFAULT ''",         # 'MM-DD'
@@ -187,7 +281,7 @@ NEW_COLUMNS = {
 CHAT_FIELDS = {"bot_name", "aliases", "persona", "topic", "chance", "ai_share",
                "cooldown", "greet", "games", "ads", "title", "active", "last_jump",
                "pairpoll", "results", "rep", "bday", "results_hour", "last_results", "last_pairpoll",
-               "results_manual"}
+               "results_manual", "approved", "pending_since", "added_by", "rent_until", "rent_warned", "members"}
 AD_FIELDS = {"title", "media_kind", "file_id", "text_html", "buttons", "interval",
              "enabled", "delete_prev"}
 
@@ -245,14 +339,21 @@ async def _seed_phrases() -> None:
 # ---------- чаты ----------
 
 async def ensure_chat(chat_id: int, title: str) -> aiosqlite.Row:
+    """Новый чат появляется неодобренным: бот в нём молчит, пока владелец не разрешит."""
     await conn().execute(
-        """INSERT INTO chats (chat_id, title, bot_name, persona, topic, chance, ai_share, cooldown, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """INSERT INTO chats (chat_id, title, bot_name, persona, topic, chance, ai_share, cooldown, created_at,
+                              approved)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
            ON CONFLICT(chat_id) DO UPDATE SET title = excluded.title, active = 1""",
         (chat_id, title, config.DEFAULT_NAME, config.DEFAULT_PERSONA, config.DEFAULT_TOPIC,
          config.DEFAULT_CHANCE, config.DEFAULT_AI_SHARE, config.DEFAULT_COOLDOWN, time.time()))
     await conn().commit()
     return await get_chat(chat_id)
+
+
+async def pending_chats() -> list[aiosqlite.Row]:
+    async with conn().execute("SELECT * FROM chats WHERE active = 1 AND approved = 0 AND pending_since > 0") as cur:
+        return list(await cur.fetchall())
 
 
 async def get_chat(chat_id: int) -> aiosqlite.Row | None:
@@ -261,7 +362,8 @@ async def get_chat(chat_id: int) -> aiosqlite.Row | None:
 
 
 async def list_chats(active_only: bool = True) -> list[aiosqlite.Row]:
-    sql = "SELECT * FROM chats" + (" WHERE active = 1" if active_only else "") + " ORDER BY title"
+    """active_only: только чаты, где бот есть и его одобрили. Иначе все, включая заявки."""
+    sql = "SELECT * FROM chats" + (" WHERE active = 1 AND approved = 1" if active_only else "") + " ORDER BY title"
     async with conn().execute(sql) as cur:
         return list(await cur.fetchall())
 
@@ -276,7 +378,9 @@ async def update_chat(chat_id: int, **fields) -> None:
 
 
 async def migrate_chat(old_id: int, new_id: int) -> None:
-    """Группа стала супергруппой: у неё новый ID."""
+    """Группа стала супергруппой: у неё новый ID. Строку нового ID, если успела появиться, заменяем старой."""
+    if await get_chat(old_id):
+        await conn().execute("DELETE FROM chats WHERE chat_id = ?", (new_id,))
     for table in ("chats", "users", "history", "ad_sends", "couples", "daily_stats", "msg_reacts",
                   "pair_polls", "rep_points", "rep_log", "quiz_scores"):
         await conn().execute(f"UPDATE OR IGNORE {table} SET chat_id = ? WHERE chat_id = ?", (new_id, old_id))
@@ -721,3 +825,243 @@ async def find_user(chat_id: int, query: str) -> aiosqlite.Row | None:
             "SELECT * FROM users WHERE chat_id = ? AND (lower(username) = ? OR lower(name) = ? OR lower(name) LIKE ?) "
             "ORDER BY last_seen DESC LIMIT 1", (chat_id, q, q, q + "%")) as cur:
         return await cur.fetchone()
+
+
+# ---------- экраны в личке (редактируются в супер-админке) ----------
+
+async def get_screen(key: str) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM screens WHERE key = ?", (key,)) as cur:
+        return await cur.fetchone()
+
+
+async def save_screen(key: str, text_html: str, photo: str, buttons: list) -> None:
+    await conn().execute(
+        "INSERT INTO screens (key, text_html, photo, buttons) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET text_html = excluded.text_html, photo = excluded.photo, "
+        "buttons = excluded.buttons", (key, text_html, photo, json.dumps(buttons, ensure_ascii=False)))
+    await conn().commit()
+
+
+async def reset_screen(key: str) -> None:
+    await conn().execute("DELETE FROM screens WHERE key = ?", (key,))
+    await conn().commit()
+
+
+# ---------- кто писал боту в личку (для рассылок и охвата) ----------
+
+async def touch_dm(user_id: int, name: str, username: str) -> None:
+    now = time.time()
+    await conn().execute(
+        "INSERT INTO dm_users (user_id, name, username, started, last_seen) VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET name = excluded.name, username = excluded.username, "
+        "last_seen = excluded.last_seen, blocked = 0", (user_id, name, username, now, now))
+    await conn().commit()
+
+
+async def dm_user_ids() -> list[int]:
+    async with conn().execute("SELECT user_id FROM dm_users WHERE blocked = 0") as cur:
+        return [r[0] for r in await cur.fetchall()]
+
+
+async def mark_dm_blocked(user_id: int) -> None:
+    await conn().execute("UPDATE dm_users SET blocked = 1 WHERE user_id = ?", (user_id,))
+    await conn().commit()
+
+
+async def reach() -> dict:
+    """Охват для рекламы: сколько чатов, участников (по последнему подсчёту) и людей в личке."""
+    chats = await list_chats()
+    async with conn().execute("SELECT COUNT(*) FROM dm_users WHERE blocked = 0") as cur:
+        dm = (await cur.fetchone())[0]
+    return {"chats": len(chats), "members": sum(c["members"] for c in chats), "dm": dm}
+
+
+# ---------- форматы рекламы и заказы ----------
+
+PRODUCT_FIELDS = {"title", "price", "days", "enabled", "sort"}
+ORDER_FIELDS = {"status", "amount", "tx", "paid_at", "next_run", "runs_left", "result", "media_kind", "file_id",
+                "text_html", "buttons"}
+
+
+async def seed_products(defaults: list[tuple]) -> None:
+    async with conn().execute("SELECT COUNT(*) FROM ad_products") as cur:
+        if (await cur.fetchone())[0]:
+            return
+    await conn().executemany("INSERT INTO ad_products (kind, title, price, days, sort) VALUES (?, ?, ?, ?, ?)",
+                             defaults)
+    await conn().commit()
+
+
+async def products(enabled_only: bool = True) -> list[aiosqlite.Row]:
+    sql = "SELECT * FROM ad_products" + (" WHERE enabled = 1" if enabled_only else "") + " ORDER BY sort, id"
+    async with conn().execute(sql) as cur:
+        return list(await cur.fetchall())
+
+
+async def get_product(pid: int) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM ad_products WHERE id = ?", (pid,)) as cur:
+        return await cur.fetchone()
+
+
+async def update_product(pid: int, **fields) -> None:
+    if set(fields) - PRODUCT_FIELDS:
+        raise ValueError("неизвестные поля формата")
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    await conn().execute(f"UPDATE ad_products SET {sets} WHERE id = ?", (*fields.values(), pid))
+    await conn().commit()
+
+
+async def create_order(user_id: int, user_name: str, kind: str, title: str, price: float, days: int,
+                       media_kind: str, file_id: str, text_html: str, buttons: list, status: str) -> int:
+    cur = await conn().execute(
+        "INSERT INTO orders (user_id, user_name, kind, title, price, days, media_kind, file_id, text_html, buttons, "
+        "status, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, user_name, kind, title, price, days, media_kind, file_id, text_html,
+         json.dumps(buttons, ensure_ascii=False), status, time.time()))
+    await conn().commit()
+    return cur.lastrowid
+
+
+async def get_order(oid: int) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM orders WHERE id = ?", (oid,)) as cur:
+        return await cur.fetchone()
+
+
+async def update_order(oid: int, **fields) -> None:
+    if set(fields) - ORDER_FIELDS:
+        raise ValueError("неизвестные поля заказа")
+    if "buttons" in fields and not isinstance(fields["buttons"], str):
+        fields["buttons"] = json.dumps(fields["buttons"], ensure_ascii=False)
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    await conn().execute(f"UPDATE orders SET {sets} WHERE id = ?", (*fields.values(), oid))
+    await conn().commit()
+
+
+async def orders_by_status(*statuses: str, limit: int = 100) -> list[aiosqlite.Row]:
+    marks = ",".join("?" * len(statuses))
+    async with conn().execute(f"SELECT * FROM orders WHERE status IN ({marks}) ORDER BY id DESC LIMIT ?",
+                              (*statuses, limit)) as cur:
+        return list(await cur.fetchall())
+
+
+async def amount_taken(amount: int) -> bool:
+    async with conn().execute("SELECT 1 FROM orders WHERE status = 'awaiting' AND amount = ?", (amount,)) as cur:
+        return await cur.fetchone() is not None
+
+
+async def tx_seen(tx: str) -> bool:
+    async with conn().execute("SELECT 1 FROM ton_seen WHERE tx = ?", (tx,)) as cur:
+        return await cur.fetchone() is not None
+
+
+async def mark_tx(tx: str) -> None:
+    await conn().execute("INSERT OR IGNORE INTO ton_seen (tx, ts) VALUES (?, ?)", (tx, time.time()))
+    await conn().commit()
+
+
+async def add_pin(chat_id: int, message_id: int, unpin_at: float) -> None:
+    await conn().execute("INSERT INTO pins (chat_id, message_id, unpin_at) VALUES (?, ?, ?)",
+                         (chat_id, message_id, unpin_at))
+    await conn().commit()
+
+
+async def due_pins(now: float) -> list[aiosqlite.Row]:
+    async with conn().execute("SELECT * FROM pins WHERE unpin_at <= ?", (now,)) as cur:
+        return list(await cur.fetchall())
+
+
+async def delete_pin(pin_id: int) -> None:
+    await conn().execute("DELETE FROM pins WHERE id = ?", (pin_id,))
+    await conn().commit()
+
+
+# ---------- магазин за звёзды ----------
+
+async def seed_shop(defaults: list[tuple]) -> None:
+    await conn().executemany("INSERT OR IGNORE INTO shop_items (key, title, stars, sort) VALUES (?, ?, ?, ?)",
+                             defaults)
+    await conn().commit()
+
+
+async def shop_items(enabled_only: bool = True) -> list[aiosqlite.Row]:
+    sql = "SELECT * FROM shop_items" + (" WHERE enabled = 1" if enabled_only else "") + " ORDER BY sort"
+    async with conn().execute(sql) as cur:
+        return list(await cur.fetchall())
+
+
+async def shop_item(key: str) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM shop_items WHERE key = ?", (key,)) as cur:
+        return await cur.fetchone()
+
+
+async def update_shop_item(key: str, **fields) -> None:
+    if set(fields) - {"title", "stars", "enabled"}:
+        raise ValueError("неизвестные поля товара")
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    await conn().execute(f"UPDATE shop_items SET {sets} WHERE key = ?", (*fields.values(), key))
+    await conn().commit()
+
+
+async def add_star_payment(user_id: int, name: str, item: str, stars: int, charge_id: str, payload: str) -> int:
+    cur = await conn().execute(
+        "INSERT INTO star_payments (user_id, name, item, stars, charge_id, payload, ts) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (user_id, name, item, stars, charge_id, payload, time.time()))
+    await conn().commit()
+    return cur.lastrowid
+
+
+async def star_payments(limit: int = 20) -> list[aiosqlite.Row]:
+    async with conn().execute("SELECT * FROM star_payments ORDER BY id DESC LIMIT ?", (limit,)) as cur:
+        return list(await cur.fetchall())
+
+
+async def get_star_payment(pid: int) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM star_payments WHERE id = ?", (pid,)) as cur:
+        return await cur.fetchone()
+
+
+async def mark_refunded(pid: int) -> None:
+    await conn().execute("UPDATE star_payments SET refunded = 1 WHERE id = ?", (pid,))
+    await conn().commit()
+
+
+async def donors_top(limit: int = 10, user_ids: list[int] | None = None) -> list[aiosqlite.Row]:
+    """Топ по всем звёздам, без возвратов. user_ids: только среди этих людей (участники чата)."""
+    where, params = "refunded = 0", []
+    if user_ids is not None:
+        if not user_ids:
+            return []
+        where += f" AND user_id IN ({','.join('?' * len(user_ids))})"
+        params = list(user_ids)
+    async with conn().execute(
+            f"SELECT user_id, MAX(name) AS name, SUM(stars) AS stars FROM star_payments WHERE {where} "
+            "GROUP BY user_id ORDER BY stars DESC LIMIT ?", (*params, limit)) as cur:
+        return list(await cur.fetchall())
+
+
+async def get_perks(user_id: int) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM perks WHERE user_id = ?", (user_id,)) as cur:
+        return await cur.fetchone()
+
+
+async def set_perks(user_id: int, **fields) -> None:
+    if set(fields) - {"title", "title_until", "shield_until"}:
+        raise ValueError("неизвестные поля")
+    await conn().execute("INSERT OR IGNORE INTO perks (user_id) VALUES (?)", (user_id,))
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    await conn().execute(f"UPDATE perks SET {sets} WHERE user_id = ?", (*fields.values(), user_id))
+    await conn().commit()
+
+
+async def active_titles(user_ids: list[int]) -> dict[int, str]:
+    if not user_ids:
+        return {}
+    marks = ",".join("?" * len(user_ids))
+    async with conn().execute(f"SELECT user_id, title FROM perks WHERE user_id IN ({marks}) AND title != '' "
+                              "AND title_until > ?", (*user_ids, time.time())) as cur:
+        return {r["user_id"]: r["title"] for r in await cur.fetchall()}
+
+
+async def chat_user_ids(chat_id: int) -> list[int]:
+    async with conn().execute("SELECT user_id FROM users WHERE chat_id = ?", (chat_id,)) as cur:
+        return [r[0] for r in await cur.fetchall()]

@@ -10,15 +10,17 @@ from bot import db
 from bot.handlers.admin.common import BACK_MENU, kb, onoff, show
 from bot.handlers.admin.states import AdEdit, AdNew
 from bot.services import ads as ads_service
+from bot.services.ads import extract_post
 from bot.textutil import buttons_to_text, esc, parse_buttons, short
 
 router = Router(name="admin-ads")
 
 INTERVALS = [30, 60, 120, 180, 360, 720, 1440]
 BUTTONS_HINT = (
-    "Каждая строка — ряд кнопок, кнопки в одном ряду через <code>|</code>:\n\n"
+    "Каждая строка — ряд кнопок, кнопки в одном ряду через <code>|</code>, "
+    "цвет можно дописать в конце: зелёная, синяя или красная:\n\n"
     "<code>Общение 💬 - https://t.me/chat</code>\n"
-    "<code>Найти ❤️ - https://t.me/bot | Хочу 💋 - https://site.com</code>"
+    "<code>Найти ❤️ - https://t.me/bot - зелёная | Хочу 💋 - https://site.com - красная</code>"
 )
 
 
@@ -32,24 +34,6 @@ def human_interval(minutes: int) -> str:
 
 def _next_interval(current: int) -> int:
     return next((v for v in INTERVALS if v > current), INTERVALS[0])
-
-
-def extract_post(message: Message) -> tuple[str, str, str] | str:
-    """(тип медиа, file_id, html-текст) или строка с ошибкой."""
-    if message.photo:
-        kind, file_id = "photo", message.photo[-1].file_id
-    elif message.video:
-        kind, file_id = "video", message.video.file_id
-    elif message.animation:
-        kind, file_id = "gif", message.animation.file_id
-    elif message.text:
-        kind, file_id = "", ""
-    else:
-        return "Пришли текст, фото, видео или гифку (можно с подписью)."
-    if kind and message.caption and len(message.caption) > 1024:
-        return "Подпись к медиа длиннее 1024 символов, Telegram такое не отправит. Сократи."
-    html = message.html_text if (message.text or message.caption) else ""
-    return kind, file_id, html
 
 
 def _title(message: Message, kind: str) -> str:

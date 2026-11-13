@@ -3,10 +3,13 @@
 from aiogram import F, Router
 
 from bot import config
-from bot.handlers.admin import ads, chats, common, phrases
+from bot.handlers.admin import ads, chats, clients, common, orders, phrases, screens, shop, support
 
 router = Router(name="admin")
 _owner = F.from_user.id.in_(config.OWNER_IDS)
 router.message.filter(F.chat.type == "private", _owner)
 router.callback_query.filter(_owner)
-router.include_routers(common.router, chats.router, phrases.router, ads.router)
+router.include_routers(common.router, chats.router, phrases.router, ads.router, support.router,
+                      screens.router, orders.router, shop.router)
+if config.IS_MAIN:
+    router.include_router(clients.router)

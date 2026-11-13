@@ -1,0 +1,32 @@
+# Копия бота для клиента white label. Ставится скриптом deploy/client.sh:
+#   bash /opt/linkhub/deploy/client.sh add имя
+# Настройки копии: /opt/linkhub/instances/<имя>/.env, база: /opt/linkhub/instances/<имя>/data
+[Unit]
+Description=linkhub client bot %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=linkhub
+Group=linkhub
+WorkingDirectory=/opt/linkhub
+Environment=LINKHUB_ENV=/opt/linkhub/instances/%i/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/linkhub/.venv/bin/python -m bot
+Restart=always
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/linkhub/instances/%i
+# лимиты, чтобы одна копия не съела весь сервер
+MemoryMax=180M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target

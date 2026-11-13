@@ -7,7 +7,7 @@ from aiogram.types import ChatMemberUpdated, Message
 
 from bot import db, notify
 from bot.middlewares import GROUPS
-from bot.services import talk
+from bot.services import approval, talk
 from bot.textutil import esc, full_name
 
 log = logging.getLogger(__name__)
@@ -42,16 +42,16 @@ async def on_my_status(update: ChatMemberUpdated, bot: Bot) -> None:
     status = update.new_chat_member.status
     title = update.chat.title or str(update.chat.id)
     if status in ("left", "kicked"):
-        if await db.get_chat(update.chat.id):
-            await db.update_chat(update.chat.id, active=0)
-        await notify.owners(bot, f"🚪 Меня убрали из чата «{esc(title)}»")
+        chat = await db.get_chat(update.chat.id)
+        if chat:
+            # вернуть бота в этот чат снова можно будет только через одобрение
+            await db.update_chat(update.chat.id, active=0, approved=0, pending_since=0)
+        if chat and chat["active"]:  # если вышли сами (аренда, отказ), владелец уже знает
+            await notify.owners(bot, f"🚪 Меня убрали из чата «{esc(title)}»")
         return
     old = update.old_chat_member.status
     if old in ("left", "kicked"):
         await db.ensure_chat(update.chat.id, update.chat.title or "")
-        await notify.owners(
-            bot,
-            f"👋 Меня добавили в чат «{esc(title)}».\n\n"
-            "Настроить имя, характер и тему чата: /admin → Чаты.\n"
-            "Чтобы я видел все сообщения, в @BotFather отключи Privacy Mode "
-            "(Bot Settings → Group Privacy → Turn off) или сделай меня админом.")
+        adder = update.from_user
+        await approval.request(bot, update.chat.id, title, adder.id if adder else 0,
+                               full_name(adder.first_name, adder.last_name) if adder else "")

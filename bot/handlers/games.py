@@ -7,7 +7,7 @@ from aiogram import Bot, F, Router
 from aiogram.types import Message
 
 from bot import brain, config, db, games
-from bot.services import quiz
+from bot.services import quiz, stars
 from bot.middlewares import GROUPS
 from bot.textutil import full_name, human_date, humanize, mention
 
@@ -83,9 +83,14 @@ async def on_game(message: Message, bot: Bot, game: tuple[str, str], chat_row) -
         if not rows:
             return await _send(message, title + "\n\nпока пусто")
         medals = ["🥇", "🥈", "🥉"]
-        lines = [f"{medals[i] if i < 3 else f'{i + 1}.'} {mention(r['user_id'], r['name'])}: <b>{r['points']}</b>"
-                 for i, r in enumerate(rows)]
+        names = await stars.decorate(rows)
+        lines = [f"{medals[i] if i < 3 else f'{i + 1}.'} {mention(r['user_id'], names[r['user_id']])}: "
+                 f"<b>{r['points']}</b>" for i, r in enumerate(rows)]
         return await _send(message, title + "\n\n" + "\n".join(lines))
+
+    if name == "donors_top":
+        from bot.handlers.stars import donors_text
+        return await _send(message, await donors_text(await db.chat_user_ids(chat_id)))
 
     if name == "rep_me":
         rt = message.reply_to_message

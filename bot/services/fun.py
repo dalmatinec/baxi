@@ -127,6 +127,10 @@ async def roast_target(bot: Bot, chat_id: int, message: Message):
 async def roast(bot: Bot, chat, message: Message, author_row) -> None:
     chat_id = chat["chat_id"]
     target = await roast_target(bot, chat_id, message) or author_row
+    perks = await db.get_perks(target["user_id"])
+    if perks and perks["shield_until"] > time.time():
+        await say(bot, chat_id, f"у {esc(target['name'])} щит от прожарки 🛡, не пробить", reply_to=message)
+        return
     stats_row = [r for r in await db.daily_stats(chat_id, db.today()) if r["user_id"] == target["user_id"]]
     stats = ""
     if stats_row and stats_row[0]["msgs"]:

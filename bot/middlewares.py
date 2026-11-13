@@ -44,10 +44,26 @@ def real_reply(message: Message) -> Message | None:
 
 class GroupTracker(BaseMiddleware):
     async def __call__(self, handler, event: Message, data: dict):
+        if event.chat.type == "private" and event.from_user and not event.from_user.is_bot:
+            try:  # запоминаем, кто писал в личку: для рассылок и охвата рекламы
+                await db.touch_dm(event.from_user.id, full_name(event.from_user.first_name, event.from_user.last_name),
+                                  event.from_user.username or "")
+            except Exception:
+                log.exception("Не записал пользователя лички")
         if event.chat.type not in GROUPS:
             return await handler(event, data)
         try:
+            if event.migrate_from_chat_id:  # группа стала супергруппой: переносим настройки
+                await db.migrate_chat(event.migrate_from_chat_id, event.chat.id)
             chat = await db.ensure_chat(event.chat.id, event.chat.title or "")
+            if not chat["approved"]:
+                # чат не одобрен: бот молчит, а владельцу уходит заявка (один раз)
+                from bot.services import approval
+                await approval.request(data["bot"], event.chat.id, event.chat.title or "")
+                return None
+            from bot.services import license
+            if license.sleeping():
+                return None  # копия white label не оплачена: в чатах молчим
             data["chat_row"] = chat
             user = event.from_user
             if user and not user.is_bot and not event.sender_chat and event.content_type in TRACKED:

@@ -5,6 +5,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from bot import db
+from bot.services import approval
 from bot.handlers.admin.common import BACK_MENU, kb, onoff, pct, show
 from bot.handlers.admin.states import ChatEdit
 from bot.textutil import esc, short
@@ -51,7 +52,14 @@ async def _card(target, chat_id: int) -> None:
     c = await db.get_chat(chat_id)
     if c is None:
         return await show(target, "Чат не найден.", kb([[("⬅️ Чаты", "ch:list")]]))
-    status = "" if c["active"] else "\n⚠️ <b>Бота нет в этом чате</b> (удалили или выгнали)\n"
+    if not c["active"]:
+        status = "\n⚠️ <b>Бота нет в этом чате</b> (удалили или вышел)\n"
+    elif not c["approved"]:
+        status = "\n⏳ <b>Ждёт одобрения</b>, бот в чате молчит\n"
+    elif c["rent_until"]:
+        status = f"\n📅 Аренда до <b>{approval.until_text(c['rent_until'])}</b>\n"
+    else:
+        status = "\n✅ Одобрен, без срока\n"
     text = (f"💬 <b>{esc(c['title'] or str(chat_id))}</b>{status}\n\n"
             f"<b>Имя:</b> {esc(c['bot_name'])}\n"
             f"<b>Доп. имена:</b> {esc(c['aliases']) or '—'}\n"
@@ -72,7 +80,9 @@ async def _card(target, chat_id: int) -> None:
          (f"🌙 Итоги в {c['results_hour']}:00", f"ch:c:{cid}:results_hour")],
         *[[(f"{label} {onoff(c[f])}", f"ch:t:{cid}:{f}") for f, label in pair]
           for pair in _chunks(list(TOGGLES.items()), 2)],
-        [("🧹 Стереть память чата", f"ch:wipe:{cid}")],
+        [("✅ Разрешить", f"ap:ok:{cid}")] if c["active"] and not c["approved"] else [],
+        [("📅 Аренда +30 дней", f"ap:rent:{cid}"), ("♾ Без срока", f"ap:inf:{cid}")] if c["active"] else [],
+        [("🧹 Стереть память чата", f"ch:wipe:{cid}"), ("🚪 Выйти из чата", f"ap:no:{cid}")],
         [("⬅️ Чаты", "ch:list"), BACK_MENU],
     ]))
 
@@ -84,7 +94,8 @@ async def cb_list(cb: CallbackQuery, state: FSMContext) -> None:
     if not chats:
         return await show(cb, "Чатов пока нет. Добавь бота в группу, и она появится здесь.",
                           kb([[BACK_MENU]]))
-    rows = [[(("" if c["active"] else "⚠️ ") + short(c["title"] or str(c["chat_id"]), 40),
+    rows = [[(("⚠️ " if not c["active"] else "⏳ " if not c["approved"] else "📅 " if c["rent_until"] else "")
+              + short(c["title"] or str(c["chat_id"]), 40),
               f"ch:o:{c['chat_id']}")] for c in chats[:50]]
     await show(cb, "💬 <b>Чаты</b>\n\nВыбери чат, чтобы настроить бота в нём.", kb(rows + [[BACK_MENU]]))
 
@@ -157,3 +168,29 @@ async def on_value(message: Message, state: FSMContext) -> None:
     await state.clear()
     await message.answer(f"✅ {title}: сохранил.")
     await _card(message, cid)
+
+
+# ---------- одобрение и аренда ----------
+
+@router.callback_query(F.data.startswith("ap:"))
+async def cb_approval(cb: CallbackQuery) -> None:
+    _, action, cid = cb.data.split(":")
+    chat_id = int(cid)
+    chat = await db.get_chat(chat_id)
+    if chat is None:
+        return await cb.answer("чат не найден")
+    bot = cb.bot
+    if action == "ok":
+        await approval.approve(bot, chat_id)
+        await cb.answer("✅ Разрешил")
+    elif action == "rent":
+        await approval.approve(bot, chat_id, rent_days=approval.RENT_DAYS, announce=not chat["approved"])
+        chat = await db.get_chat(chat_id)
+        await cb.answer(f"📅 Аренда до {approval.until_text(chat['rent_until'])}")
+    elif action == "inf":
+        await db.update_chat(chat_id, rent_until=0, rent_warned=0)
+        await cb.answer("♾ Теперь без срока")
+    elif action == "no":
+        await approval.leave(bot, chat_id, "всем пока, ухожу 👋")
+        await cb.answer("🚪 Вышел из чата")
+    await _card(cb, chat_id)

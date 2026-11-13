@@ -7,6 +7,9 @@ set -euo pipefail
 DIR=/opt/linkhub
 cd "$DIR" || { echo "Сначала: git clone https://github.com/dalmatinec/linkhub $DIR"; exit 1; }
 
+# swap 5 ГБ, если его ещё нет: на сервере с 2 ГБ памяти без него тесно
+bash "$DIR/deploy/swap.sh" 5 >/dev/null && echo "Swap: $(swapon --show=SIZE --noheadings | head -1)"
+
 if ! python3 -c "import venv, ensurepip" 2>/dev/null; then
     apt-get update -qq && apt-get install -y -qq python3-venv
 fi
