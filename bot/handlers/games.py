@@ -1,13 +1,15 @@
 """Игры в чате: пара дня, шип, кто, предсказание."""
 
 import random
+from datetime import datetime
 
 from aiogram import Bot, F, Router
 from aiogram.types import Message
 
-from bot import brain, db, games
+from bot import brain, config, db, games
+from bot.services import quiz
 from bot.middlewares import GROUPS
-from bot.textutil import full_name, mention
+from bot.textutil import full_name, human_date, humanize, mention
 
 router = Router(name="games")
 
@@ -27,7 +29,7 @@ async def game_filter(message: Message, chat_row=None) -> dict | bool:
 
 
 async def _send(message: Message, html: str) -> None:
-    await message.reply(html, parse_mode="HTML")
+    await message.reply(humanize(html), parse_mode="HTML")
 
 
 @router.message(F.chat.type.in_(GROUPS), F.text, game_filter)
@@ -64,13 +66,42 @@ async def on_game(message: Message, bot: Bot, game: tuple[str, str], chat_row) -
     if name == "ship":
         rt = message.reply_to_message
         if not rt or not rt.from_user or rt.from_user.is_bot or rt.from_user.id == message.from_user.id:
-            return await _send(message, "напиши «шип» в ответ на сообщение того, с кем проверить совместимость")
+            return await _send(message, "напиши шип в ответ на сообщение того, с кем проверить совместимость")
         a, b = message.from_user, rt.from_user
         p = games.ship_percent(a.id, b.id, day)
         return await _send(message,
                            f"💞 {mention(a.id, full_name(a.first_name, a.last_name))} + "
                            f"{mention(b.id, full_name(b.first_name, b.last_name))}\n"
                            f"{games.ship_bar(p)} <b>{p}%</b>\n{games.ship_comment(p)}")
+
+    if name == "quiz":
+        return await quiz.start(bot, chat_row, message)
+
+    if name in ("rep_top", "quiz_top"):
+        rows = await (db.rep_top if name == "rep_top" else db.quiz_top)(chat_id, 10)
+        title = "🏆 <b>Топ репутации</b>" if name == "rep_top" else "🧠 <b>Топ знатоков викторины</b>"
+        if not rows:
+            return await _send(message, title + "\n\nпока пусто")
+        medals = ["🥇", "🥈", "🥉"]
+        lines = [f"{medals[i] if i < 3 else f'{i + 1}.'} {mention(r['user_id'], r['name'])}: <b>{r['points']}</b>"
+                 for i, r in enumerate(rows)]
+        return await _send(message, title + "\n\n" + "\n".join(lines))
+
+    if name == "rep_me":
+        rt = message.reply_to_message
+        who = rt.from_user if rt and rt.from_user and not rt.from_user.is_bot else message.from_user
+        points = await db.rep_get(chat_id, who.id)
+        return await _send(message, f"⭐ репутация {mention(who.id, full_name(who.first_name, who.last_name))}: "
+                                    f"<b>{points}</b>")
+
+    if name == "bdays":
+        rows = await db.all_birthdays(chat_id)
+        if not rows:
+            return await _send(message, "🎂 никто ещё не сказал свой др. напиши: мой др 12.05")
+        today_mmdd = datetime.now(config.TZ).strftime("%m-%d")
+        rows = sorted(rows, key=lambda r: (r["birthday"] < today_mmdd, r["birthday"]))[:10]
+        return await _send(message, "🎂 <b>Ближайшие дни рождения</b>\n\n" + "\n".join(
+            f"{human_date(r['birthday'])}: {mention(r['user_id'], r['name'])}" for r in rows))
 
     if name == "who":
         people = [u for u in await db.active_users(chat_id, days=3, limit=100) if u["user_id"] != me.id]

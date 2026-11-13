@@ -3,7 +3,9 @@
 и бот отвечает фразами из базы."""
 
 import asyncio
+import json
 import logging
+import re
 
 import httpx
 
@@ -44,7 +46,7 @@ async def close() -> None:
 
 
 async def chat(messages: list[dict], max_tokens: int | None = None,
-               temperature: float | None = None) -> str | None:
+               temperature: float | None = None, json_mode: bool = False) -> str | None:
     """Один запрос к модели. None, если ИИ выключен, лимит исчерпан или ошибка."""
     if not await budget_left():
         return None
@@ -55,6 +57,8 @@ async def chat(messages: list[dict], max_tokens: int | None = None,
         "temperature": config.AI_TEMPERATURE if temperature is None else temperature,
         "stream": False,
     }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
     async with _slots:
         try:
             resp = await _http().post("/chat/completions", json=payload)
@@ -74,3 +78,24 @@ async def chat(messages: list[dict], max_tokens: int | None = None,
     except (KeyError, IndexError, TypeError):
         log.warning("Странный ответ ИИ: %s", str(data)[:300])
         return None
+
+
+def parse_json(text: str | None) -> dict | None:
+    """JSON из ответа модели. Модель иногда оборачивает его в ```json ... ```, это тоже понимаем."""
+    if not text:
+        return None
+    try:
+        data = json.loads(text)
+    except ValueError:
+        m = re.search(r"\{.*\}", text, re.S)
+        if not m:
+            return None
+        try:
+            data = json.loads(m.group(0))
+        except ValueError:
+            return None
+    return data if isinstance(data, dict) else None
+
+
+async def chat_json(messages: list[dict], max_tokens: int = 600, temperature: float = 0.9) -> dict | None:
+    return parse_json(await chat(messages, max_tokens=max_tokens, temperature=temperature, json_mode=True))

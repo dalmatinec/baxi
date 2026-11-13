@@ -127,3 +127,80 @@ def test_rate_limit():
     assert not rl.allow(1, 1, 2)
     assert rl.allow(1, 2, 2)          # другой человек не страдает
     assert rl.allow(1, 1, 100)        # через минуту снова можно
+
+
+# ---------- новые фишки ----------
+
+from bot import nominations  # noqa: E402
+from bot.textutil import humanize, is_laugh, is_mat, parse_birthday, rep_delta  # noqa: E402
+
+
+def test_humanize_kills_ai_tells():
+    assert humanize("ну — это «база»…") == 'ну - это "база"...'
+    assert prompts.clean_reply("ну — это «база»", "Марат") == 'ну - это "база"'
+    assert prompts.clean_reply("«ну ты дал»", "Марат") == "ну ты дал"
+
+
+def test_mat_detection():
+    for w in ["бля", "пиздец", "заебал", "уёбок", "сука", "нахер"]:
+        assert is_mat(w), w
+    for w in ["небо", "себе", "себя", "застрахуй", "хлебать", "сукно", "херсон", "обед", "ребята"]:
+        assert not is_mat(w), w
+
+
+def test_laugh_and_rep():
+    assert is_laugh("ахахах") and is_laugh("ору") and is_laugh("😂😂") and is_laugh("хаха)")
+    assert not is_laugh("ахах ну ты и тип") and not is_laugh("ха")
+    assert rep_delta("+") == 1 and rep_delta("спасибо!") == 1 and rep_delta("-") == -1
+    assert rep_delta("плюсую тебе") == 0
+
+
+def test_birthday_parse():
+    assert parse_birthday("мой др 12.05") == "05-12"
+    assert parse_birthday("у меня день рождения 3 марта") == "03-03"
+    assert parse_birthday("мой др 31.02") is None
+    assert parse_birthday("др у брата 12.05") is None
+
+
+def test_intents():
+    assert brain.detect_intent("спидермен что тут было за час?") == "summary"
+    assert brain.detect_intent("паук, о чём тут болтали") == "summary"
+    assert brain.detect_intent("спидермен расскажи шутку") == "joke"
+    assert brain.detect_intent("спидермен прожарь его") == "roast"
+    assert brain.detect_intent("спидермен давай викторину") == "quiz"
+    assert brain.detect_intent("спидермен как дела") is None
+
+
+def test_period():
+    assert nominations.parse_period("что было") == (3600, "за час")
+    assert nominations.parse_period("что было за 3 часа") == (10800, "за 3 часа")
+    assert nominations.parse_period("что было за 5 часов") == (18000, "за 5 часов")
+    assert nominations.parse_period("что было сегодня") == (86400, "за сутки")
+    assert nominations.parse_period("за 30 минут")[1] == "за 30 мин"
+    assert nominations.parse_period("за 3 дня")[0] == 86400  # больше суток не даём
+
+
+def test_nominations_from_history():
+    rows = [
+        {"user_id": 1, "name": "Аня", "text": "привет", "is_bot": 0, "reply_user_id": 0, "reply_name": ""},
+        {"user_id": 2, "name": "Дима", "text": "бля ну ты даёшь", "is_bot": 0, "reply_user_id": 1, "reply_name": "Аня"},
+        {"user_id": 2, "name": "Дима", "text": "ахахах", "is_bot": 0, "reply_user_id": 1, "reply_name": "Аня"},
+        {"user_id": 9, "name": "Бот", "text": "я бот", "is_bot": 1, "reply_user_id": 0, "reply_name": ""},
+    ] + [{"user_id": 2, "name": "Дима", "text": "сука", "is_bot": 0, "reply_user_id": 0, "reply_name": ""}] * 3
+    people = nominations.people_from_history(rows, {1: 4}, {1: "Аня", 2: "Дима"})
+    n = nominations.nominate(people, min_msgs=3)
+    assert n.total == 6 and n.people == 2
+    assert n.talker.name == "Дима"
+    assert n.funny.name == "Аня" and n.funny.funny == 5
+    assert n.swearer.name == "Дима" and n.swearer.mat_pct == 80
+
+
+def test_new_game_triggers():
+    assert games.match("топ") is None            # «топ» как похвала не трогаем
+    assert games.match("топ репы")[0] == "rep_top"
+    assert games.match("/top@my_bot")[0] == "rep_top"
+    assert games.match("топ викторины")[0] == "quiz_top"
+    assert games.match("моя репа")[0] == "rep_me"
+    assert games.match("викторина")[0] == "quiz"
+    assert games.match("дни рождения")[0] == "bdays"
+    assert "—" not in games.HELP and "«" not in games.HELP

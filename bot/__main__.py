@@ -9,7 +9,7 @@ from aiogram.types import BotCommand, BotCommandScopeAllGroupChats, BotCommandSc
 
 from bot import ai, config, db, handlers
 from bot.middlewares import GroupTracker
-from bot.services import ads
+from bot.services import ads, daily
 
 log = logging.getLogger("bot")
 
@@ -34,17 +34,21 @@ async def main() -> None:
         await bot.set_my_commands([BotCommand(command="admin", description="Админка"),
                                    BotCommand(command="cancel", description="Отменить ввод")],
                                   scope=BotCommandScopeAllPrivateChats())
-        await bot.set_my_commands([BotCommand(command="games", description="Игры")],
+        await bot.set_my_commands([BotCommand(command="games", description="Что я умею"),
+                                    BotCommand(command="quiz", description="Викторина"),
+                                    BotCommand(command="top", description="Топ репутации")],
                                   scope=BotCommandScopeAllGroupChats())
     except Exception as exc:
         log.warning("Команды не установились: %s", exc)
 
     scheduler = asyncio.create_task(ads.run_scheduler(bot))
+    planner = asyncio.create_task(daily.run_scheduler(bot))
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         scheduler.cancel()
+        planner.cancel()
         await ai.close()
         await db.close()
         await bot.session.close()

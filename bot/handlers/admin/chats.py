@@ -30,8 +30,14 @@ CYCLES = {
     "chance": [0.0, 0.02, 0.04, 0.07, 0.12, 0.2],
     "ai_share": [0.0, 0.3, 0.5, 0.7, 1.0],
     "cooldown": [30, 60, 90, 180, 300, 600],
+    "results_hour": [20, 21, 22, 23],
 }
-TOGGLES = {"greet": "👋 Приветствия", "games": "🎲 Игры", "ads": "📣 Реклама"}
+TOGGLES = {"greet": "👋 Приветствия", "games": "🎲 Игры", "ads": "📣 Реклама", "pairpoll": "💘 Как вам пара",
+           "results": "🌙 Итоги дня", "rep": "⭐ Репутация", "bday": "🎂 Дни рождения"}
+
+
+def _chunks(items: list, n: int) -> list[list]:
+    return [items[i:i + n] for i in range(0, len(items), n)]
 
 
 def _next(values: list, current) -> object:
@@ -54,6 +60,7 @@ async def _card(target, chat_id: int) -> None:
             f"🎯 <b>Шанс влезть</b> в чужой разговор: {pct(c['chance'])} от сообщений\n"
             f"🤖 <b>Из них через ИИ:</b> {pct(c['ai_share'])}, остальное фразы и стикеры\n"
             f"⏱ <b>Пауза</b> между такими влезаниями: {c['cooldown']} сек\n"
+            f"🌙 <b>Итоги дня</b> в {c['results_hour']}:00\n"
             f"На обращения по имени и ответы на его сообщения бот отвечает всегда, через ИИ.")
     cid = chat_id
     await show(target, text, kb([
@@ -61,8 +68,10 @@ async def _card(target, chat_id: int) -> None:
         [("🎭 Характер", f"ch:e:{cid}:persona"), ("📌 Тема", f"ch:e:{cid}:topic")],
         [(f"🎯 Шанс: {pct(c['chance'])}", f"ch:c:{cid}:chance"),
          (f"🤖 ИИ: {pct(c['ai_share'])}", f"ch:c:{cid}:ai_share")],
-        [(f"⏱ Пауза: {c['cooldown']}с", f"ch:c:{cid}:cooldown")],
-        [(f"{label} {onoff(c[f])}", f"ch:t:{cid}:{f}") for f, label in TOGGLES.items()],
+        [(f"⏱ Пауза: {c['cooldown']}с", f"ch:c:{cid}:cooldown"),
+         (f"🌙 Итоги в {c['results_hour']}:00", f"ch:c:{cid}:results_hour")],
+        *[[(f"{label} {onoff(c[f])}", f"ch:t:{cid}:{f}") for f, label in pair]
+          for pair in _chunks(list(TOGGLES.items()), 2)],
         [("🧹 Стереть память чата", f"ch:wipe:{cid}")],
         [("⬅️ Чаты", "ch:list"), BACK_MENU],
     ]))

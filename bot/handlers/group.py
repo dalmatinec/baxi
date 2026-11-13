@@ -8,7 +8,7 @@ from aiogram.types import Message
 
 from bot import brain, db
 from bot.middlewares import GROUPS, TRACKED, describe
-from bot.services import memory, talk
+from bot.services import fun, memory, quiz, talk
 
 log = logging.getLogger(__name__)
 router = Router(name="group")
@@ -43,9 +43,20 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
         await db.update_chat(chat_id, last_jump=time.time())
 
     author = user_row["name"]
+    intent = brain.detect_intent(text) if act is brain.Act.AI_REPLY else None
+    if intent == "quiz" and not chat_row["games"]:
+        intent = None
     try:
         async with lock:
-            if act is brain.Act.PHRASE:
+            if intent == "summary":
+                await fun.summary(bot, chat_row, message, text)
+            elif intent == "joke":
+                await fun.joke(bot, chat_row, message, author)
+            elif intent == "roast":
+                await fun.roast(bot, chat_row, message, user_row)
+            elif intent == "quiz":
+                await quiz.start(bot, chat_row, message)
+            elif act is brain.Act.PHRASE:
                 await talk.phrase_answer(bot, chat_row, message, author)
             else:
                 await talk.ai_answer(bot, chat_row, message, author, text or describe(message),

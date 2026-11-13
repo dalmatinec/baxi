@@ -7,10 +7,12 @@ import random
 
 from aiogram import Bot
 from aiogram.enums import ChatAction
-from aiogram.types import LinkPreviewOptions, Message, ReplyParameters
+from aiogram.types import Message
 
 from bot import ai, brain, config, db, prompts
-from bot.textutil import esc, mention
+from bot.services.out import reply_params as _reply
+from bot.services.out import say, thread_of  # noqa: F401  (thread_of нужен другим модулям)
+from bot.textutil import esc, humanize, mention
 
 log = logging.getLogger(__name__)
 
@@ -29,17 +31,11 @@ GREETINGS = [
 FALLBACK_REPLIES = ["щас не до тебя, позже", "ага", "ну допустим", "отстань, я думаю", "хм"]
 
 
-def _reply(message: Message | None) -> ReplyParameters | None:
-    if message is None:
-        return None
-    return ReplyParameters(message_id=message.message_id, allow_sending_without_reply=True)
-
-
 def chat_lock(chat_id: int) -> asyncio.Lock:
     return _locks.setdefault(chat_id, asyncio.Lock())
 
 
-async def _context(chat) -> tuple[str, str]:
+async def context(chat) -> tuple[str, str]:
     """Системный промпт с заметками об участниках и текст последних сообщений."""
     rows = await db.recent_history(chat["chat_id"], config.CONTEXT_MESSAGES)
     ids = list(dict.fromkeys(r["user_id"] for r in rows if not r["is_bot"]))[-8:]
@@ -52,21 +48,14 @@ async def _context(chat) -> tuple[str, str]:
 
 async def _ask(chat, make_task) -> str | None:
     """make_task получает историю чата текстом и возвращает задание для нейросети."""
-    system, history = await _context(chat)
+    system, history = await context(chat)
     answer = await ai.chat([{"role": "system", "content": system},
                             {"role": "user", "content": make_task(history)}])
     text = prompts.clean_reply(answer or "", chat["bot_name"])
     return text or None
 
 
-def thread_of(message: Message | None) -> int | None:
-    """Ветка форума, если в группе включены темы: отвечаем в ту же ветку."""
-    if message is not None and message.is_topic_message:
-        return message.message_thread_id
-    return None
-
-
-async def _type(bot: Bot, chat_id: int, text: str) -> None:
+async def typing(bot: Bot, chat_id: int, text: str) -> None:
     try:
         await bot.send_chat_action(chat_id, ChatAction.TYPING)
     except Exception:
@@ -74,19 +63,16 @@ async def _type(bot: Bot, chat_id: int, text: str) -> None:
     await asyncio.sleep(brain.typing_delay(text))
 
 
-async def _remember_self(bot: Bot, chat, sent: Message, text: str, reply_name: str = "") -> None:
-    await db.add_history(chat["chat_id"], sent.message_id, bot.id, chat["bot_name"], text,
+async def remember_self(bot: Bot, chat, sent: Message, text: str, reply_name: str = "") -> None:
+    await db.add_history(chat["chat_id"], sent.message_id, bot.id, chat["bot_name"], humanize(text),
                          reply_name=reply_name, is_bot=True)
 
 
 async def send_text(bot: Bot, chat, text_html: str, plain: str, reply_to: Message | None = None,
                     reply_name: str = "", thread: int | None = None) -> None:
-    await _type(bot, chat["chat_id"], plain)
-    sent = await bot.send_message(chat["chat_id"], text_html, parse_mode="HTML",
-                                  message_thread_id=thread if reply_to is None else None,
-                                  link_preview_options=LinkPreviewOptions(is_disabled=True),
-                                  reply_parameters=_reply(reply_to))
-    await _remember_self(bot, chat, sent, plain, reply_name)
+    await typing(bot, chat["chat_id"], plain)
+    sent = await say(bot, chat["chat_id"], text_html, reply_to=reply_to, thread=thread)
+    await remember_self(bot, chat, sent, plain, reply_name)
 
 
 async def ai_answer(bot: Bot, chat, message: Message, author: str, text: str, jump: bool) -> None:
@@ -113,7 +99,7 @@ async def phrase_answer(bot: Bot, chat, message: Message, author: str) -> None:
                     sent = await bot.send_sticker(chat_id, file_id, reply_parameters=_reply(message))
                 else:
                     sent = await bot.send_animation(chat_id, file_id, reply_parameters=_reply(message))
-                await _remember_self(bot, chat, sent, "[стикер]" if kind == "sticker" else "[гифка]", author)
+                await remember_self(bot, chat, sent, "[стикер]" if kind == "sticker" else "[гифка]", author)
                 return
             except Exception as exc:
                 log.warning("Не отправился %s %s: %s", kind, file_id[:20], exc)

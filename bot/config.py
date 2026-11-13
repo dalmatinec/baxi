@@ -56,7 +56,7 @@ DAILY_LIMIT_USD = _float("DAILY_LIMIT_USD", 0.30)
 # Сколько последних сообщений чата видит нейросеть
 CONTEXT_MESSAGES = _int("CONTEXT_MESSAGES", 20)
 # Сколько сообщений чата хранить в базе (для памяти о юзерах нужно больше, чем контекст)
-HISTORY_KEEP = _int("HISTORY_KEEP", 300)
+HISTORY_KEEP = _int("HISTORY_KEEP", 2000)
 # Через сколько сообщений юзера обновлять заметки о нём (0 = не обновлять)
 MEMORY_EVERY = _int("MEMORY_EVERY", 25)
 

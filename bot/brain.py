@@ -85,6 +85,24 @@ class RateLimit:
         return ok
 
 
+_INTENTS = [
+    ("summary", re.compile(r"(что|чо|чё|че|шо)\s+(тут|здесь|там)?\s*(было|происходило|обсуждали|пропустил|случилось)|"
+                           r"о\s+ч[её]м\s+(тут\s+|здесь\s+)?(говорили|болтали|речь|спорили)|выжимк|итоги\s+за|"
+                           r"кратко\s+(что|о\s+ч[её]м)", re.I)),
+    ("roast", re.compile(r"прожар|прожги|зажарь|обосри|разнеси\s+его|разнеси\s+её", re.I)),
+    ("quiz", re.compile(r"викторин", re.I)),
+    ("joke", re.compile(r"шутк|анекдот|рассмеши|пошути|прикол\s+расскажи|расскажи\s+прикол", re.I)),
+]
+
+
+def detect_intent(text: str) -> str | None:
+    """Что просят у бота при обращении: выжимку, прожарку, викторину, шутку. Иначе просто болтовня."""
+    for name, rx in _INTENTS:
+        if rx.search(text or ""):
+            return name
+    return None
+
+
 def pick_phrase_kind(rnd: random.Random | None = None) -> str:
     """Чем влезть без ИИ: чаще текстом, иногда стикером или гифкой."""
     x = (rnd or random).random()
