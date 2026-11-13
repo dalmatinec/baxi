@@ -1,8 +1,8 @@
-"""Заказы рекламы: оплата USDT в сети TON с автопроверкой через toncenter, публикация по формату,
-закрепы с откреплением через сутки, рассылка в личку бота.
+"""Заказы рекламы: оплата USDT в сети TON (toncenter) или TRON/TRC20 (TronGrid) с автопроверкой,
+публикация по формату, закрепы с откреплением через сутки, рассылка в личку бота.
 
-Как опознаётся платёж: у каждого заказа своя точная сумма (например 10.0037 USDT).
-Если в переводе есть комментарий AD<номер заказа>, заказ находится и по нему."""
+Как опознаётся платёж: у каждого заказа своя точная сумма (например 10.0037 USDT), годится любая из сетей.
+Если в переводе TON есть комментарий AD<номер заказа>, заказ находится и по нему."""
 
 import asyncio
 import logging
@@ -64,19 +64,34 @@ async def unique_amount(price: float) -> int:
     return base + random.randint(100, 9999)
 
 
+def can_pay() -> bool:
+    return bool(config.PAY_TON_ADDRESS or config.PAY_TRON_ADDRESS)
+
+
 def pay_text(order) -> str:
-    return (f"✅ <b>Заказ #{order['id']} одобрен!</b>\n\n"
-            f"Оплати <b>ровно {usdt(order['amount'])} USDT</b> в сети <b>TON</b> на адрес:\n"
-            f"<code>{config.PAY_TON_ADDRESS}</code>\n\n"
-            f"Комментарий к переводу (если кошелёк позволяет): <code>AD{order['id']}</code>\n\n"
-            "Сумма должна совпасть до последней цифры, по ней я узнаю твой платёж. "
-            f"Проверяю сам каждые полминуты, на оплату {PAY_HOURS} ч.")
+    lines = [f"✅ <b>Заказ #{order['id']} одобрен!</b>\n",
+             f"Оплати <b>ровно {usdt(order['amount'])} USDT</b> в одной из сетей:\n"]
+    if config.PAY_TON_ADDRESS:
+        lines.append(f"💎 <b>Сеть TON</b> (комиссия копейки):\n<code>{config.PAY_TON_ADDRESS}</code>\n"
+                     f"комментарий, если кошелёк позволяет: <code>AD{order['id']}</code>\n")
+    if config.PAY_TRON_ADDRESS:
+        lines.append(f"🔺 <b>Сеть TRON (TRC20)</b>:\n<code>{config.PAY_TRON_ADDRESS}</code>\n")
+    lines.append("⚠️ Отправляй USDT только в той сети, чей адрес выбрал, иначе деньги потеряются. "
+                 "Сумма должна совпасть до последней цифры: по ней я узнаю твой платёж "
+                 f"(с биржи учитывай её комиссию). Проверяю сам каждые полминуты, на оплату {PAY_HOURS} ч.")
+    return "\n".join(lines)
 
 
 def pay_kb(order) -> InlineKeyboardMarkup:
+    copy = []
+    if config.PAY_TON_ADDRESS:
+        copy.append(InlineKeyboardButton(text="📋 Адрес TON", copy_text=CopyTextButton(text=config.PAY_TON_ADDRESS)))
+    if config.PAY_TRON_ADDRESS:
+        copy.append(InlineKeyboardButton(text="📋 Адрес TRC20",
+                                         copy_text=CopyTextButton(text=config.PAY_TRON_ADDRESS)))
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 Скопировать адрес", copy_text=CopyTextButton(text=config.PAY_TON_ADDRESS)),
-         InlineKeyboardButton(text="📋 Сумму", copy_text=CopyTextButton(text=usdt(order["amount"])))],
+        copy,
+        [InlineKeyboardButton(text="📋 Сумма", copy_text=CopyTextButton(text=usdt(order["amount"])))],
         [InlineKeyboardButton(text="🔄 Я оплатил, проверить", callback_data=f"ord:chk:{order['id']}",
                               style="success")],
         [InlineKeyboardButton(text="🆘 Поддержка", callback_data="act:support:оплата рекламы")],
@@ -87,7 +102,7 @@ async def approve(bot: Bot, order_id: int) -> None:
     order = await db.get_order(order_id)
     if not order or order["status"] != "moderation":
         return
-    if not config.PAY_TON_ADDRESS:
+    if not can_pay():
         await db.update_order(order_id, status="awaiting", next_run=time.time() + PAY_HOURS * 3600)
         await _tell(bot, order["user_id"], f"✅ Заказ #{order_id} одобрен! Как оплатить, напишет поддержка.",
                     InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
@@ -128,14 +143,10 @@ def extract_comment(payload) -> str:
 
 
 def match_order(transfer: dict, awaiting: list) -> object | None:
-    """Чей это платёж: по комментарию AD<номер> (сумма не меньше цены) или по точной сумме."""
-    try:
-        amount = int(transfer.get("amount", 0))
-    except (TypeError, ValueError):
-        return None
-    when = int(transfer.get("transaction_now") or 0)
-    comment = extract_comment(transfer.get("decoded_forward_payload"))
-    m = re.search(r"AD\s*(\d+)", comment or "", re.I)
+    """Чей это платёж: по комментарию AD<номер> (сумма не меньше цены) или по точной сумме.
+    transfer: {"tx", "amount" (микро-USDT), "time", "comment", "net"}."""
+    amount, when = transfer["amount"], transfer["time"]
+    m = re.search(r"AD\s*(\d+)", transfer.get("comment") or "", re.I)
     if m:
         for order in awaiting:
             if order["id"] == int(m.group(1)) and amount >= round(order["price"] * 1_000_000):
@@ -146,7 +157,8 @@ def match_order(transfer: dict, awaiting: list) -> object | None:
     return None
 
 
-async def fetch_transfers(since: float) -> list[dict]:
+async def fetch_ton(since: float) -> list[dict]:
+    """Входящие USDT в сети TON через toncenter."""
     global _http
     if _http is None:
         headers = {"X-API-Key": config.TONCENTER_API_KEY} if config.TONCENTER_API_KEY else {}
@@ -157,35 +169,78 @@ async def fetch_transfers(since: float) -> list[dict]:
     if resp.status_code != 200:
         log.warning("toncenter ответил %s: %s", resp.status_code, resp.text[:200])
         return []
-    return resp.json().get("jetton_transfers", []) or []
+    out = []
+    for t in resp.json().get("jetton_transfers", []) or []:
+        if t.get("transaction_aborted") or not t.get("transaction_hash"):
+            continue
+        try:
+            amount = int(t.get("amount", 0))
+        except (TypeError, ValueError):
+            continue
+        out.append({"tx": "ton:" + t["transaction_hash"], "amount": amount, "net": "TON",
+                    "time": int(t.get("transaction_now") or 0),
+                    "comment": extract_comment(t.get("decoded_forward_payload"))})
+    return out
+
+
+_tron: httpx.AsyncClient | None = None
+
+
+async def fetch_tron(since: float) -> list[dict]:
+    """Входящие USDT TRC20 через TronGrid (только подтверждённые)."""
+    global _tron
+    if _tron is None:
+        headers = {"TRON-PRO-API-KEY": config.TRONGRID_API_KEY} if config.TRONGRID_API_KEY else {}
+        _tron = httpx.AsyncClient(base_url=config.TRONGRID_URL, headers=headers, timeout=20)
+    params = {"only_to": "true", "only_confirmed": "true", "contract_address": config.TRON_USDT_CONTRACT,
+              "min_timestamp": int(since * 1000), "limit": 100, "order_by": "block_timestamp,desc"}
+    resp = await _tron.get(f"/v1/accounts/{config.PAY_TRON_ADDRESS}/transactions/trc20", params=params)
+    if resp.status_code != 200:
+        log.warning("TronGrid ответил %s: %s", resp.status_code, resp.text[:200])
+        return []
+    out = []
+    for t in resp.json().get("data", []) or []:
+        if t.get("to") != config.PAY_TRON_ADDRESS or not t.get("transaction_id"):
+            continue
+        try:
+            amount = int(t.get("value", 0))
+        except (TypeError, ValueError):
+            continue
+        out.append({"tx": "tron:" + t["transaction_id"], "amount": amount, "net": "TRC20",
+                    "time": int(t.get("block_timestamp", 0)) // 1000, "comment": ""})
+    return out
 
 
 async def check_payments(bot: Bot, force: bool = False) -> int:
     global _last_check
-    if not config.PAY_TON_ADDRESS or (not force and time.time() - _last_check < 25):
+    if not can_pay() or (not force and time.time() - _last_check < 25):
         return 0
     _last_check = time.time()
     awaiting = [o for o in await db.orders_by_status("awaiting") if o["amount"]]
     if not awaiting:
         return 0
-    try:
-        transfers = await fetch_transfers(min(o["created"] for o in awaiting) - 300)
-    except (httpx.HTTPError, ValueError) as exc:
-        log.warning("toncenter недоступен: %s", exc)
-        return 0
+    since = min(o["created"] for o in awaiting) - 300
+    transfers = []
+    for enabled, fetch, name in ((config.PAY_TON_ADDRESS, fetch_ton, "toncenter"),
+                                 (config.PAY_TRON_ADDRESS, fetch_tron, "TronGrid")):
+        if not enabled:
+            continue
+        try:
+            transfers += await fetch(since)
+        except (httpx.HTTPError, ValueError) as exc:
+            log.warning("%s недоступен: %s", name, exc)
     paid = 0
     for t in transfers:
-        tx = t.get("transaction_hash") or ""
-        if not tx or t.get("transaction_aborted") or await db.tx_seen(tx):
+        if await db.tx_seen(t["tx"]):
             continue
-        await db.mark_tx(tx)
+        await db.mark_tx(t["tx"])
         order = match_order(t, awaiting)
         if order is None:
-            await notify.owners(bot, f"💸 Пришёл платёж {usdt(int(t.get('amount', 0)))} USDT, но я не понял, "
+            await notify.owners(bot, f"💸 Пришёл платёж {usdt(t['amount'])} USDT ({t['net']}), но я не понял, "
                                      "за какой он заказ. Проверь заказы и отметь оплату вручную.")
             continue
         awaiting = [o for o in awaiting if o["id"] != order["id"]]
-        await mark_paid(bot, order["id"], tx)
+        await mark_paid(bot, order["id"], t["tx"])
         paid += 1
     return paid
 

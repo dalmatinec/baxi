@@ -91,6 +91,11 @@ PAY_TON_ADDRESS = os.getenv("PAY_TON_ADDRESS", "")
 TONCENTER_API_KEY = os.getenv("TONCENTER_API_KEY", "")
 TONCENTER_URL = os.getenv("TONCENTER_URL", "https://toncenter.com/api/v3").rstrip("/")
 USDT_MASTER = os.getenv("USDT_MASTER", "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs")
+# USDT в сети TRON (TRC20): адрес T... и бесплатный ключ TronGrid (можно без ключа)
+PAY_TRON_ADDRESS = os.getenv("PAY_TRON_ADDRESS", "")
+TRONGRID_API_KEY = os.getenv("TRONGRID_API_KEY", "")
+TRONGRID_URL = os.getenv("TRONGRID_URL", "https://api.trongrid.io").rstrip("/")
+TRON_USDT_CONTRACT = os.getenv("TRON_USDT_CONTRACT", "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t")
 # канал для формата «закреп в канале» (бот должен быть админом с правом закреплять), например -1001234567890
 AD_CHANNEL_ID = int(os.getenv("AD_CHANNEL_ID", "0") or 0)
 # сколько часов ждать одобрения чата, потом бот сам выходит

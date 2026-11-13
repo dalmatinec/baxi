@@ -151,7 +151,7 @@ async def cb_check(cb: CallbackQuery, bot: Bot) -> None:
     await adorders.check_payments(bot, force=True)
     order = await db.get_order(oid)
     if order["status"] == "awaiting":
-        await cb.answer("Пока не вижу платёж. Перевод в сети TON обычно доходит за минуту, проверю ещё сам.",
+        await cb.answer("Пока не вижу платёж. Перевод обычно доходит за 1-3 минуты, проверю ещё сам.",
                         show_alert=True)
     else:
         await cb.answer("✅ Оплата найдена!")
