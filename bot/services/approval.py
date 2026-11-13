@@ -21,20 +21,43 @@ RENT_DAYS = 30
 WARN_BEFORE = 3 * 86400
 
 
-def approval_kb(chat_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
+def approval_kb(chat_id: int, added_by: int = 0, username: str = "") -> InlineKeyboardMarkup:
+    rows = [
         [InlineKeyboardButton(text="✅ Разрешить", callback_data=f"ap:ok:{chat_id}", style="success"),
          InlineKeyboardButton(text="🚫 Выйти", callback_data=f"ap:no:{chat_id}", style="danger")],
         [InlineKeyboardButton(text=f"📅 Аренда {RENT_DAYS} дней", callback_data=f"ap:rent:{chat_id}",
                               style="primary")],
-    ])
+    ]
+    rows += contact_rows(added_by, username)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def contact_rows(user_id: int, username: str = "") -> list[list[InlineKeyboardButton]]:
+    """Кнопки связи с тем, кто добавил бота: через бота и напрямую (если есть юзернейм)."""
+    if not user_id:
+        return []
+    row = [InlineKeyboardButton(text="✍️ Написать через бота", callback_data=f"sup:{user_id}")]
+    if username:
+        row.append(InlineKeyboardButton(text=f"💬 @{username}", url=f"https://t.me/{username}"))
+    return [row]
+
+
+def adder_html(chat) -> str:
+    """Кто добавил бота в чат, кликабельно, с юзернеймом и id."""
+    uid = chat["added_by"]
+    if not uid:
+        return "неизвестно"
+    name = esc(chat["added_name"] or "без имени")
+    user = f" @{esc(chat['added_username'])}" if chat["added_username"] else ""
+    return f'<a href="tg://user?id={uid}">{name}</a>{user} (<code>{uid}</code>)'
 
 
 def until_text(ts: float) -> str:
     return datetime.fromtimestamp(ts, config.TZ).strftime("%d.%m.%Y")
 
 
-async def request(bot: Bot, chat_id: int, title: str, added_by: int = 0, added_name: str = "") -> None:
+async def request(bot: Bot, chat_id: int, title: str, added_by: int = 0, added_name: str = "",
+                  added_username: str = "") -> None:
     """Вызывается, когда бот оказался в новом чате. Повторно заявку не шлёт."""
     chat = await db.get_chat(chat_id) or await db.ensure_chat(chat_id, title)
     if chat["approved"]:
@@ -47,7 +70,8 @@ async def request(bot: Bot, chat_id: int, title: str, added_by: int = 0, added_n
         return
     if chat["pending_since"]:
         return
-    await db.update_chat(chat_id, pending_since=time.time(), added_by=added_by)
+    await db.update_chat(chat_id, pending_since=time.time(), added_by=added_by, added_name=added_name,
+                         added_username=added_username)
     members = "?"
     try:
         members = str(await bot.get_chat_member_count(chat_id))
@@ -68,13 +92,15 @@ async def request(bot: Bot, chat_id: int, title: str, added_by: int = 0, added_n
             markup=kb)
     except Exception as exc:
         log.info("Не смог написать в новый чат %s: %s", chat_id, exc)
-    who = f"{esc(added_name)} (<code>{added_by}</code>)" if added_by else "неизвестно (меня добавили, пока я спал)"
+    who = adder_html(await db.get_chat(chat_id)) if added_by else "неизвестно (меня добавили, пока я спал)"
     for owner in config.OWNER_IDS:
         try:
             await bot.send_message(owner, f"🔔 <b>Заявка: меня добавили в чат</b>\n\n"
                                           f"Чат: <b>{esc(title)}</b>\nУчастников: {members}\nДобавил: {who}\n\n"
-                                          f"Без ответа выйду через {config.APPROVAL_HOURS} ч.",
-                                   parse_mode="HTML", reply_markup=approval_kb(chat_id))
+                                          f"Без ответа выйду через {config.APPROVAL_HOURS} ч.\n\n"
+                                          "<i>Написать через бота можно, только если человек уже запускал бота "
+                                          "в личке. Иначе пиши ему напрямую.</i>",
+                                   parse_mode="HTML", reply_markup=approval_kb(chat_id, added_by, added_username))
         except Exception as exc:
             log.info("Владелец %s не получил заявку: %s", owner, exc)
 
@@ -117,14 +143,19 @@ async def _tell_adder(bot: Bot, chat) -> None:
     adder = chat["added_by"]
     if not adder or adder in config.OWNER_IDS:
         return
+    from bot.handlers.chatadmin import can_manage
     me = await bot.me()
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-        text="⚙️ Настроить бота", url=f"https://t.me/{me.username}?start=mychats", style="primary")]])
+    text = f"✅ Бот теперь работает в чате «{esc(chat['title'])}»!\n\n"
+    if await can_manage(bot, adder, chat["chat_id"]):
+        text += ("Задай ему имя, характер и тему чата, выбери, как часто он болтает и какие фишки включены.")
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+            text="⚙️ Настроить бота", url=f"https://t.me/{me.username}?start=mychats", style="primary")]])
+    else:
+        text += ("Настраивать его в чате могут создатель чата и админы с правом назначать админов. "
+                 "Им нужно написать мне в личку → ⚙️ Мои чаты.")
+        kb = None
     try:
-        await bot.send_message(adder, f"✅ Бот теперь работает в чате «{esc(chat['title'])}»!\n\n"
-                                      "Задай ему имя, характер и тему чата, выбери, как часто он болтает и какие "
-                                      "фишки включены. Настраивать могут все админы этого чата.",
-                               parse_mode="HTML", reply_markup=kb)
+        await bot.send_message(adder, text, parse_mode="HTML", reply_markup=kb)
     except Exception:
         pass  # человек ещё не запускал бота в личке
 

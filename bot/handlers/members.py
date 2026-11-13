@@ -62,4 +62,5 @@ async def on_my_status(update: ChatMemberUpdated, bot: Bot) -> None:
         await db.ensure_chat(update.chat.id, update.chat.title or "")
         adder = update.from_user
         await approval.request(bot, update.chat.id, title, adder.id if adder else 0,
-                               full_name(adder.first_name, adder.last_name) if adder else "")
+                               full_name(adder.first_name, adder.last_name) if adder else "",
+                               (adder.username or "") if adder else "")

@@ -277,6 +277,8 @@ NEW_COLUMNS = {
         "rent_warned": "INTEGER NOT NULL DEFAULT 0",
         "members": "INTEGER NOT NULL DEFAULT 0",          # участников, обновляется раз в сутки
         "shop": "INTEGER NOT NULL DEFAULT 1",             # магазин в чате (прожарка по полной)
+        "added_name": "TEXT NOT NULL DEFAULT ''",         # кто добавил бота: имя
+        "added_username": "TEXT NOT NULL DEFAULT ''",     # и юзернейм, чтобы владелец мог связаться
     },
     "users": {
         "birthday": "TEXT NOT NULL DEFAULT ''",         # 'MM-DD'
@@ -300,7 +302,7 @@ CHAT_FIELDS = {"bot_name", "aliases", "persona", "topic", "chance", "ai_share",
                "cooldown", "greet", "games", "ads", "title", "active", "last_jump",
                "pairpoll", "results", "rep", "bday", "results_hour", "last_results", "last_pairpoll",
                "results_manual", "approved", "pending_since", "added_by", "rent_until", "rent_warned", "members",
-               "shop"}
+               "shop", "added_name", "added_username"}
 AD_FIELDS = {"title", "media_kind", "file_id", "text_html", "buttons", "interval",
              "enabled", "delete_prev"}
 

@@ -74,6 +74,7 @@ async def _card(target, chat_id: int) -> None:
             f"{_status(c)}\n\n"
             f"🎭 Бот здесь: <b>{esc(c['bot_name'])}</b>\n"
             f"👥 Участников: {c['members'] or '?'}\n"
+            f"👤 Добавил: {approval.adder_html(c)}\n"
             f"⚙️ Влезает в {pct(c['chance'])} разговоров, через ИИ {pct(c['ai_share'])}\n"
             f"🎲 Включено фишек: {on} из {len(TOGGLES)}\n\n"
             "Выбери, что настроить 👇")
@@ -83,8 +84,17 @@ async def _card(target, chat_id: int) -> None:
         [("🎭 Личность", f"ch:s:{cid}:who", "primary"), ("⚙️ Поведение", f"ch:s:{cid}:act", "primary")],
         [("🎲 Фишки", f"ch:s:{cid}:fx", "primary"), ("📅 Доступ и аренда", f"ch:s:{cid}:rent", "primary")],
         [("🧹 Память", f"ch:wipe:{cid}"), ("🚪 Выйти из чата", f"ap:no:{cid}", "danger")],
-        [("⬅️ Чаты", "ch:list"), BACK_MENU],
-    ]))
+    ] + _contact(c) + [[("⬅️ Чаты", "ch:list"), BACK_MENU]]))
+
+
+def _contact(c) -> list[list[tuple]]:
+    """Связь с тем, кто добавил бота: через бота и напрямую по юзернейму."""
+    if not c["added_by"]:
+        return []
+    row = [("✍️ Написать добавившему", f"sup:{c['added_by']}")]
+    if c["added_username"]:
+        row.append((f"💬 @{c['added_username']}", f"https://t.me/{c['added_username']}"))
+    return [row]
 
 
 async def _section(target, chat_id: int, sec: str) -> None:

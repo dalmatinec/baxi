@@ -1,4 +1,4 @@
-"""«⚙️ Мои чаты»: админы и создатели чатов сами настраивают бота у себя.
+"""«⚙️ Мои чаты»: создатели чатов и админы с правом назначать админов сами настраивают бота у себя.
 Видят только свои чаты, где бот одобрен. Могут: имя, характер, тема, частота реплик, доля ИИ,
 пауза, час итогов, фишки (кроме рекламы), стереть память. Остальное только у владельца бота."""
 
@@ -21,6 +21,9 @@ CLIENT_TOGGLES = {k: v for k, v in TOGGLES.items() if k != "ads"}
 _rights: dict[tuple[int, int], tuple[float, bool]] = {}
 
 
+DENIED = "Настраивать бота могут создатель чата и админы с правом назначать админов"
+
+
 class McEdit(StatesGroup):
     value = State()
 
@@ -36,7 +39,8 @@ def pct(v: float) -> str:
 
 
 async def can_manage(bot: Bot, user_id: int, chat_id: int) -> bool:
-    """Владелец бота, админ или создатель этого чата, и бот в чате одобрен. Ответ Telegram кэшируем на 2 мин."""
+    """Владелец бота, создатель чата или админ с правом назначать админов, и бот в чате одобрен.
+    Ответ Telegram кэшируем на 2 мин."""
     chat = await db.get_chat(chat_id)
     if not chat or not chat["active"] or not chat["approved"]:
         return False
@@ -48,7 +52,8 @@ async def can_manage(bot: Bot, user_id: int, chat_id: int) -> bool:
         return hit[1]
     try:
         member = await bot.get_chat_member(chat_id, user_id)
-        ok = member.status in ("administrator", "creator")
+        ok = member.status == "creator" or (member.status == "administrator"
+                                            and bool(getattr(member, "can_promote_members", False)))
     except Exception:
         ok = False
     _rights[key] = (time.time(), ok)
@@ -89,7 +94,8 @@ async def show_list(bot: Bot, target: Message | CallbackQuery) -> None:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="➕ Добавить бота в чат", url=f"https://t.me/{me.username}?startgroup=true")],
             [InlineKeyboardButton(text="⬅️ В меню", callback_data="sc:start")]])
-        return await _show(target, "⚙️ <b>Мои чаты</b>\n\nЗдесь появятся чаты, где ты админ и где бот уже работает. "
+        return await _show(target, "⚙️ <b>Мои чаты</b>\n\nЗдесь появятся чаты, где ты создатель или админ с правом "
+                                   "назначать админов и где бот уже работает. "
                                    "Пока таких нет. Если только что добавил бота, дождись одобрения: "
                                    "я напишу сюда, когда всё готово.", kb)
     rows = [[(f"💬 {short(c['title'] or str(c['chat_id']), 40)}", f"mc:o:{c['chat_id']}")] for c in chats]
@@ -106,7 +112,7 @@ async def cb_list(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
 async def _guard(cb: CallbackQuery, bot: Bot, chat_id: int) -> bool:
     if await can_manage(bot, cb.from_user.id, chat_id):
         return True
-    await cb.answer("Настраивать бота могут только админы этого чата", show_alert=True)
+    await cb.answer(DENIED, show_alert=True)
     return False
 
 
@@ -121,6 +127,7 @@ async def _card(target, chat_id: int) -> None:
     await _show(target, text, _kb([
         [("🎭 Личность", f"mc:s:{cid}:who", "primary"), ("⚙️ Поведение", f"mc:s:{cid}:act", "primary")],
         [("🎲 Фишки", f"mc:s:{cid}:fx", "primary"), ("🧹 Стереть память", f"mc:w:{cid}")],
+        [("🆘 Написать владельцу бота", f"mc:sup:{cid}")],
         [("⬅️ Мои чаты", "mc:list")]]))
 
 
@@ -152,6 +159,16 @@ async def _section(target, chat_id: int, sec: str) -> None:
         rows = [[(f"{'🟢' if c[f] else '⚪️'} {label}", f"mc:t:{cid}:{f}", "success" if c[f] else "")
                  for f, label in pair] for pair in _chunks(list(CLIENT_TOGGLES.items()), 2)] + [back]
     await _show(target, text, _kb(rows))
+
+
+@router.callback_query(F.data.startswith("mc:sup:"))
+async def cb_support(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
+    """Админ чата пишет владельцу бота. Ответ придёт через обычную поддержку."""
+    from bot.handlers.private import SupportWrite
+    chat = await db.get_chat(int(cb.data.split(":")[2]))
+    await state.set_state(SupportWrite.message)
+    await state.update_data(topic=f"чат {chat['title']}" if chat else "чат")
+    await menu.show(bot, cb, "support")
 
 
 @router.callback_query(F.data.startswith("mc:o:"))
@@ -205,7 +222,7 @@ async def on_value(message: Message, bot: Bot, state: FSMContext) -> None:
     field, cid = data["field"], data["chat_id"]
     if not await can_manage(bot, message.from_user.id, cid):
         await state.clear()
-        return await message.answer("Настраивать бота могут только админы этого чата")
+        return await message.answer(DENIED)
     title, limit, _ = FIELDS[field]
     value = message.text.strip()
     if field == "aliases" and value == "-":

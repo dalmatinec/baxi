@@ -30,8 +30,11 @@ async def on_reply(message: Message, bot: Bot, state: FSMContext) -> None:
         InlineKeyboardButton(text="🆘 Написать ещё", callback_data="act:support", style="primary"),
         InlineKeyboardButton(text="⬅️ В меню", callback_data="sc:start")]])
     try:
-        await bot.send_message(user_id, "💬 <b>Ответ поддержки:</b>", parse_mode="HTML")
+        await bot.send_message(user_id, "💬 <b>Сообщение от поддержки бота:</b>", parse_mode="HTML")
         await bot.copy_message(user_id, message.chat.id, message.message_id, reply_markup=kb)
         await message.answer("✅ Ответ доставлен")
     except Exception as exc:
+        if "initiate" in str(exc) or "blocked" in str(exc) or "chat not found" in str(exc):
+            return await message.answer("Не доставлено: человек ни разу не запускал бота в личке или заблокировал "
+                                        "его. Напиши ему напрямую со своего аккаунта (ссылка в карточке чата).")
         await message.answer(f"Не доставлено: {str(exc)[:200]}")
