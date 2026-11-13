@@ -1,93 +1,52 @@
-"""Фильтр до основной логики: учёт пользователя, бан, антифлуд. Отсекает мусор дёшево."""
-import asyncio
-import time
-from collections import deque
-from typing import Any, Awaitable, Callable
+"""Перед любым обработчиком в группе: регистрируем чат, юзера и пишем сообщение в историю.
+Так бот «видит» весь чат, даже когда молчит."""
+
+import logging
 
 from aiogram import BaseMiddleware
-from aiogram.exceptions import TelegramAPIError
-from aiogram.types import CallbackQuery, Message, TelegramObject, User
+from aiogram.types import Message
 
-from .app import App
-from .catalog import now
-from .richtext import html_to_plain
+from bot import db
+from bot.textutil import full_name
+
+log = logging.getLogger(__name__)
+
+GROUPS = {"group", "supergroup"}
+TRACKED = {"text", "sticker", "photo", "video", "animation", "voice", "video_note", "document", "audio"}
 
 
-class GuardMiddleware(BaseMiddleware):
-    def __init__(self, app: App) -> None:
-        self.app = app
-        self.hits: dict[int, deque[float]] = {}
-        self.strikes: dict[int, int] = {}
-        self._tasks: set[asyncio.Task] = set()
+def describe(message: Message) -> str:
+    """Сообщение в виде текста для истории: нейросеть не видит картинки, но знает, что они были."""
+    caption = message.text or message.caption or ""
+    ct = message.content_type
+    if ct == "text":
+        return caption
+    emoji = message.sticker.emoji if message.sticker and message.sticker.emoji else ""
+    marks = {"sticker": f"[стикер {emoji}]" if emoji else "[стикер]",
+             "photo": "[фото]", "video": "[видео]", "animation": "[гифка]", "voice": "[голосовое]",
+             "video_note": "[кружок]", "document": "[файл]", "audio": "[музыка]"}
+    mark = marks.get(ct, "[сообщение]")
+    return f"{mark} {caption}".strip()
 
-    async def __call__(
-        self,
-        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
-        event: TelegramObject,
-        data: dict[str, Any],
-    ) -> Any:
-        user: User | None = data.get("event_from_user")
-        chat = data.get("event_chat")
-        if user is None or user.is_bot or (chat is not None and chat.type != "private"):
-            return None  # бот работает только в личке
 
-        app = self.app
-        await app.touch_user(user.id, user.username, user.first_name, user.language_code)
-        perms = app.perms(user.id)
-        data["perms"] = perms
-        lang = app.user_lang(user.id, user.language_code)
-        data["lang"] = lang
-        data["tr"] = tr = app.catalog.tr(lang)
-        if perms is None:
-            if app.is_banned(user.id):
-                return await self._reject(event, tr.text("banned"), alert=True)
-            if self._flooding(user.id):
-                return await self._reject(event, tr.text("flood"))
-        return await handler(event, data)
-
-    def _flooding(self, user_id: int) -> bool:
-        s = self.app.catalog.setting
-        limit, window = int(s("flood_limit", 6)), float(s("flood_window", 3))
-        if limit <= 0:
-            return False
-        t = time.monotonic()
-        q = self.hits.setdefault(user_id, deque())
-        while q and t - q[0] > window:
-            q.popleft()
-        if not q:
-            self.strikes.pop(user_id, None)  # пользователь успокоился — прощаем
-        q.append(t)
-        if len(q) <= limit:
-            return False
-
-        strikes = self.strikes[user_id] = self.strikes.get(user_id, 0) + 1
-        max_strikes, minutes = int(s("flood_strikes", 5)), int(s("flood_ban_minutes", 30))
-        if 0 < max_strikes <= strikes and minutes > 0:
-            self.hits.pop(user_id, None)
-            self.strikes.pop(user_id, None)
-            task = asyncio.create_task(self._auto_ban(user_id, minutes))
-            self._tasks.add(task)
-            task.add_done_callback(self._tasks.discard)
-        return True
-
-    async def _auto_ban(self, user_id: int, minutes: int) -> None:
-        await self.app.ban(user_id, now() + minutes * 60, "антифлуд")
-        await self.app.log_event(f"🚫 Автобан за флуд: <code>{user_id}</code> на {minutes} мин.")
-
-    async def _reject(self, event: TelegramObject, html: str, alert: bool = False) -> None:
+class GroupTracker(BaseMiddleware):
+    async def __call__(self, handler, event: Message, data: dict):
+        if event.chat.type not in GROUPS:
+            return await handler(event, data)
         try:
-            if isinstance(event, CallbackQuery):
-                await event.answer(html_to_plain(html)[:190], show_alert=alert)
-            elif isinstance(event, Message):
-                if (event.text or "").startswith("/start") and alert:
-                    await event.answer(html)
-                await event.delete()
-        except TelegramAPIError:
-            pass
-
-    def cleanup(self) -> None:
-        """Чистит счётчики неактивных пользователей, чтобы память не росла."""
-        t = time.monotonic()
-        for uid in [uid for uid, q in self.hits.items() if not q or t - q[-1] > 120]:
-            self.hits.pop(uid, None)
-            self.strikes.pop(uid, None)
+            chat = await db.ensure_chat(event.chat.id, event.chat.title or "")
+            data["chat_row"] = chat
+            user = event.from_user
+            if user and not user.is_bot and not event.sender_chat and event.content_type in TRACKED:
+                name = full_name(user.first_name, user.last_name)
+                data["user_row"] = await db.touch_user(event.chat.id, user.id, name, user.username or "")
+                reply_name = ""
+                rt = event.reply_to_message
+                if rt and rt.from_user:
+                    bot = data["bot"]
+                    reply_name = chat["bot_name"] if rt.from_user.id == bot.id else \
+                        full_name(rt.from_user.first_name, rt.from_user.last_name)
+                await db.add_history(event.chat.id, event.message_id, user.id, name, describe(event), reply_name)
+        except Exception:
+            log.exception("Не удалось записать сообщение в базу")
+        return await handler(event, data)

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Установка, обновление или восстановление бота на сервере Ubuntu/Debian. Запускать от root:
-#   bash /opt/linkhub/deploy/install.sh                        установить или обновить
-#   bash /opt/linkhub/deploy/install.sh /root/backup_XXXX.zip  установить и восстановить всё из бэкапа
-# Токен и ID владельца спросит один раз и запишет в /opt/linkhub/.env
+# Установка или обновление бота на Ubuntu/Debian. Запускать от root:
+#   bash /opt/linkhub/deploy/install.sh
+# При первом запуске спросит токен, свой Telegram ID и ключ нейросети, запишет в /opt/linkhub/.env
 set -euo pipefail
 
 DIR=/opt/linkhub
@@ -18,23 +17,21 @@ id linkhub >/dev/null 2>&1 || useradd --system --home "$DIR" --shell /usr/sbin/n
 .venv/bin/pip install -q -r requirements.txt
 
 if [ ! -f .env ]; then
+    cp .env.example .env
     read -rp "Токен бота от @BotFather: " TOKEN
-    read -rp "Telegram ID владельца (несколько через запятую): " OWNERS
-    printf 'BOT_TOKEN=%s\nOWNER_IDS=%s\nDATA_DIR=data\nLOG_LEVEL=INFO\n' "$TOKEN" "$OWNERS" > .env
+    read -rp "Твой Telegram ID (несколько через запятую): " OWNERS
+    read -rp "Ключ API нейросети (DeepSeek), можно пусто: " AIKEY
+    sed -i "s|^BOT_TOKEN=.*|BOT_TOKEN=$TOKEN|; s|^OWNER_IDS=.*|OWNER_IDS=$OWNERS|; s|^AI_API_KEY=.*|AI_API_KEY=$AIKEY|" .env
 fi
 mkdir -p data
-
-systemctl stop linkhub 2>/dev/null || true
-if [ $# -ge 1 ]; then
-    .venv/bin/python -m bot.restore "$1"
-fi
-
 chown -R linkhub:linkhub data
 chown linkhub:linkhub .env && chmod 600 .env
+
 cp deploy/linkhub.service /etc/systemd/system/linkhub.service
 systemctl daemon-reload
-systemctl enable --now linkhub
+systemctl enable linkhub >/dev/null
+systemctl restart linkhub
 sleep 3
-systemctl --no-pager --lines=5 status linkhub || true
+systemctl --no-pager --lines=8 status linkhub || true
 echo
-echo "Готово. Логи: journalctl -u linkhub -f"
+echo "Готово. Логи: journalctl -u linkhub -f   Настройки: nano $DIR/.env, потом systemctl restart linkhub"

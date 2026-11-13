@@ -1,340 +1,402 @@
-"""SQLite (WAL) + версионные миграции схемы."""
-import logging
-from pathlib import Path
-from typing import Any, Iterable
+"""База SQLite: чаты, юзеры, история сообщений, фразы, реклама, расход на ИИ."""
+
+import json
+import time
+from datetime import datetime
 
 import aiosqlite
 
-log = logging.getLogger(__name__)
+from bot import config
 
-# Каждая миграция применяется один раз, по порядку. Новые — только добавлять в конец.
-MIGRATIONS: list[str] = [
-    # 1 — базовая схема
-    """
-    CREATE TABLE settings (
-        key   TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-    ) WITHOUT ROWID;
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS chats (
+    chat_id     INTEGER PRIMARY KEY,
+    title       TEXT    NOT NULL DEFAULT '',
+    active      INTEGER NOT NULL DEFAULT 1,
+    bot_name    TEXT    NOT NULL,
+    aliases     TEXT    NOT NULL DEFAULT '',
+    persona     TEXT    NOT NULL,
+    topic       TEXT    NOT NULL,
+    chance      REAL    NOT NULL,
+    ai_share    REAL    NOT NULL,
+    cooldown    INTEGER NOT NULL,
+    greet       INTEGER NOT NULL DEFAULT 1,
+    games       INTEGER NOT NULL DEFAULT 1,
+    ads         INTEGER NOT NULL DEFAULT 1,
+    last_jump   REAL    NOT NULL DEFAULT 0,
+    created_at  REAL    NOT NULL
+);
 
-    CREATE TABLE media (
-        id         INTEGER PRIMARY KEY,
-        sha256     TEXT NOT NULL UNIQUE,
-        path       TEXT NOT NULL,
-        kind       TEXT NOT NULL,          -- photo | animation | video
-        size       INTEGER NOT NULL,
-        created_at INTEGER NOT NULL
-    );
+CREATE TABLE IF NOT EXISTS users (
+    chat_id     INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    name        TEXT    NOT NULL DEFAULT '',
+    username    TEXT    NOT NULL DEFAULT '',
+    msg_count   INTEGER NOT NULL DEFAULT 0,
+    last_seen   REAL    NOT NULL DEFAULT 0,
+    notes       TEXT    NOT NULL DEFAULT '',
+    notes_at    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (chat_id, user_id)
+);
 
-    CREATE TABLE media_file_ids (
-        media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
-        bot_id   INTEGER NOT NULL,
-        file_id  TEXT NOT NULL,
-        PRIMARY KEY (media_id, bot_id)
-    ) WITHOUT ROWID;
-    CREATE INDEX ix_media_file_ids_bot ON media_file_ids(bot_id);
+CREATE TABLE IF NOT EXISTS history (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id     INTEGER NOT NULL,
+    message_id  INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    name        TEXT    NOT NULL,
+    text        TEXT    NOT NULL,
+    reply_name  TEXT    NOT NULL DEFAULT '',
+    is_bot      INTEGER NOT NULL DEFAULT 0,
+    ts          REAL    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS history_chat ON history (chat_id, id);
 
-    CREATE TABLE texts (
-        key      TEXT PRIMARY KEY,
-        html     TEXT NOT NULL DEFAULT '',
-        media_id INTEGER REFERENCES media(id) ON DELETE SET NULL
-    );
+CREATE TABLE IF NOT EXISTS phrases (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT    NOT NULL,          -- text | sticker | gif
+    content     TEXT    NOT NULL,          -- текст или file_id
+    created_at  REAL    NOT NULL,
+    UNIQUE (kind, content)
+);
 
-    CREATE TABLE buttons (
-        key   TEXT PRIMARY KEY,
-        label TEXT NOT NULL,
-        icon  TEXT,
-        style TEXT
-    ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS ads (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    title       TEXT    NOT NULL,
+    media_kind  TEXT    NOT NULL DEFAULT '',   -- '' | photo | video | gif
+    file_id     TEXT    NOT NULL DEFAULT '',
+    text_html   TEXT    NOT NULL DEFAULT '',
+    buttons     TEXT    NOT NULL DEFAULT '[]', -- [[["текст","ссылка"], ...], ...]
+    interval    INTEGER NOT NULL DEFAULT 180,  -- минуты
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    delete_prev INTEGER NOT NULL DEFAULT 1,
+    created_at  REAL    NOT NULL
+);
 
-    CREATE TABLE menu_items (
-        id        INTEGER PRIMARY KEY,
-        parent_id INTEGER REFERENCES menu_items(id) ON DELETE CASCADE,
-        kind      TEXT NOT NULL,           -- menu | tag | all | cities | search | url
-        payload   TEXT,
-        label     TEXT NOT NULL DEFAULT '',
-        icon      TEXT,
-        style     TEXT,
-        html      TEXT NOT NULL DEFAULT '',
-        media_id  INTEGER REFERENCES media(id) ON DELETE SET NULL,
-        row       INTEGER NOT NULL DEFAULT 0,
-        position  INTEGER NOT NULL DEFAULT 0,
-        is_system INTEGER NOT NULL DEFAULT 0,
-        is_active INTEGER NOT NULL DEFAULT 1
-    );
-    CREATE INDEX ix_menu_items_parent ON menu_items(parent_id, row, position);
+CREATE TABLE IF NOT EXISTS ad_sends (
+    ad_id       INTEGER NOT NULL,
+    chat_id     INTEGER NOT NULL,
+    last_sent   REAL    NOT NULL,
+    message_id  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (ad_id, chat_id)
+);
 
-    CREATE TABLE tags (
-        id       INTEGER PRIMARY KEY,
-        label    TEXT NOT NULL,
-        position INTEGER NOT NULL DEFAULT 0
-    );
+CREATE TABLE IF NOT EXISTS spend (
+    day         TEXT    PRIMARY KEY,
+    usd         REAL    NOT NULL DEFAULT 0,
+    requests    INTEGER NOT NULL DEFAULT 0,
+    tok_in      INTEGER NOT NULL DEFAULT 0,
+    tok_out     INTEGER NOT NULL DEFAULT 0
+);
 
-    CREATE TABLE cities (
-        id        INTEGER PRIMARY KEY,
-        label     TEXT NOT NULL,
-        icon      TEXT,
-        style     TEXT,
-        is_main   INTEGER NOT NULL DEFAULT 0,
-        position  INTEGER NOT NULL DEFAULT 0,
-        is_active INTEGER NOT NULL DEFAULT 1
-    );
-    CREATE INDEX ix_cities_order ON cities(is_active, is_main, position);
+CREATE TABLE IF NOT EXISTS couples (
+    chat_id     INTEGER NOT NULL,
+    day         TEXT    NOT NULL,
+    user1       INTEGER NOT NULL,
+    user2       INTEGER NOT NULL,
+    PRIMARY KEY (chat_id, day)
+);
+"""
 
-    CREATE TABLE shops (
-        id         INTEGER PRIMARY KEY,
-        label      TEXT NOT NULL,
-        icon       TEXT,
-        style      TEXT,
-        html       TEXT NOT NULL DEFAULT '',
-        plain      TEXT NOT NULL DEFAULT '',
-        media_id   INTEGER REFERENCES media(id) ON DELETE SET NULL,
-        verified   INTEGER NOT NULL DEFAULT 0,
-        position   INTEGER NOT NULL DEFAULT 0,
-        is_active  INTEGER NOT NULL DEFAULT 1,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-    );
-    CREATE INDEX ix_shops_active ON shops(is_active, position);
+CHAT_FIELDS = {"bot_name", "aliases", "persona", "topic", "chance", "ai_share",
+               "cooldown", "greet", "games", "ads", "title", "active", "last_jump"}
+AD_FIELDS = {"title", "media_kind", "file_id", "text_html", "buttons", "interval",
+             "enabled", "delete_prev"}
 
-    CREATE TABLE shop_contacts (
-        id       INTEGER PRIMARY KEY,
-        shop_id  INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-        label    TEXT NOT NULL,
-        url      TEXT NOT NULL,
-        icon     TEXT,
-        style    TEXT,
-        position INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE INDEX ix_shop_contacts_shop ON shop_contacts(shop_id, position);
-
-    CREATE TABLE shop_tags (
-        shop_id    INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-        tag_id     INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-        expires_at INTEGER,
-        notified   INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY (shop_id, tag_id)
-    ) WITHOUT ROWID;
-    CREATE INDEX ix_shop_tags_tag ON shop_tags(tag_id);
-    CREATE INDEX ix_shop_tags_expires ON shop_tags(expires_at) WHERE expires_at IS NOT NULL;
-
-    CREATE TABLE shop_cities (
-        shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-        city_id INTEGER NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
-        PRIMARY KEY (shop_id, city_id)
-    ) WITHOUT ROWID;
-    CREATE INDEX ix_shop_cities_city ON shop_cities(city_id);
-
-    CREATE TABLE users (
-        id            INTEGER PRIMARY KEY,
-        username      TEXT,
-        first_name    TEXT,
-        created_at    INTEGER NOT NULL,
-        last_seen     INTEGER NOT NULL,
-        is_banned     INTEGER NOT NULL DEFAULT 0,
-        banned_until  INTEGER,
-        ban_reason    TEXT,
-        is_blocked    INTEGER NOT NULL DEFAULT 0,
-        screen_msg_id INTEGER
-    );
-    CREATE INDEX ix_users_banned ON users(is_banned) WHERE is_banned = 1;
-    CREATE INDEX ix_users_last_seen ON users(last_seen);
-    CREATE INDEX ix_users_created ON users(created_at);
-    CREATE INDEX ix_users_username ON users(username COLLATE NOCASE);
-
-    CREATE TABLE admins (
-        user_id    INTEGER PRIMARY KEY,
-        perms      TEXT NOT NULL DEFAULT '',
-        added_by   INTEGER,
-        created_at INTEGER NOT NULL
-    );
-
-    CREATE TABLE events (
-        id      INTEGER PRIMARY KEY,
-        shop_id INTEGER NOT NULL,
-        user_id INTEGER NOT NULL,
-        kind    TEXT NOT NULL,             -- view
-        ts      INTEGER NOT NULL
-    );
-    CREATE INDEX ix_events_shop_ts ON events(shop_id, ts);
-    CREATE INDEX ix_events_ts ON events(ts);
-
-    CREATE TABLE reports (
-        id         INTEGER PRIMARY KEY,
-        shop_id    INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-        user_id    INTEGER NOT NULL,
-        text       TEXT NOT NULL,
-        status     TEXT NOT NULL DEFAULT 'open',
-        created_at INTEGER NOT NULL
-    );
-    CREATE INDEX ix_reports_status ON reports(status, created_at);
-    CREATE INDEX ix_reports_user ON reports(user_id, created_at);
-
-    CREATE TABLE admin_log (
-        id       INTEGER PRIMARY KEY,
-        admin_id INTEGER NOT NULL,
-        action   TEXT NOT NULL,
-        details  TEXT NOT NULL DEFAULT '',
-        ts       INTEGER NOT NULL
-    );
-    CREATE INDEX ix_admin_log_ts ON admin_log(ts);
-    """,
-    # 2 — категории, избранное, заявки, переводы, язык пользователя, отзывы (задел)
-    """
-    CREATE TABLE categories (
-        id        INTEGER PRIMARY KEY,
-        label     TEXT NOT NULL,
-        icon      TEXT,
-        style     TEXT,
-        position  INTEGER NOT NULL DEFAULT 0,
-        is_active INTEGER NOT NULL DEFAULT 1
-    );
-
-    CREATE TABLE shop_categories (
-        shop_id     INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-        category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
-        PRIMARY KEY (shop_id, category_id)
-    ) WITHOUT ROWID;
-    CREATE INDEX ix_shop_categories_cat ON shop_categories(category_id);
-
-    CREATE TABLE favorites (
-        user_id    INTEGER NOT NULL,
-        shop_id    INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-        created_at INTEGER NOT NULL,
-        PRIMARY KEY (user_id, shop_id)
-    ) WITHOUT ROWID;
-    CREATE INDEX ix_favorites_shop ON favorites(shop_id);
-
-    -- вопросы анкеты «Разместить магазин»
-    CREATE TABLE app_fields (
-        id       INTEGER PRIMARY KEY,
-        label    TEXT NOT NULL,             -- короткое название («Название»)
-        html     TEXT NOT NULL DEFAULT '',  -- вопрос пользователю
-        kind     TEXT NOT NULL DEFAULT 'text',  -- text | media | any
-        role     TEXT NOT NULL DEFAULT '',      -- куда пойдёт в карточку: name|description|price|contacts|cities|media
-        required INTEGER NOT NULL DEFAULT 1,
-        position INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE TABLE applications (
-        id          INTEGER PRIMARY KEY,
-        user_id     INTEGER NOT NULL,
-        answers     TEXT NOT NULL,          -- JSON: [{field_id, label, role, html, plain, media_id}]
-        status      TEXT NOT NULL DEFAULT 'new',  -- new | accepted | rejected
-        shop_id     INTEGER,
-        note        TEXT,
-        reviewed_by INTEGER,
-        created_at  INTEGER NOT NULL,
-        reviewed_at INTEGER
-    );
-    CREATE INDEX ix_applications_status ON applications(status, created_at);
-    CREATE INDEX ix_applications_user ON applications(user_id, status);
-
-    -- переводы: kind/ref/field — что переводим, src_hash — от какой версии русского текста
-    CREATE TABLE translations (
-        kind     TEXT NOT NULL,
-        ref      TEXT NOT NULL,
-        field    TEXT NOT NULL,
-        lang     TEXT NOT NULL,
-        value    TEXT NOT NULL,
-        src_hash TEXT NOT NULL,
-        PRIMARY KEY (kind, ref, field, lang)
-    ) WITHOUT ROWID;
-
-    ALTER TABLE users ADD COLUMN lang TEXT;
-
-    -- отзывы: таблица заложена, логика — позже
-    CREATE TABLE reviews (
-        id         INTEGER PRIMARY KEY,
-        shop_id    INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-        user_id    INTEGER NOT NULL,
-        rating     INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
-        text       TEXT NOT NULL DEFAULT '',
-        status     TEXT NOT NULL DEFAULT 'pending',  -- pending | published | rejected
-        created_at INTEGER NOT NULL,
-        UNIQUE (shop_id, user_id)
-    );
-    CREATE INDEX ix_reviews_shop ON reviews(shop_id, status);
-    """,
-    # 3 — последний выбранный город («📍 Мой город»)
-    """
-    ALTER TABLE users ADD COLUMN last_city INTEGER;
-    """,
-    # 4 — скрытые слова для поиска у магазина
-    """
-    ALTER TABLE shops ADD COLUMN keywords TEXT NOT NULL DEFAULT '';
-    """,
-    # 5 — категории стали словами для поиска: другие написания, кнопка «Категории» в меню больше не нужна
-    """
-    ALTER TABLE categories ADD COLUMN words TEXT NOT NULL DEFAULT '';
-    DELETE FROM menu_items WHERE kind = 'categories';
-    """,
-]
+_db: aiosqlite.Connection | None = None
 
 
-class Database:
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self._conn: aiosqlite.Connection | None = None
+def today() -> str:
+    return datetime.now(config.TZ).strftime("%Y-%m-%d")
 
-    @property
-    def conn(self) -> aiosqlite.Connection:
-        assert self._conn is not None, "database is not connected"
-        return self._conn
 
-    async def connect(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = await aiosqlite.connect(self.path)
-        self._conn.row_factory = aiosqlite.Row
-        for pragma in (
-            "journal_mode=WAL",
-            "synchronous=NORMAL",
-            "foreign_keys=ON",
-            "temp_store=MEMORY",
-            "cache_size=-8000",  # ~8 МБ страничного кэша, не больше
-            "busy_timeout=5000",
-        ):
-            await self._conn.execute(f"PRAGMA {pragma}")
-        await self._migrate()
+async def connect() -> None:
+    global _db
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _db = await aiosqlite.connect(config.DB_PATH)
+    _db.row_factory = aiosqlite.Row
+    await _db.execute("PRAGMA journal_mode=WAL")
+    await _db.execute("PRAGMA synchronous=NORMAL")
+    await _db.executescript(SCHEMA)
+    await _db.commit()
+    await _seed_phrases()
 
-    async def close(self) -> None:
-        if self._conn is not None:
-            await self._conn.close()
-            self._conn = None
 
-    async def _migrate(self) -> None:
-        version = (await self.fetchval("PRAGMA user_version")) or 0
-        for number, sql in enumerate(MIGRATIONS[version:], start=version + 1):
-            log.info("Применяю миграцию %s", number)
-            await self.conn.executescript(f"BEGIN;{sql}\nPRAGMA user_version={number};COMMIT;")
+async def close() -> None:
+    if _db is not None:
+        await _db.close()
 
-    async def fetchall(self, sql: str, params: Iterable[Any] = ()) -> list[aiosqlite.Row]:
-        async with self.conn.execute(sql, tuple(params)) as cur:
-            return list(await cur.fetchall())
 
-    async def fetchone(self, sql: str, params: Iterable[Any] = ()) -> aiosqlite.Row | None:
-        async with self.conn.execute(sql, tuple(params)) as cur:
-            return await cur.fetchone()
+def conn() -> aiosqlite.Connection:
+    assert _db is not None, "база не открыта"
+    return _db
 
-    async def fetchval(self, sql: str, params: Iterable[Any] = ()) -> Any:
-        row = await self.fetchone(sql, params)
-        return row[0] if row is not None else None
 
-    async def execute(self, sql: str, params: Iterable[Any] = ()) -> int:
-        """Выполнить запрос и закоммитить. Возвращает lastrowid."""
-        cur = await self.conn.execute(sql, tuple(params))
-        await self.conn.commit()
-        return cur.lastrowid or 0
+async def _seed_phrases() -> None:
+    from bot.phrases_seed import PHRASES
+    async with conn().execute("SELECT COUNT(*) FROM phrases") as cur:
+        if (await cur.fetchone())[0]:
+            return
+    now = time.time()
+    await conn().executemany(
+        "INSERT OR IGNORE INTO phrases (kind, content, created_at) VALUES ('text', ?, ?)",
+        [(p, now) for p in PHRASES])
+    await conn().commit()
 
-    async def executemany(self, sql: str, rows: Iterable[Iterable[Any]]) -> None:
-        await self.conn.executemany(sql, [tuple(r) for r in rows])
-        await self.conn.commit()
 
-    async def script(self, sql: str) -> None:
-        await self.conn.executescript(sql)
-        await self.conn.commit()
+# ---------- чаты ----------
 
-    async def backup_to(self, target: Path) -> None:
-        """Консистентная копия базы (работает на живой базе)."""
-        target.parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(target) as dst:
-            await self.conn.backup(dst)
+async def ensure_chat(chat_id: int, title: str) -> aiosqlite.Row:
+    await conn().execute(
+        """INSERT INTO chats (chat_id, title, bot_name, persona, topic, chance, ai_share, cooldown, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(chat_id) DO UPDATE SET title = excluded.title, active = 1""",
+        (chat_id, title, config.DEFAULT_NAME, config.DEFAULT_PERSONA, config.DEFAULT_TOPIC,
+         config.DEFAULT_CHANCE, config.DEFAULT_AI_SHARE, config.DEFAULT_COOLDOWN, time.time()))
+    await conn().commit()
+    return await get_chat(chat_id)
+
+
+async def get_chat(chat_id: int) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM chats WHERE chat_id = ?", (chat_id,)) as cur:
+        return await cur.fetchone()
+
+
+async def list_chats(active_only: bool = True) -> list[aiosqlite.Row]:
+    sql = "SELECT * FROM chats" + (" WHERE active = 1" if active_only else "") + " ORDER BY title"
+    async with conn().execute(sql) as cur:
+        return list(await cur.fetchall())
+
+
+async def update_chat(chat_id: int, **fields) -> None:
+    bad = set(fields) - CHAT_FIELDS
+    if bad:
+        raise ValueError(f"неизвестные поля чата: {bad}")
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    await conn().execute(f"UPDATE chats SET {sets} WHERE chat_id = ?", (*fields.values(), chat_id))
+    await conn().commit()
+
+
+async def migrate_chat(old_id: int, new_id: int) -> None:
+    """Группа стала супергруппой: у неё новый ID."""
+    for table in ("chats", "users", "history", "ad_sends", "couples"):
+        await conn().execute(f"UPDATE OR IGNORE {table} SET chat_id = ? WHERE chat_id = ?", (new_id, old_id))
+    await conn().commit()
+
+
+# ---------- юзеры ----------
+
+async def touch_user(chat_id: int, user_id: int, name: str, username: str) -> aiosqlite.Row:
+    await conn().execute(
+        """INSERT INTO users (chat_id, user_id, name, username, msg_count, last_seen)
+           VALUES (?, ?, ?, ?, 1, ?)
+           ON CONFLICT(chat_id, user_id) DO UPDATE SET
+               name = excluded.name, username = excluded.username,
+               msg_count = msg_count + 1, last_seen = excluded.last_seen""",
+        (chat_id, user_id, name, username, time.time()))
+    await conn().commit()
+    return await get_user(chat_id, user_id)
+
+
+async def add_user_silently(chat_id: int, user_id: int, name: str, username: str) -> None:
+    """Новичок вступил: запоминаем, но сообщений у него ещё нет."""
+    await conn().execute(
+        """INSERT INTO users (chat_id, user_id, name, username, last_seen) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(chat_id, user_id) DO UPDATE SET name = excluded.name, username = excluded.username""",
+        (chat_id, user_id, name, username, time.time()))
+    await conn().commit()
+
+
+async def get_user(chat_id: int, user_id: int) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM users WHERE chat_id = ? AND user_id = ?",
+                              (chat_id, user_id)) as cur:
+        return await cur.fetchone()
+
+
+async def users_by_ids(chat_id: int, ids: list[int]) -> list[aiosqlite.Row]:
+    if not ids:
+        return []
+    marks = ",".join("?" * len(ids))
+    async with conn().execute(f"SELECT * FROM users WHERE chat_id = ? AND user_id IN ({marks})",
+                              (chat_id, *ids)) as cur:
+        return list(await cur.fetchall())
+
+
+async def active_users(chat_id: int, days: int = 7, limit: int = 300) -> list[aiosqlite.Row]:
+    """Те, кто писал за последние дни. Только из них берутся рандомы в играх."""
+    since = time.time() - days * 86400
+    async with conn().execute(
+            "SELECT * FROM users WHERE chat_id = ? AND last_seen >= ? AND msg_count > 0 "
+            "ORDER BY last_seen DESC LIMIT ?", (chat_id, since, limit)) as cur:
+        return list(await cur.fetchall())
+
+
+async def set_notes(chat_id: int, user_id: int, notes: str, at_count: int) -> None:
+    await conn().execute("UPDATE users SET notes = ?, notes_at = ? WHERE chat_id = ? AND user_id = ?",
+                         (notes, at_count, chat_id, user_id))
+    await conn().commit()
+
+
+# ---------- история ----------
+
+async def add_history(chat_id: int, message_id: int, user_id: int, name: str, text: str,
+                      reply_name: str = "", is_bot: bool = False) -> None:
+    await conn().execute(
+        "INSERT INTO history (chat_id, message_id, user_id, name, text, reply_name, is_bot, ts) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (chat_id, message_id, user_id, name, text[:1000], reply_name, int(is_bot), time.time()))
+    # держим в базе только последние HISTORY_KEEP сообщений чата
+    await conn().execute(
+        "DELETE FROM history WHERE chat_id = ? AND id <= "
+        "(SELECT id FROM history WHERE chat_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?)",
+        (chat_id, chat_id, config.HISTORY_KEEP))
+    await conn().commit()
+
+
+async def recent_history(chat_id: int, limit: int) -> list[aiosqlite.Row]:
+    async with conn().execute(
+            "SELECT * FROM history WHERE chat_id = ? ORDER BY id DESC LIMIT ?", (chat_id, limit)) as cur:
+        rows = list(await cur.fetchall())
+    rows.reverse()
+    return rows
+
+
+async def user_messages(chat_id: int, user_id: int, limit: int) -> list[str]:
+    async with conn().execute(
+            "SELECT text FROM history WHERE chat_id = ? AND user_id = ? ORDER BY id DESC LIMIT ?",
+            (chat_id, user_id, limit)) as cur:
+        rows = await cur.fetchall()
+    return [r["text"] for r in reversed(rows)]
+
+
+async def clear_memory(chat_id: int) -> None:
+    await conn().execute("DELETE FROM history WHERE chat_id = ?", (chat_id,))
+    await conn().execute("UPDATE users SET notes = '', notes_at = 0 WHERE chat_id = ?", (chat_id,))
+    await conn().commit()
+
+
+# ---------- фразы, стикеры, гифки ----------
+
+async def add_phrase(kind: str, content: str) -> bool:
+    cur = await conn().execute("INSERT OR IGNORE INTO phrases (kind, content, created_at) VALUES (?, ?, ?)",
+                               (kind, content, time.time()))
+    await conn().commit()
+    return cur.rowcount > 0
+
+
+async def random_phrase(kind: str) -> str | None:
+    async with conn().execute("SELECT content FROM phrases WHERE kind = ? ORDER BY RANDOM() LIMIT 1",
+                              (kind,)) as cur:
+        row = await cur.fetchone()
+    return row["content"] if row else None
+
+
+async def list_phrases(kind: str, offset: int, limit: int) -> tuple[list[aiosqlite.Row], int]:
+    async with conn().execute("SELECT COUNT(*) FROM phrases WHERE kind = ?", (kind,)) as cur:
+        total = (await cur.fetchone())[0]
+    async with conn().execute("SELECT * FROM phrases WHERE kind = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+                              (kind, limit, offset)) as cur:
+        return list(await cur.fetchall()), total
+
+
+async def count_phrases() -> dict[str, int]:
+    async with conn().execute("SELECT kind, COUNT(*) AS n FROM phrases GROUP BY kind") as cur:
+        return {r["kind"]: r["n"] for r in await cur.fetchall()}
+
+
+async def get_phrase(phrase_id: int) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM phrases WHERE id = ?", (phrase_id,)) as cur:
+        return await cur.fetchone()
+
+
+async def delete_phrase(phrase_id: int) -> None:
+    await conn().execute("DELETE FROM phrases WHERE id = ?", (phrase_id,))
+    await conn().commit()
+
+
+# ---------- реклама ----------
+
+async def create_ad(title: str, media_kind: str, file_id: str, text_html: str,
+                    buttons: list, interval: int) -> int:
+    cur = await conn().execute(
+        "INSERT INTO ads (title, media_kind, file_id, text_html, buttons, interval, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (title, media_kind, file_id, text_html, json.dumps(buttons, ensure_ascii=False), interval, time.time()))
+    await conn().commit()
+    return cur.lastrowid
+
+
+async def get_ad(ad_id: int) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM ads WHERE id = ?", (ad_id,)) as cur:
+        return await cur.fetchone()
+
+
+async def list_ads(enabled_only: bool = False) -> list[aiosqlite.Row]:
+    sql = "SELECT * FROM ads" + (" WHERE enabled = 1" if enabled_only else "") + " ORDER BY id"
+    async with conn().execute(sql) as cur:
+        return list(await cur.fetchall())
+
+
+async def update_ad(ad_id: int, **fields) -> None:
+    bad = set(fields) - AD_FIELDS
+    if bad:
+        raise ValueError(f"неизвестные поля рекламы: {bad}")
+    if "buttons" in fields and not isinstance(fields["buttons"], str):
+        fields["buttons"] = json.dumps(fields["buttons"], ensure_ascii=False)
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    await conn().execute(f"UPDATE ads SET {sets} WHERE id = ?", (*fields.values(), ad_id))
+    await conn().commit()
+
+
+async def delete_ad(ad_id: int) -> None:
+    await conn().execute("DELETE FROM ads WHERE id = ?", (ad_id,))
+    await conn().execute("DELETE FROM ad_sends WHERE ad_id = ?", (ad_id,))
+    await conn().commit()
+
+
+async def get_ad_send(ad_id: int, chat_id: int) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM ad_sends WHERE ad_id = ? AND chat_id = ?", (ad_id, chat_id)) as cur:
+        return await cur.fetchone()
+
+
+async def set_ad_send(ad_id: int, chat_id: int, message_id: int) -> None:
+    await conn().execute(
+        "INSERT INTO ad_sends (ad_id, chat_id, last_sent, message_id) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(ad_id, chat_id) DO UPDATE SET last_sent = excluded.last_sent, message_id = excluded.message_id",
+        (ad_id, chat_id, time.time(), message_id))
+    await conn().commit()
+
+
+# ---------- расход на ИИ ----------
+
+async def spent_today() -> float:
+    async with conn().execute("SELECT usd FROM spend WHERE day = ?", (today(),)) as cur:
+        row = await cur.fetchone()
+    return row["usd"] if row else 0.0
+
+
+async def add_spend(usd: float, tok_in: int, tok_out: int) -> None:
+    await conn().execute(
+        "INSERT INTO spend (day, usd, requests, tok_in, tok_out) VALUES (?, ?, 1, ?, ?) "
+        "ON CONFLICT(day) DO UPDATE SET usd = usd + excluded.usd, requests = requests + 1, "
+        "tok_in = tok_in + excluded.tok_in, tok_out = tok_out + excluded.tok_out",
+        (today(), usd, tok_in, tok_out))
+    await conn().commit()
+
+
+async def spend_report(days: int = 30) -> list[aiosqlite.Row]:
+    async with conn().execute("SELECT * FROM spend ORDER BY day DESC LIMIT ?", (days,)) as cur:
+        return list(await cur.fetchall())
+
+
+# ---------- игры ----------
+
+async def get_couple(chat_id: int, day: str) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM couples WHERE chat_id = ? AND day = ?", (chat_id, day)) as cur:
+        return await cur.fetchone()
+
+
+async def set_couple(chat_id: int, day: str, user1: int, user2: int) -> None:
+    await conn().execute("INSERT OR REPLACE INTO couples (chat_id, day, user1, user2) VALUES (?, ?, ?, ?)",
+                         (chat_id, day, user1, user2))
+    await conn().commit()

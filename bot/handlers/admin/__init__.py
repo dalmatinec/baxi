@@ -1,4 +1,12 @@
-from . import applications, content, i18n, menu, people, shops, system  # noqa: F401 — регистрируют экраны
-from .core import router
+"""Админка в личке с ботом. Доступна только владельцам из OWNER_IDS."""
 
-__all__ = ["router"]
+from aiogram import F, Router
+
+from bot import config
+from bot.handlers.admin import ads, chats, common, phrases
+
+router = Router(name="admin")
+_owner = F.from_user.id.in_(config.OWNER_IDS)
+router.message.filter(F.chat.type == "private", _owner)
+router.callback_query.filter(_owner)
+router.include_routers(common.router, chats.router, phrases.router, ads.router)
