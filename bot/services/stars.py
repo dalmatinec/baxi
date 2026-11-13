@@ -270,7 +270,7 @@ async def offer_full_roast(bot: Bot, chat, message: Message, author_row) -> None
     """В чате попросили «прожарь по полной»: проверяем щит и даём кнопку оплаты."""
     items = await items_map()
     item = items.get("roast_full")
-    if not item:
+    if not item or not chat["shop"]:  # магазин в чате выключен: обычная бесплатная прожарка
         return await fun.roast(bot, chat, message, author_row)
     target = await fun.roast_target(bot, chat["chat_id"], message)
     if target is None:
