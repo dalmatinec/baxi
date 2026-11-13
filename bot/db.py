@@ -386,6 +386,15 @@ async def fix_legacy_name(new_name: str) -> int:
     return len(ids)
 
 
+async def candidate_chats(user_id: int) -> list[aiosqlite.Row]:
+    """Рабочие чаты, где человек мог бы быть админом: он туда писал или сам добавил бота.
+    Права всё равно проверяются у Telegram, это только чтобы не опрашивать все чаты подряд."""
+    async with conn().execute(
+            "SELECT * FROM chats WHERE active = 1 AND approved = 1 AND (added_by = ? OR chat_id IN "
+            "(SELECT chat_id FROM users WHERE user_id = ?)) ORDER BY title", (user_id, user_id)) as cur:
+        return list(await cur.fetchall())
+
+
 async def pending_chats() -> list[aiosqlite.Row]:
     async with conn().execute("SELECT * FROM chats WHERE active = 1 AND approved = 0 AND pending_since > 0") as cur:
         return list(await cur.fetchall())

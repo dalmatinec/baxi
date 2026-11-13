@@ -99,6 +99,7 @@ _INTENTS = [
 _COMMANDS = [
     ("results", re.compile(r"^\s*(итоги|итоги дня|/results|/itogi)(@\w+)?\s*[!?.]*\s*$", re.I)),
     ("pair", re.compile(r"^\s*(пара|как вам пара|/pair)(@\w+)?\s*[!?.]*\s*$", re.I)),
+    ("settings", re.compile(r"^\s*(настройки|настройки бота|/settings)(@\w+)?\s*[!?.]*\s*$", re.I)),
     ("shop", re.compile(r"^\s*(магазин|/shop)(@\w+)?\s*[!?.]*\s*$", re.I)),
     ("summary", re.compile(r"^\s*(сводка|/summary)(@\w+)?(\s+за\s+.{1,20})?\s*[!?.]*\s*$", re.I)),
 ]

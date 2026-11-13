@@ -107,7 +107,25 @@ async def approve(bot: Bot, chat_id: int, rent_days: int = 0, announce: bool = T
                 tail_html=tail)
         except Exception:
             pass
+        await _tell_adder(bot, chat)
     return True
+
+
+async def _tell_adder(bot: Bot, chat) -> None:
+    """Тому, кто добавил бота, пишем в личку: бот работает, настроить можно в «Мои чаты»."""
+    adder = chat["added_by"]
+    if not adder or adder in config.OWNER_IDS:
+        return
+    me = await bot.me()
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+        text="⚙️ Настроить бота", url=f"https://t.me/{me.username}?start=mychats", style="primary")]])
+    try:
+        await bot.send_message(adder, f"✅ Бот теперь работает в чате «{esc(chat['title'])}»!\n\n"
+                                      "Задай ему имя, характер и тему чата, выбери, как часто он болтает и какие "
+                                      "фишки включены. Настраивать могут все админы этого чата.",
+                               parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        pass  # человек ещё не запускал бота в личке
 
 
 FAREWELLS = ["ладно, мне пора. всем пока, не скучайте 👋", "ну всё, ухожу по-английски... почти. пока, чат 👋",

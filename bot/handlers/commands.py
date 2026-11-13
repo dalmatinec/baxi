@@ -5,7 +5,7 @@ import logging
 import time
 
 from aiogram import Bot, F, Router
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot import brain, db
 from bot.middlewares import GROUPS
@@ -30,6 +30,14 @@ async def on_command(message: Message, bot: Bot, command: str, chat_row) -> None
     try:
         if command == "results":
             await _results(bot, message, chat_row, admin)
+        elif command == "settings":
+            if not admin:
+                await say(bot, chat_id, "настраивать меня могут админы чата", reply_to=message)
+                return
+            me = await bot.me()
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+                text="⚙️ Открыть настройки", url=f"https://t.me/{me.username}?start=mychats", style="primary")]])
+            await say(bot, chat_id, "настройки этого чата в личке 👇", reply_to=message, markup=kb)
         elif command == "shop":
             if chat_row["shop"]:
                 await stars.chat_shop(bot, chat_row, message)

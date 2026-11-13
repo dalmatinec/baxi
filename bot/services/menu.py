@@ -14,6 +14,8 @@ from bot.textutil import esc
 
 log = logging.getLogger(__name__)
 
+CURRENT_BOT: Bot | None = None  # нужен разделам, которые сами спрашивают Telegram (например «Мои чаты»)
+
 # экран → функция, которая возвращает дополнительные ряды кнопок (форматы рекламы, товары магазина)
 EXTRA_ROWS: dict[str, Callable[[User], Awaitable[list[list[InlineKeyboardButton]]]]] = {}
 
@@ -45,6 +47,8 @@ def make_button(b: dict, bot_username: str) -> InlineKeyboardButton:
 
 
 async def render(bot: Bot, key: str, user: User | None) -> tuple[str, str, InlineKeyboardMarkup]:
+    global CURRENT_BOT
+    CURRENT_BOT = bot
     screen = await load(key)
     me = await bot.me()
     text = screen["text"]

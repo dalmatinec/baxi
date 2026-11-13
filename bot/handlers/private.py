@@ -26,6 +26,9 @@ class SupportWrite(StatesGroup):
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot, state: FSMContext, command: CommandObject) -> None:
     await state.clear()
+    if (command.args or "").strip() == "mychats":
+        from bot.handlers.chatadmin import show_list
+        return await show_list(bot, message)
     key = START_PAYLOADS.get((command.args or "").strip(), "start")
     await menu.show(bot, message, key)
 
