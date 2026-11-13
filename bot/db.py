@@ -173,6 +173,7 @@ NEW_COLUMNS = {
         "results_hour": "INTEGER NOT NULL DEFAULT 23",
         "last_results": "TEXT NOT NULL DEFAULT ''",
         "last_pairpoll": "TEXT NOT NULL DEFAULT ''",
+        "results_manual": "REAL NOT NULL DEFAULT 0",      # когда последний раз звали «итоги»
     },
     "users": {
         "birthday": "TEXT NOT NULL DEFAULT ''",         # 'MM-DD'
@@ -185,7 +186,8 @@ NEW_COLUMNS = {
 
 CHAT_FIELDS = {"bot_name", "aliases", "persona", "topic", "chance", "ai_share",
                "cooldown", "greet", "games", "ads", "title", "active", "last_jump",
-               "pairpoll", "results", "rep", "bday", "results_hour", "last_results", "last_pairpoll"}
+               "pairpoll", "results", "rep", "bday", "results_hour", "last_results", "last_pairpoll",
+               "results_manual"}
 AD_FIELDS = {"title", "media_kind", "file_id", "text_html", "buttons", "interval",
              "enabled", "delete_prev"}
 
@@ -617,6 +619,11 @@ async def poll_counts(poll_id: int) -> tuple[int, int]:
 async def polls_to_close(older_than: float) -> list[aiosqlite.Row]:
     async with conn().execute("SELECT * FROM pair_polls WHERE closed = 0 AND created <= ?", (older_than,)) as cur:
         return list(await cur.fetchall())
+
+
+async def open_poll(chat_id: int) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM pair_polls WHERE chat_id = ? AND closed = 0 LIMIT 1", (chat_id,)) as cur:
+        return await cur.fetchone()
 
 
 async def close_poll(poll_id: int) -> None:

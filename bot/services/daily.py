@@ -24,6 +24,8 @@ POLL_CHANCE = 1 / 120       # шанс в каждую минуту, когда 
 POLL_ACTIVE_MSGS = 15       # «живой» чат: столько сообщений за последний час
 POLL_DURATION = 3600        # голосование длится час
 RESULTS_MIN_MSGS = 20       # тихий день без итогов
+MANUAL_MIN_MSGS = 5         # итоги по команде можно и при малом числе сообщений
+MANUAL_RESULTS_EVERY = 3600 # обычным участникам «итоги» не чаще раза в час на чат
 BDAY_HOUR = 10
 
 DAY_WORDS = [
@@ -122,12 +124,13 @@ async def close_polls(bot: Bot) -> None:
 
 # ---------- итоги дня ----------
 
-async def post_results(bot: Bot, chat) -> bool:
+async def post_results(bot: Bot, chat, manual: bool = False, reply_to=None) -> bool:
+    """Итоги дня. manual: вызвали командой «итоги» посреди дня, тогда хватит и 5 сообщений."""
     chat_id, day = chat["chat_id"], db.today()
     since = midnight_ts()
     people = nominations.people_from_daily(await db.daily_stats(chat_id, day), await db.reacts_by_user(chat_id, since))
     nom = nominations.nominate(people, min_msgs=10)
-    if nom.total < RESULTS_MIN_MSGS:
+    if nom.total < (MANUAL_MIN_MSGS if manual else RESULTS_MIN_MSGS):
         return False
 
     couple = await db.get_couple(chat_id, day)
@@ -148,7 +151,8 @@ async def post_results(bot: Bot, chat) -> bool:
 
     now = datetime.now(config.TZ)
     date = human_date(now.strftime("%m-%d"))
-    lines = ["🌙 <b>Итоги дня</b>",
+    title = f"📊 <b>Итоги дня на {now:%H:%M}</b>" if manual else "🌙 <b>Итоги дня</b>"
+    lines = [title,
              f"{date} · {nom.total} {plural(nom.total, MSGS)} · {nom.people} чел.", ""]
     lines += [line.replace("<b>Болтун:</b>", "<b>Болтун дня:</b>") for line in nominees_html(nom)]
     if couple:
@@ -163,7 +167,7 @@ async def post_results(bot: Bot, chat) -> bool:
                   f"<blockquote><b>{esc(top_msg['name'])}</b>\n{esc(top_msg['text'][:300])}</blockquote>"]
     word = prompts.clean_reply(str((data or {}).get("joke") or ""), chat["bot_name"]) or random.choice(DAY_WORDS)
     lines += ["", f"🕷 <b>{esc(chat['bot_name'])} о сегодняшнем дне</b>", esc(word)]
-    sent = await say(bot, chat_id, "\n".join(lines))
+    sent = await say(bot, chat_id, "\n".join(lines), reply_to=reply_to)
     await talk.remember_self(bot, chat, sent, f"[итоги дня] {word}")
     return True
 

@@ -8,7 +8,8 @@ from aiogram.types import Message
 
 from bot import brain, db
 from bot.middlewares import GROUPS, TRACKED, describe
-from bot.services import fun, memory, quiz, talk
+from bot.services import fun, memory, perms, quiz, talk
+from bot.services.out import say
 
 log = logging.getLogger(__name__)
 router = Router(name="group")
@@ -46,6 +47,9 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
     intent = brain.detect_intent(text) if act is brain.Act.AI_REPLY else None
     if intent == "quiz" and not chat_row["games"]:
         intent = None
+    if intent == "summary" and not await perms.is_admin(bot, message):
+        await say(bot, chat_id, "сводку делаю только по просьбе админов чата", reply_to=message)
+        return
     try:
         async with lock:
             if intent == "summary":

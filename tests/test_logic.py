@@ -204,3 +204,15 @@ def test_new_game_triggers():
     assert games.match("викторина")[0] == "quiz"
     assert games.match("дни рождения")[0] == "bdays"
     assert "—" not in games.HELP and "«" not in games.HELP
+
+
+def test_chat_commands():
+    assert brain.detect_command("итоги") == "results"
+    assert brain.detect_command("Итоги дня!") == "results"
+    assert brain.detect_command("/results@s_spiderman_bot") == "results"
+    assert brain.detect_command("пара") == "pair"
+    assert brain.detect_command("как вам пара?") == "pair"
+    assert brain.detect_command("сводка") == "summary"
+    assert brain.detect_command("сводка за 3 часа") == "summary"
+    assert brain.detect_command("итоги матча видел?") is None
+    assert brain.detect_command("пара минут") is None

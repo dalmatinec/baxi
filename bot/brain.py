@@ -95,6 +95,21 @@ _INTENTS = [
 ]
 
 
+_COMMANDS = [
+    ("results", re.compile(r"^\s*(итоги|итоги дня|/results|/itogi)(@\w+)?\s*[!?.]*\s*$", re.I)),
+    ("pair", re.compile(r"^\s*(пара|как вам пара|/pair)(@\w+)?\s*[!?.]*\s*$", re.I)),
+    ("summary", re.compile(r"^\s*(сводка|/summary)(@\w+)?(\s+за\s+.{1,20})?\s*[!?.]*\s*$", re.I)),
+]
+
+
+def detect_command(text: str) -> str | None:
+    """Команды без обращения: «итоги» (всем, раз в час), «пара» и «сводка» (только админам)."""
+    for name, rx in _COMMANDS:
+        if rx.match(text or ""):
+            return name
+    return None
+
+
 def detect_intent(text: str) -> str | None:
     """Что просят у бота при обращении: выжимку, прожарку, викторину, шутку. Иначе просто болтовня."""
     for name, rx in _INTENTS:
