@@ -18,10 +18,6 @@ log = logging.getLogger(__name__)
 router = Router(name="stars")
 
 
-class TitleSet(StatesGroup):
-    text = State()
-
-
 class VipLook(StatesGroup):
     emoji = State()
     nick = State()
@@ -125,29 +121,7 @@ async def on_paid(message: Message, bot: Bot, state: FSMContext) -> None:
         await notify.owners(bot, f"⚠️ Оплаченная покупка {esc(p['item'])} от {esc(name)} не выполнилась. "
                                  "Верни звёзды: /admin → Монетизация → Платежи.")
         return await message.answer("Что-то пошло не так, звёзды вернём. Если долго нет ответа: /support")
-    if result == "ask_title":
-        await state.set_state(TitleSet.text)
-        await state.update_data(chat_id=p["chat_id"])
-        return await message.answer(f"🏷 Оплачено! Придумай должность: до {stars.TITLE_MAX} символов, "
-                                    "без эмодзи. Например: Король чата")
     await message.answer(result, parse_mode="HTML")
-
-
-@router.message(TitleSet.text, F.text)
-async def on_title(message: Message, bot: Bot, state: FSMContext) -> None:
-    title = stars.clean_title(message.text)
-    if not title:
-        return await message.answer(f"Не подходит: до {stars.TITLE_MAX} символов, без эмодзи, ссылок и @. "
-                                    "Попробуй ещё раз.")
-    chat_id = (await state.get_data())["chat_id"]
-    user = message.from_user
-    try:
-        await stars.give_title(bot, chat_id, user.id, full_name(user.first_name, user.last_name), title)
-    except Exception as exc:
-        log.warning("Не выдал должность: %s", exc)
-        return await message.answer("Telegram не дал поставить такую подпись. Попробуй другой текст.")
-    await state.clear()
-    await message.answer(f"🏷 Готово! В чате ты теперь «{esc(title)}» на {stars.POS_DAYS} дней.", parse_mode="HTML")
 
 
 # ---------- вид VIP: свой премиум-эмодзи и ник у имени ----------

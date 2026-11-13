@@ -276,7 +276,7 @@ NEW_COLUMNS = {
         "rent_until": "REAL NOT NULL DEFAULT 0",          # 0 = без срока
         "rent_warned": "INTEGER NOT NULL DEFAULT 0",
         "members": "INTEGER NOT NULL DEFAULT 0",          # участников, обновляется раз в сутки
-        "shop": "INTEGER NOT NULL DEFAULT 1",             # магазин в чате (должность, мут, закреп...)
+        "shop": "INTEGER NOT NULL DEFAULT 1",             # магазин в чате (прожарка по полной)
     },
     "users": {
         "birthday": "TEXT NOT NULL DEFAULT ''",         # 'MM-DD'
