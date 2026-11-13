@@ -16,7 +16,8 @@ router = Router(name="admin-screens")
 
 STYLES = ["", "primary", "success", "danger"]
 STYLE_NAMES = {"": "обычная", "primary": "🔵 синяя", "success": "🟢 зелёная", "danger": "🔴 красная"}
-ACTIONS = {"act:support": "🆘 Поддержка", "act:add_group": "➕ Добавить в чат", "act:donors": "👑 Топ донатеров"}
+ACTIONS = {"act:support": "🆘 Поддержка", "act:add_group": "➕ Добавить в чат", "act:donors": "👑 Топ донатеров",
+           "act:rent": "💳 Оплатить аренду", "act:wl_pay": "💳 Оплатить свой бот"}
 
 
 class Edit(StatesGroup):
@@ -103,7 +104,8 @@ async def cb_text(cb: CallbackQuery, state: FSMContext) -> None:
                    "и <b>премиум-эмодзи</b> сохранятся как есть (премиум-эмодзи видны людям, только если у "
                    "владельца бота есть Telegram Premium).\n\n"
                    "Подстановки: <code>{name}</code> имя человека, <code>{chats}</code> <code>{members}</code> "
-                   "<code>{dm}</code> охват, <code>{bot}</code> юзернейм бота.",
+                   "<code>{dm}</code> охват, <code>{bot}</code> юзернейм бота, "
+                   "<code>{rent_price}</code> и <code>{wl_price}</code> цены аренды и своего бота.",
                kb([[("Отмена", f"se:o:{key}")]]))
 
 

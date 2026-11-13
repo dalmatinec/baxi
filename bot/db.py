@@ -285,6 +285,9 @@ NEW_COLUMNS = {
     "history": {
         "reply_user_id": "INTEGER NOT NULL DEFAULT 0",
     },
+    "orders": {
+        "target": "INTEGER NOT NULL DEFAULT 0",          # для аренды: id чата
+    },
     "perks": {
         "vip_until": "REAL NOT NULL DEFAULT 0",
         "emoji_id": "TEXT NOT NULL DEFAULT ''",          # премиум-эмодзи VIP у имени
@@ -895,7 +898,7 @@ async def reach() -> dict:
 # ---------- форматы рекламы и заказы ----------
 
 PRODUCT_FIELDS = {"title", "price", "days", "enabled", "sort"}
-ORDER_FIELDS = {"status", "amount", "tx", "paid_at", "next_run", "runs_left", "result", "media_kind", "file_id",
+ORDER_FIELDS = {"target", "status", "amount", "tx", "paid_at", "next_run", "runs_left", "result", "media_kind", "file_id",
                 "text_html", "buttons"}
 
 
@@ -906,6 +909,21 @@ async def seed_products(defaults: list[tuple]) -> None:
     await conn().executemany("INSERT INTO ad_products (kind, title, price, days, sort) VALUES (?, ?, ?, ?, ?)",
                              defaults)
     await conn().commit()
+
+
+async def ensure_product(kind: str, title: str, price: float, days: int, sort: int) -> None:
+    """Добавить формат, если такого ещё нет (для аренды и своего бота в уже работающей базе)."""
+    async with conn().execute("SELECT 1 FROM ad_products WHERE kind = ?", (kind,)) as cur:
+        if await cur.fetchone():
+            return
+    await conn().execute("INSERT INTO ad_products (kind, title, price, days, sort) VALUES (?, ?, ?, ?, ?)",
+                         (kind, title, price, days, sort))
+    await conn().commit()
+
+
+async def product_by_kind(kind: str) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM ad_products WHERE kind = ? ORDER BY id LIMIT 1", (kind,)) as cur:
+        return await cur.fetchone()
 
 
 async def products(enabled_only: bool = True) -> list[aiosqlite.Row]:
@@ -928,12 +946,13 @@ async def update_product(pid: int, **fields) -> None:
 
 
 async def create_order(user_id: int, user_name: str, kind: str, title: str, price: float, days: int,
-                       media_kind: str, file_id: str, text_html: str, buttons: list, status: str) -> int:
+                       media_kind: str, file_id: str, text_html: str, buttons: list, status: str,
+                       target: int = 0) -> int:
     cur = await conn().execute(
         "INSERT INTO orders (user_id, user_name, kind, title, price, days, media_kind, file_id, text_html, buttons, "
-        "status, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "status, created, target) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (user_id, user_name, kind, title, price, days, media_kind, file_id, text_html,
-         json.dumps(buttons, ensure_ascii=False), status, time.time()))
+         json.dumps(buttons, ensure_ascii=False), status, time.time(), target))
     await conn().commit()
     return cur.lastrowid
 

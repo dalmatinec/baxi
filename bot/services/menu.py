@@ -51,6 +51,10 @@ async def render(bot: Bot, key: str, user: User | None) -> tuple[str, str, Inlin
     values = {"name": esc(user.first_name if user else ""), "bot": me.username or ""}
     if any(f"{{{k}}}" in text for k in ("chats", "members", "dm")):
         values.update({k: f"{v:,}".replace(",", " ") for k, v in (await db.reach()).items()})
+    for key_, kind in (("rent_price", "rent"), ("wl_price", "wl")):
+        if f"{{{key_}}}" in text:
+            product = await db.product_by_kind(kind)
+            values[key_] = f"{product['price']:g}" if product else "?"
     text = screens.fill(text, values)
 
     button_rows = [[make_button(b, me.username or "") for b in row] for row in screens.rows(screen["buttons"])]

@@ -134,3 +134,20 @@ async def greet(bot: Bot, chat, user_id: int, name: str, thread: int | None = No
         text = random.choice(GREETINGS).format(name=name)
         html_text = esc(text).replace(esc(name), mention(user_id, name), 1)
     await send_text(bot, chat, html_text, text, thread=thread)
+
+
+async def in_character(bot: Bot, chat_id: int, situation: str, fallbacks: list[str], tail_html: str = "",
+                       markup=None) -> None:
+    """Сказать в чат что-то служебное, но в образе персонажа: ИИ пишет реплику по ситуации и характеру.
+    Не вышло (нет ИИ или лимит): берём одну из заготовок. tail_html добавляется в конце как есть."""
+    chat = await db.get_chat(chat_id)
+    text = None
+    if chat:
+        system = prompts.system_prompt(chat["bot_name"], chat["persona"], chat["topic"], chat["title"] or "", [])
+        answer = await ai.chat([{"role": "system", "content": system}, {"role": "user", "content": situation}],
+                               max_tokens=160)
+        text = prompts.clean_reply(answer or "", chat["bot_name"])
+    text = text or random.choice(fallbacks)
+    sent = await say(bot, chat_id, esc(text) + (f"\n\n{tail_html}" if tail_html else ""), markup=markup)
+    if chat:
+        await remember_self(bot, chat, sent, text)

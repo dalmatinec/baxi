@@ -29,7 +29,8 @@ def _kb(rows: list[list[tuple]]) -> InlineKeyboardMarkup:
 async def product_rows(user: User) -> list[list[InlineKeyboardButton]]:
     return [[InlineKeyboardButton(text=f"{p['title']} · ${p['price']:g}", callback_data=f"ao:p:{p['id']}",
                                   style="primary")]
-            for p in await db.products() if p["kind"] != "pin_channel" or config.AD_CHANNEL_ID]
+            for p in await db.products()
+            if p["kind"] not in adorders.SERVICE_KINDS and (p["kind"] != "pin_channel" or config.AD_CHANNEL_ID)]
 
 
 menu.EXTRA_ROWS["ads"] = product_rows
@@ -155,3 +156,71 @@ async def cb_check(cb: CallbackQuery, bot: Bot) -> None:
                         show_alert=True)
     else:
         await cb.answer("✅ Оплата найдена!")
+
+
+# ---------- оплата аренды и своего бота криптой ----------
+
+async def _my_chats(bot: Bot, user_id: int) -> list:
+    """Чаты, где есть бот и где этот человек админ или создатель."""
+    out = []
+    for chat in (await db.list_chats(active_only=False))[:60]:
+        if not chat["active"]:
+            continue
+        try:
+            member = await bot.get_chat_member(chat["chat_id"], user_id)
+        except Exception:
+            continue
+        if member.status in ("administrator", "creator"):
+            out.append(chat)
+    return out
+
+
+async def _service_order(bot: Bot, cb: CallbackQuery, kind: str, title: str, target: int = 0) -> None:
+    product = await db.product_by_kind(kind)
+    if not product or not product["enabled"]:
+        return await cb.answer("Сейчас это недоступно, напиши в поддержку", show_alert=True)
+    user = cb.from_user
+    name = full_name(user.first_name, user.last_name) + (f" @{user.username}" if user.username else "")
+    oid = await db.create_order(user.id, name, kind, title, product["price"], product["days"], "", "", "", [],
+                                "awaiting", target=target)
+    await cb.answer()
+    await adorders.start_payment(bot, oid)
+
+
+@router.callback_query(F.data == "act:rent")
+async def cb_rent(cb: CallbackQuery, bot: Bot) -> None:
+    await cb.answer("Ищу твои чаты…")
+    chats = await _my_chats(bot, cb.from_user.id)
+    me = await bot.me()
+    product = await db.product_by_kind("rent")
+    price = f"{product['price']:g}$" if product else ""
+    if not chats:
+        return await cb.message.answer(
+            "Сначала добавь меня в свой чат кнопкой ниже, потом вернись сюда и снова нажми Оплатить аренду. "
+            "Оплатить можно только за чат, где ты админ.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="➕ Выбрать чат", url=f"https://t.me/{me.username}?startgroup=true",
+                                      style="success")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="sc:add")]]))
+    rows = [[(f"💬 {c['title'][:40] or c['chat_id']}", f"rt:{c['chat_id']}", "primary")] for c in chats]
+    await cb.message.answer(f"📅 <b>Аренда на 30 дней · {price}</b>\n\nЗа какой чат платишь?", parse_mode="HTML",
+                            reply_markup=_kb(rows + [[("⬅️ Назад", "sc:add")]]))
+
+
+@router.callback_query(F.data.startswith("rt:"))
+async def cb_rent_chat(cb: CallbackQuery, bot: Bot) -> None:
+    chat_id = int(cb.data[3:])
+    chat = await db.get_chat(chat_id)
+    try:
+        member = await bot.get_chat_member(chat_id, cb.from_user.id)
+        allowed = member.status in ("administrator", "creator")
+    except Exception:
+        allowed = False
+    if not chat or not allowed:
+        return await cb.answer("Платить можно только за чат, где ты админ", show_alert=True)
+    await _service_order(bot, cb, "rent", f"Аренда: {chat['title'][:40]}", target=chat_id)
+
+
+@router.callback_query(F.data == "act:wl_pay")
+async def cb_wl_pay(cb: CallbackQuery, bot: Bot) -> None:
+    await _service_order(bot, cb, "wl", "Свой бот")

@@ -233,6 +233,6 @@ async def cb_approval(cb: CallbackQuery) -> None:
         await db.update_chat(chat_id, rent_until=0, rent_warned=0)
         await cb.answer("♾ Теперь без срока")
     elif action == "no":
-        await approval.leave(bot, chat_id, "всем пока, ухожу 👋")
+        await approval.leave(bot, chat_id, "Хозяин попросил тебя уйти из этого чата.")
         await cb.answer("🚪 Вышел из чата")
     await _section(cb, chat_id, "rent")

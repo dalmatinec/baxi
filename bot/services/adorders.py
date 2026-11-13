@@ -28,7 +28,12 @@ DEFAULT_PRODUCTS = [
     ("pin_channel", "📌 Закреп в канале на сутки", 15, 1, 3),
     ("dm", "✉️ Рассылка в личку бота", 15, 1, 4),
 ]
+# не реклама, а оплата аренды и своего бота: продаются через те же заказы и ту же оплату USDT
+SERVICE_PRODUCTS = [("rent", "📅 Аренда бота на 30 дней", 50, 30, 20), ("wl", "💼 Свой бот", 100, 1, 21)]
+SERVICE_KINDS = {"rent", "wl"}
 KIND_TEXT = {
+    "rent": "бот в твоём чате на 30 дней, со своим характером и всеми фишками",
+    "wl": "свой бот: исходный код, любые настройки, установка на твой сервер",
     "groups": "пост выходит во всех чатах сети, где включена реклама",
     "pin_groups": "пост выходит во всех чатах сети и висит в закрепе сутки",
     "pin_channel": "пост в канале с закрепом на сутки",
@@ -102,6 +107,12 @@ async def approve(bot: Bot, order_id: int) -> None:
     order = await db.get_order(order_id)
     if not order or order["status"] != "moderation":
         return
+    await start_payment(bot, order_id)
+
+
+async def start_payment(bot: Bot, order_id: int) -> None:
+    """Выставить счёт: точная сумма и адреса. Без адресов: оплата через поддержку."""
+    order = await db.get_order(order_id)
     if not can_pay():
         await db.update_order(order_id, status="awaiting", next_run=time.time() + PAY_HOURS * 3600)
         await _tell(bot, order["user_id"], f"✅ Заказ #{order_id} одобрен! Как оплатить, напишет поддержка.",
@@ -295,8 +306,45 @@ async def broadcast_dm(bot: Bot, order) -> tuple[int, int]:
     return ok, fail
 
 
+async def run_service(bot: Bot, order) -> None:
+    """Оплачена аренда или свой бот."""
+    oid = order["id"]
+    if order["kind"] == "rent":
+        from bot.services import approval
+        chat = await db.get_chat(order["target"])
+        if not chat:
+            await db.update_order(oid, status="done", result="чат не найден, разобраться вручную")
+            await notify.owners(bot, f"⚠️ Аренда #{oid} оплачена, но чат не найден. Свяжись с заказчиком.")
+            return
+        await approval.approve(bot, chat["chat_id"], rent_days=order["days"] or 30,
+                               announce=not chat["approved"] or not chat["active"])
+        chat = await db.get_chat(chat["chat_id"])
+        until = approval.until_text(chat["rent_until"])
+        await db.update_order(oid, status="done", result=f"аренда до {until}")
+        await _tell(bot, order["user_id"], f"✅ Аренда оплачена! Бот работает в «{esc(chat['title'])}» до {until}. "
+                                           "За 3 дня до конца напомню продлить.")
+        await notify.owners(bot, f"📅 Аренда в «{esc(chat['title'])}» оплачена до {until} ({esc(order['user_name'])})")
+        return
+    await db.update_order(oid, status="done", result="оплачено, ждёт установки")
+    await _tell(bot, order["user_id"], "✅ Оплата получена! Скоро с тобой свяжутся, чтобы настроить твоего бота. "
+                                       "Можешь сразу написать пожелания: имя, характер, для каких чатов.",
+                InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+                    text="📝 Написать пожелания", callback_data="act:support:свой бот", style="primary")]]))
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+        text="✍️ Написать заказчику", callback_data=f"sup:{order['user_id']}", style="primary")]])
+    for owner in config.OWNER_IDS:
+        try:
+            await bot.send_message(owner, f"💼 <b>Оплачен свой бот</b> (заказ #{oid})\nЗаказчик: "
+                                          f"{esc(order['user_name'])} (<code>{order['user_id']}</code>)",
+                                   parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            pass
+
+
 async def run_order(bot: Bot, order) -> None:
     kind, oid = order["kind"], order["id"]
+    if kind in SERVICE_KINDS:
+        return await run_service(bot, order)
     await db.update_order(oid, status="running")
     parts = []
     try:
@@ -357,6 +405,8 @@ async def tick(bot: Bot) -> None:
 
 async def run_scheduler(bot: Bot) -> None:
     await db.seed_products(DEFAULT_PRODUCTS)
+    for product in SERVICE_PRODUCTS:
+        await db.ensure_product(*product)
     while True:
         try:
             await tick(bot)
