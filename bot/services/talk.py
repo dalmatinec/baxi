@@ -40,7 +40,9 @@ async def context(chat) -> tuple[str, str]:
     rows = await db.recent_history(chat["chat_id"], config.CONTEXT_MESSAGES)
     ids = list(dict.fromkeys(r["user_id"] for r in rows if not r["is_bot"]))[-8:]
     users = await db.users_by_ids(chat["chat_id"], ids)
+    vips = await db.vip_ids(ids)
     notes = [f"{u['name']}: {u['notes']}" for u in users if u["notes"]]
+    notes += [f"{u['name']}: VIP чата, обращайся к нему с шутливым уважением" for u in users if u["user_id"] in vips]
     system = prompts.system_prompt(chat["bot_name"], chat["persona"], chat["topic"],
                                    chat["title"] or "без названия", notes)
     return system, prompts.format_history(rows, chat["bot_name"])

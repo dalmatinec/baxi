@@ -9,7 +9,7 @@ from aiogram.types import Message
 
 from bot import brain, db
 from bot.middlewares import GROUPS
-from bot.services import daily, fun, perms, talk
+from bot.services import daily, fun, perms, stars, talk
 from bot.services.out import say
 
 log = logging.getLogger(__name__)
@@ -30,6 +30,9 @@ async def on_command(message: Message, bot: Bot, command: str, chat_row) -> None
     try:
         if command == "results":
             await _results(bot, message, chat_row, admin)
+        elif command == "shop":
+            if chat_row["shop"]:
+                await stars.chat_shop(bot, chat_row, message)
         elif command == "pair":
             await _pair(bot, message, chat_row, admin)
         elif command == "summary":
@@ -45,7 +48,7 @@ async def on_command(message: Message, bot: Bot, command: str, chat_row) -> None
 async def _results(bot: Bot, message: Message, chat, admin: bool) -> None:
     chat_id = message.chat.id
     wait = daily.MANUAL_RESULTS_EVERY - (time.time() - chat["results_manual"])
-    if not admin and wait > 0:
+    if not admin and wait > 0 and not await stars.is_vip(message.from_user.id):
         minutes = max(1, round(wait / 60))
         await say(bot, chat_id, f"итоги уже подводили недавно, следующие можно через {minutes} мин",
                   reply_to=message)

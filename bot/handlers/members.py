@@ -7,8 +7,9 @@ from aiogram.types import ChatMemberUpdated, Message
 
 from bot import db, notify
 from bot.middlewares import GROUPS
-from bot.services import approval, talk
-from bot.textutil import esc, full_name
+from bot.services import approval, stars, talk
+from bot.services.out import say
+from bot.textutil import esc, full_name, mention
 
 log = logging.getLogger(__name__)
 router = Router(name="members")
@@ -23,6 +24,13 @@ async def on_join(message: Message, bot: Bot, chat_row=None) -> None:
             continue
         name = full_name(user.first_name, user.last_name)
         await db.add_user_silently(message.chat.id, user.id, name, user.username or "")
+        if await stars.is_vip(user.id):
+            try:
+                await say(bot, message.chat.id, f"👑 Внимание, чат! К нам зашёл VIP {mention(user.id, name)}. "
+                                                "Встаём, улыбаемся 🎉", thread=talk.thread_of(message))
+            except Exception:
+                pass
+            continue
         if not chat_row["greet"]:
             continue
         try:

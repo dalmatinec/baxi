@@ -11,7 +11,7 @@ from aiogram import Bot
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot import ai, config, db, games, nominations, prompts
-from bot.services import approval, license, talk
+from bot.services import approval, license, stars, talk
 from bot.services.fun import nominees_html, rude_line
 from bot.services.out import say
 from bot.textutil import MSGS, REACTS, esc, human_date, mention, plural
@@ -211,6 +211,7 @@ async def tick(bot: Bot) -> None:
         except Exception:
             log.exception("Плановая задача в чате %s не выполнилась", chat["chat_id"])
     await close_polls(bot)
+    await stars.expire_titles(bot)
     await approval.tick(bot)
     await license.tick(bot)
     await license.remind_main(bot)

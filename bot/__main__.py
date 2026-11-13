@@ -9,6 +9,7 @@ from aiogram.types import BotCommand, BotCommandScopeAllGroupChats, BotCommandSc
 
 from bot import ai, config, db, handlers
 from bot.middlewares import GroupTracker
+from bot.services.out import sanitize_requests
 from bot.services import adorders, ads, daily
 
 log = logging.getLogger("bot")
@@ -23,6 +24,7 @@ async def main() -> None:
 
     await db.connect()
     bot = Bot(config.BOT_TOKEN)
+    bot.session.middleware(sanitize_requests)  # никаких длинных тире и ёлочек ни в одном сообщении
     dp = Dispatcher(storage=MemoryStorage())
     dp.message.outer_middleware(GroupTracker())
     dp.include_router(handlers.setup())

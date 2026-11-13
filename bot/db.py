@@ -233,6 +233,14 @@ CREATE TABLE IF NOT EXISTS perks (
     shield_until REAL   NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS chat_titles (
+    chat_id     INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    title       TEXT    NOT NULL,
+    until       REAL    NOT NULL,                -- когда снять должность
+    PRIMARY KEY (chat_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS dm_users (
     user_id     INTEGER PRIMARY KEY,
     name        TEXT    NOT NULL DEFAULT '',
@@ -268,6 +276,7 @@ NEW_COLUMNS = {
         "rent_until": "REAL NOT NULL DEFAULT 0",          # 0 = без срока
         "rent_warned": "INTEGER NOT NULL DEFAULT 0",
         "members": "INTEGER NOT NULL DEFAULT 0",          # участников, обновляется раз в сутки
+        "shop": "INTEGER NOT NULL DEFAULT 1",             # магазин в чате (должность, мут, закреп...)
     },
     "users": {
         "birthday": "TEXT NOT NULL DEFAULT ''",         # 'MM-DD'
@@ -276,12 +285,16 @@ NEW_COLUMNS = {
     "history": {
         "reply_user_id": "INTEGER NOT NULL DEFAULT 0",
     },
+    "perks": {
+        "vip_until": "REAL NOT NULL DEFAULT 0",
+    },
 }
 
 CHAT_FIELDS = {"bot_name", "aliases", "persona", "topic", "chance", "ai_share",
                "cooldown", "greet", "games", "ads", "title", "active", "last_jump",
                "pairpoll", "results", "rep", "bday", "results_hour", "last_results", "last_pairpoll",
-               "results_manual", "approved", "pending_since", "added_by", "rent_until", "rent_warned", "members"}
+               "results_manual", "approved", "pending_since", "added_by", "rent_until", "rent_warned", "members",
+               "shop"}
 AD_FIELDS = {"title", "media_kind", "file_id", "text_html", "buttons", "interval",
              "enabled", "delete_prev"}
 
@@ -978,6 +991,9 @@ async def delete_pin(pin_id: int) -> None:
 # ---------- магазин за звёзды ----------
 
 async def seed_shop(defaults: list[tuple]) -> None:
+    keys = [d[0] for d in defaults]
+    # товары, которых больше нет в магазине, убираем
+    await conn().execute(f"DELETE FROM shop_items WHERE key NOT IN ({','.join('?' * len(keys))})", keys)
     await conn().executemany("INSERT OR IGNORE INTO shop_items (key, title, stars, sort) VALUES (?, ?, ?, ?)",
                              defaults)
     await conn().commit()
@@ -1045,7 +1061,7 @@ async def get_perks(user_id: int) -> aiosqlite.Row | None:
 
 
 async def set_perks(user_id: int, **fields) -> None:
-    if set(fields) - {"title", "title_until", "shield_until"}:
+    if set(fields) - {"title", "title_until", "shield_until", "vip_until"}:
         raise ValueError("неизвестные поля")
     await conn().execute("INSERT OR IGNORE INTO perks (user_id) VALUES (?)", (user_id,))
     sets = ", ".join(f"{k} = ?" for k in fields)
@@ -1065,3 +1081,40 @@ async def active_titles(user_ids: list[int]) -> dict[int, str]:
 async def chat_user_ids(chat_id: int) -> list[int]:
     async with conn().execute("SELECT user_id FROM users WHERE chat_id = ?", (chat_id,)) as cur:
         return [r[0] for r in await cur.fetchall()]
+
+
+async def vip_ids(user_ids: list[int]) -> set[int]:
+    if not user_ids:
+        return set()
+    marks = ",".join("?" * len(user_ids))
+    async with conn().execute(f"SELECT user_id FROM perks WHERE user_id IN ({marks}) AND vip_until > ?",
+                              (*user_ids, time.time())) as cur:
+        return {r[0] for r in await cur.fetchall()}
+
+
+async def set_chat_title(chat_id: int, user_id: int, title: str, until: float) -> None:
+    await conn().execute("INSERT OR REPLACE INTO chat_titles (chat_id, user_id, title, until) VALUES (?, ?, ?, ?)",
+                         (chat_id, user_id, title, until))
+    await conn().commit()
+
+
+async def get_chat_title(chat_id: int, user_id: int) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM chat_titles WHERE chat_id = ? AND user_id = ?",
+                              (chat_id, user_id)) as cur:
+        return await cur.fetchone()
+
+
+async def expired_titles(now: float) -> list[aiosqlite.Row]:
+    async with conn().execute("SELECT * FROM chat_titles WHERE until <= ?", (now,)) as cur:
+        return list(await cur.fetchall())
+
+
+async def delete_chat_title(chat_id: int, user_id: int) -> None:
+    await conn().execute("DELETE FROM chat_titles WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
+    await conn().commit()
+
+
+async def stars_total(since: float = 0) -> int:
+    async with conn().execute("SELECT COALESCE(SUM(stars), 0) FROM star_payments WHERE refunded = 0 AND ts >= ?",
+                              (since,)) as cur:
+        return (await cur.fetchone())[0]

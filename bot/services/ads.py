@@ -46,7 +46,16 @@ def extract_post(message: Message) -> tuple[str, str, str] | str:
 
 
 async def send_ad(bot: Bot, ad, chat_id: int) -> int:
-    """Отправляет пост в чат и возвращает id сообщения."""
+    """Отправляет пост в чат и возвращает id сообщения. Текст рекламы отправляется как есть."""
+    from bot.services.out import RAW
+    token = RAW.set(True)
+    try:
+        return await _send_ad(bot, ad, chat_id)
+    finally:
+        RAW.reset(token)
+
+
+async def _send_ad(bot: Bot, ad, chat_id: int) -> int:
     kb = markup(ad["buttons"])
     text = ad["text_html"] or None
     kind = ad["media_kind"]
