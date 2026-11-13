@@ -10,8 +10,18 @@ def esc(text: str) -> str:
     return html.escape(text or "", quote=False)
 
 
+# Вид VIP-участников: user_id → (id премиум-эмодзи, запасной эмодзи, ник). Заполняет services/stars.refresh_looks
+VIP_LOOK: dict[int, tuple[str, str, str]] = {}
+
+
 def mention(user_id: int, name: str) -> str:
-    return f'<a href="tg://user?id={user_id}">{esc(name) or "аноним"}</a>'
+    """Кликабельное имя. У VIP: свой премиум-эмодзи (или 👑) и жирный ник, который он задал сам."""
+    look = VIP_LOOK.get(user_id)
+    if look is None:
+        return f'<a href="tg://user?id={user_id}">{esc(name) or "аноним"}</a>'
+    emoji_id, alt, nick = look
+    icon = f'<tg-emoji emoji-id="{emoji_id}">{esc(alt or "👑")}</tg-emoji>' if emoji_id else "👑"
+    return f'{icon} <b><a href="tg://user?id={user_id}">{esc(nick or name) or "аноним"}</a></b>'
 
 
 def full_name(first: str | None, last: str | None) -> str:

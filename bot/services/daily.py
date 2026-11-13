@@ -100,7 +100,7 @@ async def close_polls(bot: Bot) -> None:
     for poll in await db.polls_to_close(time.time() - POLL_DURATION):
         await db.close_poll(poll["id"])
         yes, no = await db.poll_counts(poll["id"])
-        a, b = poll["name1"], poll["name2"]
+        a, b = mention(poll["user1"], poll["name1"]), mention(poll["user2"], poll["name2"])
         if yes + no == 0:
             verdict = "никто не проголосовал. чат, вам что, всё равно на любовь?"
         elif yes > no:
@@ -117,7 +117,7 @@ async def close_polls(bot: Bot) -> None:
         except Exception:
             pass
         try:
-            await say(bot, poll["chat_id"], f"🗳 <b>Голосование закрыто</b>\n💘 {yes} против 🙅 {no}\n\n{esc(verdict)}")
+            await say(bot, poll["chat_id"], f"🗳 <b>Голосование закрыто</b>\n💘 {yes} против 🙅 {no}\n\n{verdict}")
         except Exception as exc:
             log.warning("Итог пары не отправился в %s: %s", poll["chat_id"], exc)
 
@@ -164,7 +164,7 @@ async def post_results(bot: Bot, chat, manual: bool = False, reply_to=None) -> b
         lines.append(rude)
     if top_msg:
         lines += ["", f"🔥 <b>Сообщение дня</b> · {top_msg['total']} {plural(top_msg['total'], REACTS)}",
-                  f"<blockquote><b>{esc(top_msg['name'])}</b>\n{esc(top_msg['text'][:300])}</blockquote>"]
+                  f"<blockquote>{mention(top_msg['user_id'], top_msg['name'])}\n{esc(top_msg['text'][:300])}</blockquote>"]
     word = prompts.clean_reply(str((data or {}).get("joke") or ""), chat["bot_name"]) or random.choice(DAY_WORDS)
     lines += ["", f"🕷 <b>{esc(chat['bot_name'])} о сегодняшнем дне</b>", esc(word)]
     sent = await say(bot, chat_id, "\n".join(lines), reply_to=reply_to)
@@ -212,6 +212,7 @@ async def tick(bot: Bot) -> None:
             log.exception("Плановая задача в чате %s не выполнилась", chat["chat_id"])
     await close_polls(bot)
     await stars.expire_titles(bot)
+    await stars.refresh_looks()
     await approval.tick(bot)
     await license.tick(bot)
     await license.remind_main(bot)

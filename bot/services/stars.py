@@ -18,7 +18,7 @@ from aiogram.types import ChatPermissions, InlineKeyboardButton, InlineKeyboardM
 from bot import ai, db, prompts
 from bot.services import fun, talk
 from bot.services.out import say
-from bot.textutil import esc, mention
+from bot.textutil import VIP_LOOK, esc, mention
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +49,8 @@ DESCRIPTIONS = {
     "pin": f"Сообщение висит в закрепе {PIN_HOURS} часа.",
     "pair": "Ты и выбранный человек становитесь парой дня в этом чате.",
     "roast_full": "Жёсткая смешная прожарка выбранного человека прямо в чате.",
-    "vip": "Корона 👑 в топах и итогах во всех чатах, особое приветствие при входе, итоги без лимита. 30 дней.",
+    "vip": "Свой премиум-эмодзи и жирный ник у имени везде, где бот тебя упоминает, особое приветствие "
+           "при входе, итоги без лимита. 30 дней.",
     "shield": "7 дней тебя нельзя замутить и прожарить ни в одном чате.",
 }
 
@@ -76,12 +77,35 @@ async def is_vip(user_id: int) -> bool:
 
 
 async def decorate(rows, name_key: str = "name") -> dict[int, str]:
-    """Имя для топов: 👑 у VIP и титул, если есть. {user_id: '👑 Аня · Королева'}."""
-    ids = [r["user_id"] for r in rows]
-    titles = await db.active_titles(ids)
-    vips = await db.vip_ids(ids)
-    return {r["user_id"]: ("👑 " if r["user_id"] in vips else "") + r[name_key]
-            + (f" · {titles[r['user_id']]}" if r["user_id"] in titles else "") for r in rows}
+    """Имя для топов с титулом, если есть. Вид VIP (эмодзи, ник) добавляет сам mention()."""
+    titles = await db.active_titles([r["user_id"] for r in rows])
+    return {r["user_id"]: r[name_key] + (f" · {titles[r['user_id']]}" if r["user_id"] in titles else "")
+            for r in rows}
+
+
+async def refresh_looks() -> None:
+    """Перечитать вид всех действующих VIP: после покупки, смены эмодзи или ника и раз в минуту."""
+    looks = {r["user_id"]: (r["emoji_id"], r["emoji_alt"], r["nick"]) for r in await db.vip_looks()}
+    VIP_LOOK.clear()
+    VIP_LOOK.update(looks)
+
+
+def custom_emoji(message: Message) -> tuple[str, str] | None:
+    """Первый премиум-эмодзи в сообщении: (id, сам символ). Смещения в Telegram считаются в UTF-16."""
+    text = message.text or message.caption or ""
+    raw = text.encode("utf-16-le")
+    for ent in message.entities or message.caption_entities or []:
+        if ent.type == "custom_emoji" and ent.custom_emoji_id:
+            alt = raw[ent.offset * 2:(ent.offset + ent.length) * 2].decode("utf-16-le", errors="ignore")
+            return ent.custom_emoji_id, alt or "👑"
+    return None
+
+
+def clean_nick(text: str) -> str | None:
+    nick = " ".join((text or "").split())
+    if not nick or len(nick) > 24 or "http" in nick.lower() or "@" in nick or "t.me" in nick.lower():
+        return None
+    return nick
 
 
 # ---------- магазин в чате ----------
@@ -179,7 +203,9 @@ async def apply(bot: Bot, raw_payload: str, buyer_id: int, buyer_name: str) -> s
     if item == "vip":
         start = max(now, perks["vip_until"] if perks else 0)
         await db.set_perks(buyer_id, vip_until=start + VIP_DAYS * 86400)
-        return f"👑 Ты VIP на {VIP_DAYS} дней! Корона уже в топах."
+        await refresh_looks()
+        return (f"👑 Ты VIP на {VIP_DAYS} дней!\n\nНастрой свой вид: премиум-эмодзи и ник, которые будут "
+                "у твоего имени везде, где бот тебя упоминает. Меню → Магазин → Мой VIP.")
     if item == "shield":
         start = max(now, perks["shield_until"] if perks else 0)
         await db.set_perks(buyer_id, shield_until=start + SHIELD_DAYS * 86400)
@@ -207,7 +233,7 @@ async def apply(bot: Bot, raw_payload: str, buyer_id: int, buyer_name: str) -> s
         await say(bot, chat_id, f"💘 {buyer} купил себе пару дня: {buyer} + {target_html} = ❤️")
         return "💘 Теперь вы пара дня."
     if item == "roast_full":
-        await do_full_roast(bot, chat_id, target, buyer_name)
+        await do_full_roast(bot, chat_id, target, buyer_name, buyer_id)
         return "🔥 Жарю в чате!"
     return "Готово."
 
@@ -252,7 +278,8 @@ async def offer_full_roast(bot: Bot, chat, message: Message, author_row) -> None
                   reply_to=message)
         return
     if await shielded(target["user_id"]):
-        await say(bot, chat["chat_id"], f"у {esc(target['name'])} щит 🛡, не пробить", reply_to=message)
+        await say(bot, chat["chat_id"], f"у {mention(target['user_id'], target['name'])} щит 🛡, не пробить",
+                  reply_to=message)
         return
     link = await bot.create_invoice_link(
         title="🔥 Прожарка по полной", description=f"Жёсткая прожарка: {target['name']}"[:255], currency="XTR",
@@ -264,7 +291,7 @@ async def offer_full_roast(bot: Bot, chat, message: Message, author_row) -> None
                                     f"стоит {item['stars']} ⭐. жми, и я начну", reply_to=message, markup=kb)
 
 
-async def do_full_roast(bot: Bot, chat_id: int, target_id: int, buyer_name: str) -> None:
+async def do_full_roast(bot: Bot, chat_id: int, target_id: int, buyer_name: str, buyer_id: int = 0) -> None:
     chat = await db.get_chat(chat_id)
     target = await db.get_user(chat_id, target_id)
     if not chat or not target:
@@ -279,4 +306,5 @@ async def do_full_roast(bot: Bot, chat_id: int, target_id: int, buyer_name: str)
     text = prompts.clean_reply(answer or "", chat["bot_name"], limit=1500) or \
         f"{target['name']}, я хотел тебя прожарить, но ты и так уже угли"
     await say(bot, chat_id, f"🔥🔥🔥 <b>Прожарка по полной:</b> {mention(target_id, target['name'])}\n"
-                            f"<i>заказал {esc(buyer_name)}</i>\n\n{esc(text)}")
+                            f"<i>заказал {mention(buyer_id, buyer_name) if buyer_id else esc(buyer_name)}</i>"
+                            f"\n\n{esc(text)}")

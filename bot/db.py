@@ -287,6 +287,9 @@ NEW_COLUMNS = {
     },
     "perks": {
         "vip_until": "REAL NOT NULL DEFAULT 0",
+        "emoji_id": "TEXT NOT NULL DEFAULT ''",          # премиум-эмодзи VIP у имени
+        "emoji_alt": "TEXT NOT NULL DEFAULT ''",         # обычный эмодзи, если премиум не показывается
+        "nick": "TEXT NOT NULL DEFAULT ''",              # ник VIP вместо имени
     },
 }
 
@@ -1061,7 +1064,7 @@ async def get_perks(user_id: int) -> aiosqlite.Row | None:
 
 
 async def set_perks(user_id: int, **fields) -> None:
-    if set(fields) - {"title", "title_until", "shield_until", "vip_until"}:
+    if set(fields) - {"title", "title_until", "shield_until", "vip_until", "emoji_id", "emoji_alt", "nick"}:
         raise ValueError("неизвестные поля")
     await conn().execute("INSERT OR IGNORE INTO perks (user_id) VALUES (?)", (user_id,))
     sets = ", ".join(f"{k} = ?" for k in fields)
@@ -1081,6 +1084,12 @@ async def active_titles(user_ids: list[int]) -> dict[int, str]:
 async def chat_user_ids(chat_id: int) -> list[int]:
     async with conn().execute("SELECT user_id FROM users WHERE chat_id = ?", (chat_id,)) as cur:
         return [r[0] for r in await cur.fetchall()]
+
+
+async def vip_looks() -> list[aiosqlite.Row]:
+    async with conn().execute("SELECT user_id, emoji_id, emoji_alt, nick FROM perks WHERE vip_until > ?",
+                              (time.time(),)) as cur:
+        return list(await cur.fetchall())
 
 
 async def vip_ids(user_ids: list[int]) -> set[int]:

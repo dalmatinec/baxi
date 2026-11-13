@@ -148,7 +148,7 @@ async def _finish(bot: Bot, game: Game, thread: int | None) -> None:
         lines.append("в этот раз никто ничего не угадал, позор чату")
     top = await db.quiz_top(game.chat_id, 3)
     if top:
-        lines += ["", "<b>Общий топ знатоков:</b> " + ", ".join(f"{esc(r['name'])} {r['points']}" for r in top)]
+        lines += ["", "<b>Общий топ знатоков:</b> " + ", ".join(f"{mention(r['user_id'], r['name'])} {r['points']}" for r in top)]
     await say(bot, game.chat_id, "\n".join(lines), thread=thread)
 
 

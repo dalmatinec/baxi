@@ -10,7 +10,7 @@ from aiogram.types import BotCommand, BotCommandScopeAllGroupChats, BotCommandSc
 from bot import ai, config, db, handlers
 from bot.middlewares import GroupTracker
 from bot.services.out import sanitize_requests
-from bot.services import adorders, ads, daily
+from bot.services import adorders, ads, daily, stars
 
 log = logging.getLogger("bot")
 
@@ -23,6 +23,7 @@ async def main() -> None:
     logging.getLogger("aiogram.event").setLevel(logging.WARNING)
 
     await db.connect()
+    await stars.refresh_looks()
     bot = Bot(config.BOT_TOKEN)
     bot.session.middleware(sanitize_requests)  # никаких длинных тире и ёлочек ни в одном сообщении
     dp = Dispatcher(storage=MemoryStorage())

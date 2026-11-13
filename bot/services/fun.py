@@ -129,7 +129,8 @@ async def roast(bot: Bot, chat, message: Message, author_row) -> None:
     target = await roast_target(bot, chat_id, message) or author_row
     perks = await db.get_perks(target["user_id"])
     if perks and perks["shield_until"] > time.time():
-        await say(bot, chat_id, f"у {esc(target['name'])} щит от прожарки 🛡, не пробить", reply_to=message)
+        await say(bot, chat_id, f"у {mention(target['user_id'], target['name'])} щит от прожарки 🛡, не пробить",
+                  reply_to=message)
         return
     stats_row = [r for r in await db.daily_stats(chat_id, db.today()) if r["user_id"] == target["user_id"]]
     stats = ""

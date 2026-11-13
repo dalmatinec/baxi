@@ -110,6 +110,7 @@ async def cb_refund(cb: CallbackQuery, bot: Bot) -> None:
         await db.set_perks(p["user_id"], shield_until=0)
     elif p["item"] == "vip":
         await db.set_perks(p["user_id"], vip_until=0)
+        await stars.refresh_looks()
     elif p["item"] == "title":
         await db.set_perks(p["user_id"], title="", title_until=0)
     await cb.answer("↩️ Звёзды возвращены")
