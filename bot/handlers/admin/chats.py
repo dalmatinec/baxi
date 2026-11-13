@@ -8,7 +8,7 @@ from bot import db
 from bot.services import approval
 from bot.handlers.admin.common import BACK_MENU, kb, pct, show
 from bot.handlers.admin.states import ChatEdit
-from bot.textutil import esc, short
+from bot.textutil import esc, plural, short
 
 router = Router(name="admin-chats")
 
@@ -63,6 +63,12 @@ async def _card(target, chat_id: int) -> None:
     c = await db.get_chat(chat_id)
     if c is None:
         return await show(target, "Чат не найден.", kb([[("⬅️ Чаты", "ch:list")]]))
+    if not c["active"]:
+        return await show(target, f"💬 <b>{esc(c['title'] or str(chat_id))}</b>\n{_status(c)}\n\n"
+                                  "Бота в этом чате уже нет. Его можно убрать из списка вместе с историей "
+                                  "и статистикой этого чата.",
+                          kb([[("🗑 Убрать из списка", f"ch:del:{chat_id}", "danger")],
+                              [("⬅️ Удалённые чаты", "ch:dead"), BACK_MENU]]))
     on = sum(1 for f in TOGGLES if c[f])
     text = (f"💬 <b>{esc(c['title'] or str(chat_id))}</b>\n"
             f"{_status(c)}\n\n"
@@ -132,14 +138,67 @@ async def cb_section(cb: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "ch:list")
 async def cb_list(cb: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    chats = await db.list_chats(active_only=False)
-    if not chats:
-        return await show(cb, "Чатов пока нет. Добавь бота в группу, и она появится здесь.",
-                          kb([[BACK_MENU]]))
-    rows = [[(("⚠️ " if not c["active"] else "⏳ " if not c["approved"] else "📅 " if c["rent_until"] else "")
+    await _list(cb)
+
+
+async def _list(cb: CallbackQuery) -> None:
+    chats = [c for c in await db.list_chats(active_only=False) if c["active"]]
+    dead = await db.inactive_chats()
+    rows = [[(("⏳ " if not c["approved"] else "📅 " if c["rent_until"] else "")
               + short(c["title"] or str(c["chat_id"]), 40),
               f"ch:o:{c['chat_id']}")] for c in chats[:50]]
-    await show(cb, "💬 <b>Чаты</b>\n\nВыбери чат, чтобы настроить бота в нём.", kb(rows + [[BACK_MENU]]))
+    rows.append([("🔍 Проверить чаты", "ch:scan")])
+    if dead:
+        rows.append([(f"🗑 Удалённые чаты ({len(dead)})", "ch:dead")])
+    text = ("💬 <b>Чаты</b>\n\nВыбери чат, чтобы настроить бота в нём." if chats else
+            "💬 <b>Чаты</b>\n\nРабочих чатов пока нет. Добавь бота в группу, и она появится здесь.")
+    await show(cb, text + "\n\n<i>🔍 Проверить: найду чаты, которые удалили или откуда бота выгнали, "
+                          "пока он был выключен.</i>", kb(rows + [[BACK_MENU]]))
+
+
+@router.callback_query(F.data == "ch:scan")
+async def cb_scan(cb: CallbackQuery) -> None:
+    await cb.answer("Проверяю...")
+    gone = []
+    for c in await db.list_chats(active_only=False):
+        if c["active"] and await approval.bot_present(cb.bot, c["chat_id"]) is False:
+            await db.update_chat(c["chat_id"], active=0, approved=0, pending_since=0)
+            gone.append(c["title"] or str(c["chat_id"]))
+    text = (f"🔍 Нашёл {len(gone)} {plural(len(gone), ('чат', 'чата', 'чатов'))} без бота:\n" + "\n".join(f"• {esc(t)}" for t in gone[:30])
+            if gone else "🔍 Все чаты на месте, бот есть в каждом.")
+    await show(cb, text, kb([[("🗑 Удалённые чаты", "ch:dead")] if gone else [], [("⬅️ Чаты", "ch:list"), BACK_MENU]]))
+
+
+@router.callback_query(F.data == "ch:dead")
+async def cb_dead(cb: CallbackQuery) -> None:
+    dead = await db.inactive_chats()
+    if not dead:
+        return await show(cb, "🗑 Удалённых чатов нет.", kb([[("⬅️ Чаты", "ch:list"), BACK_MENU]]))
+    rows = [[("⚠️ " + short(c["title"] or str(c["chat_id"]), 40), f"ch:o:{c['chat_id']}")] for c in dead[:40]]
+    await show(cb, f"🗑 <b>Удалённые чаты</b>: {len(dead)}\n\nЧаты, где бота больше нет: его выгнали, чат удалили "
+                   "или ты сам его вывел. Можно убрать их из списка вместе с историей и статистикой. "
+                   "Платежи и заказы останутся.",
+               kb(rows + [[("🗑 Убрать все из списка", "ch:purge", "danger")], [("⬅️ Чаты", "ch:list"), BACK_MENU]]))
+
+
+@router.callback_query(F.data == "ch:purge")
+async def cb_purge(cb: CallbackQuery) -> None:
+    dead = await db.inactive_chats()
+    for c in dead:
+        await db.delete_chat(c["chat_id"])
+    await cb.answer(f"🗑 Убрал {len(dead)}")
+    await _list(cb)
+
+
+@router.callback_query(F.data.startswith("ch:del:"))
+async def cb_delete(cb: CallbackQuery) -> None:
+    chat_id = int(cb.data.split(":")[2])
+    chat = await db.get_chat(chat_id)
+    if chat and chat["active"]:
+        return await cb.answer("Бот ещё в этом чате. Сначала выйди из него.", show_alert=True)
+    await db.delete_chat(chat_id)
+    await cb.answer("🗑 Убрал из списка")
+    await cb_dead(cb)
 
 
 @router.callback_query(F.data.startswith("ch:o:"))
@@ -235,4 +294,5 @@ async def cb_approval(cb: CallbackQuery) -> None:
     elif action == "no":
         await approval.leave(bot, chat_id, "Хозяин попросил тебя уйти из этого чата.")
         await cb.answer("🚪 Вышел из чата")
+        return await _card(cb, chat_id)
     await _section(cb, chat_id, "rent")

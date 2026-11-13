@@ -522,6 +522,28 @@ async def clear_memory(chat_id: int) -> None:
     await conn().commit()
 
 
+KEEP_ON_DELETE = {"orders", "star_payments"}  # деньги и заказы не трогаем даже у удалённых чатов
+
+
+async def delete_chat(chat_id: int) -> None:
+    """Полностью убрать чат из базы: настройки, людей, историю, статистику. Платежи остаются."""
+    async with conn().execute("SELECT name FROM sqlite_master WHERE type = 'table'") as cur:
+        tables = [r[0] for r in await cur.fetchall()]
+    for table in tables:
+        if table in KEEP_ON_DELETE:
+            continue
+        async with conn().execute(f"PRAGMA table_info({table})") as cur:
+            cols = {r[1] for r in await cur.fetchall()}
+        if "chat_id" in cols:
+            await conn().execute(f"DELETE FROM {table} WHERE chat_id = ?", (chat_id,))
+    await conn().commit()
+
+
+async def inactive_chats() -> list[aiosqlite.Row]:
+    async with conn().execute("SELECT * FROM chats WHERE active = 0 ORDER BY title") as cur:
+        return list(await cur.fetchall())
+
+
 # ---------- фразы, стикеры, гифки ----------
 
 async def add_phrase(kind: str, content: str) -> bool:

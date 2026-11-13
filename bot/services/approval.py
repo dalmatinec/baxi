@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot import config, db, notify
@@ -128,12 +129,27 @@ async def _tell_adder(bot: Bot, chat) -> None:
         pass  # человек ещё не запускал бота в личке
 
 
+async def bot_present(bot: Bot, chat_id: int) -> bool | None:
+    """Есть ли бот в чате. False: точно нет (чат удалён, бота выгнали). None: не понятно (нет связи)."""
+    try:
+        me = await bot.get_chat_member(chat_id, bot.id)
+    except (TelegramBadRequest, TelegramForbiddenError):
+        return False
+    except Exception:
+        return None
+    return me.status not in ("left", "kicked")
+
+
 FAREWELLS = ["ладно, мне пора. всем пока, не скучайте 👋", "ну всё, ухожу по-английски... почти. пока, чат 👋",
              "было весело, но мне пора. всем добра ✌️"]
 
 
 async def leave(bot: Bot, chat_id: int, reason: str = "", tail_html: str = "") -> None:
-    """Выйти из чата. reason: ситуация для ИИ, чтобы попрощаться в образе. tail_html: служебная строка."""
+    """Выйти из чата. reason: ситуация для ИИ, чтобы попрощаться в образе. tail_html: служебная строка.
+    Если чата уже нет или бота оттуда убрали, просто отмечаем это в базе."""
+    if await bot_present(bot, chat_id) is False:
+        await db.update_chat(chat_id, active=0, approved=0, pending_since=0)
+        return
     if reason:
         try:
             await talk.in_character(bot, chat_id, f"{reason} Попрощайся со всеми в своём характере, "
