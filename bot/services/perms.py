@@ -18,7 +18,10 @@ async def is_admin(bot: Bot, message: Message) -> bool:
         return True  # анонимный админ
     if not message.from_user:
         return False
-    user_id = message.from_user.id
+    return await is_admin_id(bot, chat_id, message.from_user.id)
+
+
+async def is_admin_id(bot: Bot, chat_id: int, user_id: int) -> bool:
     if user_id in config.OWNER_IDS:
         return True
     key = (chat_id, user_id)

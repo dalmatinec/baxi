@@ -321,9 +321,9 @@ async def run_service(bot: Bot, order) -> None:
         chat = await db.get_chat(chat["chat_id"])
         until = approval.until_text(chat["rent_until"])
         await db.update_order(oid, status="done", result=f"аренда до {until}")
-        await _tell(bot, order["user_id"], f"✅ Аренда оплачена! Бот работает в «{esc(chat['title'])}» до {until}. "
+        await _tell(bot, order["user_id"], f"✅ Аренда оплачена! Бот работает в {esc(chat['title'])} до {until}. "
                                            "За 3 дня до конца напомню продлить.")
-        await notify.owners(bot, f"📅 Аренда в «{esc(chat['title'])}» оплачена до {until} ({esc(order['user_name'])})")
+        await notify.owners(bot, f"📅 Аренда в {esc(chat['title'])} оплачена до {until} ({esc(order['user_name'])})")
         return
     await db.update_order(oid, status="done", result="оплачено, ждёт установки")
     await _tell(bot, order["user_id"], "✅ Оплата получена! Скоро с тобой свяжутся, чтобы настроить твоего бота. "

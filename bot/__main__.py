@@ -5,15 +5,14 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats, BotCommandScopeChat
 
 from bot import ai, config, db, handlers
 from bot.middlewares import GroupTracker
 from bot.services.out import sanitize_requests
-from bot.services import adorders, ads, daily, stars
+from bot.services import adorders, ads, daily, emoji, stars
+from bot.services.commands_menu import set_commands
 
 log = logging.getLogger("bot")
-
 
 async def main() -> None:
     config.check()
@@ -38,22 +37,8 @@ async def main() -> None:
             log.info("Переименовал бота из «%s» в «%s» в %s чатах", config.LEGACY_NAME, config.DEFAULT_NAME, fixed)
     log.info("Бот @%s запущен. ИИ: %s", me.username,
              "включён" if ai.enabled() else "выключен (нет AI_API_KEY)")
-    try:
-        await bot.set_my_commands([BotCommand(command="start", description="Меню"),
-                                   BotCommand(command="support", description="Поддержка"),
-                                   BotCommand(command="paysupport", description="Вопрос по оплате")],
-                                  scope=BotCommandScopeAllPrivateChats())
-        await bot.set_my_commands([BotCommand(command="games", description="Что я умею"),
-                                    BotCommand(command="quiz", description="Викторина"),
-                                    BotCommand(command="top", description="Топ репутации")],
-                                  scope=BotCommandScopeAllGroupChats())
-        for owner in config.OWNER_IDS:  # владельцам в личке ещё и /admin
-            await bot.set_my_commands([BotCommand(command="admin", description="Админка"),
-                                       BotCommand(command="start", description="Меню как у людей"),
-                                       BotCommand(command="cancel", description="Отменить ввод")],
-                                      scope=BotCommandScopeChat(chat_id=owner))
-    except Exception as exc:
-        log.warning("Команды не установились: %s", exc)
+    await set_commands(bot)
+    await emoji.load()
 
     scheduler = asyncio.create_task(ads.run_scheduler(bot))
     planner = asyncio.create_task(daily.run_scheduler(bot))

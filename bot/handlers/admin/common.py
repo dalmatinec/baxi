@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, Message
 
 from bot import ai, config, db
+from bot.textutil import esc
 
 router = Router(name="admin-common")
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)
@@ -54,40 +55,79 @@ def pct(v: float) -> str:
     return f"{round(v * 100)}%"
 
 
+MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь",
+          "ноябрь", "декабрь"]
+
+
+def month_start() -> float:
+    from datetime import datetime
+    now = datetime.now(config.TZ)
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+
+async def month_money() -> dict:
+    """Деньги за текущий месяц: аренда, свой бот, реклама (USDT) и звёзды."""
+    out = {"rent": 0.0, "wl": 0.0, "ads": 0.0, "rent_n": 0, "ads_n": 0}
+    for o in await db.paid_orders(month_start()):
+        key = o["kind"] if o["kind"] in ("rent", "wl") else "ads"
+        out[key] += o["price"]
+        if key in ("rent", "ads"):
+            out[key + "_n"] += 1
+    out["stars"] = await db.stars_total(month_start())
+    return out
+
+
+async def waiting() -> dict:
+    return {"apps": len(await db.pending_chats()), "support": await db.support_new_count(),
+            "orders": len(await db.orders_by_status("moderation"))}
+
+
+def _money(v: float) -> str:
+    return f"{v:g}$"
+
+
 async def menu_text() -> str:
-    """Главная: сводка в цифрах, всё важное на одном экране."""
-    chats = await db.list_chats()
-    pending = await db.pending_chats()
-    moderation = await db.orders_by_status("moderation")
-    awaiting = await db.orders_by_status("awaiting")
-    spent = await db.spent_today()
-    from bot.services.daily import midnight_ts
-    stars_today = await db.stars_total(midnight_ts())
-    lines = ["🏠 <b>Главная</b>", "",
-             f"💬 Чатов работает: <b>{len(chats)}</b>" + (f" · ⏳ заявок: <b>{len(pending)}</b>" if pending else ""),
-             f"🧾 Заказы рекламы: на проверке <b>{len(moderation)}</b>, ждут оплату <b>{len(awaiting)}</b>",
-             f"⭐ Звёзд сегодня: <b>{stars_today}</b>"]
+    """Главная: сводка в цифрах и что ждёт ответа."""
+    from datetime import datetime
+    reach = await db.reach()
+    money = await month_money()
+    w = await waiting()
+    month = MONTHS[datetime.now(config.TZ).month - 1].capitalize()
+    lines = ["🕷 <b>Панель владельца</b>", "",
+             f"💬 {reach['chats']} чат. · 👥 {await db.people_count()} чел. · 📨 {reach['dm']} в личке"]
     if ai.enabled():
-        lines.append(f"🤖 ИИ сегодня: <b>${spent:.3f}</b> из ${config.DAILY_LIMIT_USD:.2f}")
+        lines.append(f"🤖 ИИ сегодня: <b>${await db.spent_today():.2f}</b> из ${config.DAILY_LIMIT_USD:.2f}")
     else:
         lines.append("🤖 ИИ <b>выключен</b>: нет AI_API_KEY в .env")
+    lines.append(f"💰 {month}: {_money(money['rent'])} аренда · {_money(money['ads'])} реклама"
+                 + (f" · {_money(money['wl'])} свой бот" if money["wl"] else "") + f" · ⭐{money['stars']}")
     if config.IS_MAIN:
         from bot.services import license
         clients = license.clients()
         if clients:
             lines.append(f"💼 Клиентов: <b>{len(clients)}</b>")
+    parts = []
+    if w["apps"]:
+        parts.append(f"{w['apps']} заявк{'а' if w['apps'] == 1 else 'и'}")
+    if w["support"]:
+        parts.append(f"{w['support']} обращ.")
+    if w["orders"]:
+        parts.append(f"{w['orders']} заказ на проверке")
+    lines += ["", "🔔 <b>Ждут тебя:</b> " + " · ".join(parts) if parts else "✅ Сейчас ничего не ждёт ответа"]
     return "\n".join(lines)
 
 
 async def menu_kb() -> InlineKeyboardMarkup:
-    pending = len(await db.pending_chats())
-    moderation = len(await db.orders_by_status("moderation"))
+    w = await waiting()
     return kb([
-        [("💬 Чаты", "ch:list", "primary"),
-         (f"⏳ Заявки · {pending}", "ap:list", "danger") if pending else ("⏳ Заявки", "ap:list")],
-        [(f"📣 Реклама · {moderation}" if moderation else "📣 Реклама", "sec:ads", "danger" if moderation else None),
-         ("⭐ Монетизация", "sec:money")],
-        [("🎨 Оформление", "sec:look"), ("🤖 ИИ", "spend")],
+        [(f"🔔 Заявки · {w['apps']}" if w["apps"] else "🔔 Заявки", "ap:list", "success" if w["apps"] else None),
+         (f"🆘 Поддержка · {w['support']}" if w["support"] else "🆘 Поддержка", "su:list",
+          "primary" if w["support"] else None)],
+        [("💬 Чаты", "ch:list"), ("👥 Люди", "ppl:menu")],
+        [("💰 Деньги", "sec:money"),
+         (f"📣 Реклама · {w['orders']}" if w["orders"] else "📣 Реклама", "sec:ads", "danger" if w["orders"] else None)],
+        [("🎨 Меню и тексты", "se:list"), ("🗂 Фразы, стикеры", "ph:menu")],
+        [("🤖 ИИ и расход", "spend"), ("⚙️ Настройки", "cfg:menu")],
         [("💼 Клиенты", "cl:list", "success")] if config.IS_MAIN else [],
     ])
 
@@ -98,9 +138,10 @@ SECTIONS = {
         [("📢 Рассылка", "bc:new", "success"), ("🗓 Свои посты по расписанию", "ad:list")],
         [("💳 Оплата USDT", "pay:info")],
     ]),
-    "money": ("⭐ <b>Монетизация</b>\n\nМагазин за звёзды, платежи, донатеры и аренды.", [
-        [("🛒 Товары и цены", "sh:menu", "primary"), ("🧾 Платежи и возвраты", "sh:pay")],
-        [("👑 Топ донатеров", "dn:top"), ("📅 Аренды", "rent:list")],
+    "money": ("", [
+        [("🧾 Заказы", "or:list"), ("📅 Аренды", "rent:list")],
+        [("⭐ Донаты", "dn:top"), ("👛 Кошельки", "pay:info")],
+        [("🛒 Товары за звёзды", "sh:menu"), ("🧾 Платежи и возвраты", "sh:pay")],
     ]),
     "look": ("🎨 <b>Оформление</b>\n\nТо, что люди видят в личке, и фразы бота в чатах.", [
         [("🎨 Экраны и тексты", "se:list", "primary"), ("🗯 Фразы и стикеры", "ph:menu")],
@@ -108,10 +149,28 @@ SECTIONS = {
 }
 
 
+async def money_text() -> str:
+    from datetime import datetime
+    m = await month_money()
+    awaiting = await db.orders_by_status("awaiting")
+    month = MONTHS[datetime.now(config.TZ).month - 1]
+    lines = [f"💰 <b>Деньги · {month}</b>", "",
+             f"📅 Аренда: {m['rent_n']} · <b>{_money(m['rent'])}</b>",
+             f"📣 Реклама: {m['ads_n']} заказ. · <b>{_money(m['ads'])}</b>",
+             f"💼 Свой бот: <b>{_money(m['wl'])}</b>",
+             f"⭐ Звёзды: <b>{m['stars']} ⭐</b>"]
+    if awaiting:
+        lines += ["", f"⏳ Ждут оплаты: {len(awaiting)} заказ. на {_money(sum(o['price'] for o in awaiting))}"]
+    return "\n".join(lines)
+
+
 @router.callback_query(lambda c: c.data and c.data.startswith("sec:"))
 async def cb_section(cb: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    text, rows = SECTIONS.get(cb.data[4:], SECTIONS["ads"])
+    key = cb.data[4:]
+    text, rows = SECTIONS.get(key, SECTIONS["ads"])
+    if key == "money":
+        text = await money_text()
     await show(cb, text, kb(rows + [[BACK_MENU]]))
 
 
@@ -144,17 +203,45 @@ async def cb_pending(cb: CallbackQuery) -> None:
 
 @router.callback_query(lambda c: c.data == "rent:list")
 async def cb_rents(cb: CallbackQuery) -> None:
+    import time
     from bot.services.approval import until_text
     chats = sorted([c for c in await db.list_chats() if c["rent_until"]], key=lambda c: c["rent_until"])
-    rows = [[(f"📅 {c['title'][:28]} · до {until_text(c['rent_until'])}", f"ch:o:{c['chat_id']}")] for c in chats]
-    text = "📅 <b>Аренды</b>, по дате окончания" if chats else "📅 <b>Аренд пока нет</b>\n\nВключить аренду: Чаты → чат → Доступ и аренда."
-    await show(cb, text, kb(rows + [[("⬅️ Монетизация", "sec:money"), BACK_MENU]]))
+    lines, rows = [], []
+    for c in chats:
+        soon = c["rent_until"] - time.time() < 3 * 86400
+        kind = "пробный" if c["trial"] else "аренда"
+        lines.append(f"{'🟡' if soon else '🟢'} {esc(c['title'][:30])} · {kind} до {until_text(c['rent_until'])}"
+                     + (", <i>скоро конец</i>" if soon else ""))
+        row = [(c["title"][:24] or str(c["chat_id"]), f"ch:o:{c['chat_id']}")]
+        if soon and c["added_by"]:
+            row.append(("🔔 напомнить", f"rent:rm:{c['chat_id']}", "primary"))
+        rows.append(row)
+    text = ("📅 <b>Аренды</b>\n\n" + "\n".join(lines)) if chats else \
+        "📅 <b>Аренд пока нет</b>\n\nВключить аренду: Чаты → чат → Доступ и аренда."
+    await show(cb, text, kb(rows + [[("⬅️ Деньги", "sec:money"), BACK_MENU]]))
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("rent:rm:"))
+async def cb_rent_remind(cb: CallbackQuery) -> None:
+    from bot.services.approval import until_text
+    chat = await db.get_chat(int(cb.data.split(":")[2]))
+    if not chat or not chat["added_by"]:
+        return await cb.answer("Не знаю, кому напомнить")
+    kind = "Пробный период" if chat["trial"] else "Аренда бота"
+    try:
+        await cb.bot.send_message(
+            chat["added_by"], f"📅 {kind} в чате <b>{esc(chat['title'])}</b> заканчивается "
+                              f"{until_text(chat['rent_until'])}. Чтобы бот остался, продли аренду 👇",
+            parse_mode="HTML", reply_markup=kb([[("💳 Продлить аренду", f"rt:{chat['chat_id']}", "success")]]))
+        await cb.answer("🔔 Напомнил", show_alert=True)
+    except Exception:
+        await cb.answer("Не дошло: человек не запускал бота в личке. Напиши ему напрямую.", show_alert=True)
 
 
 @router.callback_query(lambda c: c.data == "dn:top")
 async def cb_donors(cb: CallbackQuery) -> None:
     from bot.handlers.stars import donors_text
-    await show(cb, await donors_text(), kb([[("⬅️ Монетизация", "sec:money"), BACK_MENU]]))
+    await show(cb, await donors_text(), kb([[("⬅️ Деньги", "sec:money"), BACK_MENU]]))
 
 
 @router.callback_query(lambda c: c.data == "pay:info")

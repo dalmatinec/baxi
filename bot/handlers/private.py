@@ -8,7 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from bot import config
+from bot import config, db
 from bot.services import menu
 from bot.textutil import esc, full_name
 
@@ -26,8 +26,15 @@ class SupportWrite(StatesGroup):
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot, state: FSMContext, command: CommandObject) -> None:
     await state.clear()
-    if (command.args or "").strip() == "mychats":
+    args = (command.args or "").strip()
+    if args == "mychats":
         from bot.handlers.chatadmin import show_list
+        return await show_list(bot, message)
+    if args.startswith("mc") and args[2:].lstrip("-").isdigit():
+        from bot.handlers.chatadmin import can_manage, card, show_list
+        cid = int(args[2:])
+        if await can_manage(bot, message.from_user.id, cid):
+            return await card(message, cid, message.from_user.id)
         return await show_list(bot, message)
     key = START_PAYLOADS.get((command.args or "").strip(), "start")
     await menu.show(bot, message, key)
@@ -47,6 +54,19 @@ async def cb_support(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     await menu.show(bot, cb, "support")
 
 
+@router.message(Command("mychats"))
+async def cmd_mychats(message: Message, bot: Bot, state: FSMContext) -> None:
+    await state.clear()
+    from bot.handlers.chatadmin import show_list
+    await show_list(bot, message)
+
+
+@router.message(Command("shop"))
+async def cmd_shop(message: Message, bot: Bot, state: FSMContext) -> None:
+    await state.clear()
+    await menu.show(bot, message, "shop")
+
+
 @router.message(Command("paysupport", "support"))
 async def cmd_support(message: Message, bot: Bot, state: FSMContext) -> None:
     await state.set_state(SupportWrite.message)
@@ -64,8 +84,12 @@ async def on_support_message(message: Message, bot: Bot, state: FSMContext) -> N
         who += f" @{esc(user.username)}"
     header = (f"🆘 <b>Обращение в поддержку</b>{' · ' + esc(topic) if topic else ''}\n"
               f"От: {who} (<code>{user.id}</code>)")
+    await db.support_add(user.id, full_name(user.first_name, user.last_name), user.username or "", topic, "in",
+                         describe_dm(message))
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✍️ Ответить", callback_data=f"sup:{user.id}", style="primary")]])
+        InlineKeyboardButton(text="✍️ Ответить", callback_data=f"sup:{user.id}", style="primary"),
+        InlineKeyboardButton(text="✅ Закрыть", callback_data=f"su:x:{user.id}")],
+        [InlineKeyboardButton(text="💬 Вся переписка", callback_data=f"su:t:{user.id}")]])
     delivered = False
     for owner in config.OWNER_IDS:
         try:
@@ -84,3 +108,11 @@ async def on_other(message: Message, bot: Bot, state: FSMContext) -> None:
     """Любое другое сообщение в личке: показываем меню."""
     await state.clear()
     await menu.show(bot, message, "start")
+
+
+def describe_dm(message: Message) -> str:
+    """Короткая запись сообщения для истории переписки поддержки."""
+    text = message.text or message.caption or ""
+    kind = ("[фото] " if message.photo else "[видео] " if message.video else "[голосовое] " if message.voice
+            else "[файл] " if message.document else "[стикер] " if message.sticker else "")
+    return (kind + text).strip() or "[сообщение]"

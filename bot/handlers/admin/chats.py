@@ -1,52 +1,16 @@
-"""Админка → Чаты: имя бота, характер, тема чата, частота реплик, переключатели."""
+"""Админка → Чаты: список, заявки, доступ и аренда, реклама в чате. Сами настройки бота (характер, частота,
+фишки, правила, триггеры) открываются кнопкой «⚙️ Настроить бота» в том же меню, что у админов чатов."""
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery
 
-from bot import db
+from bot import config, db
 from bot.services import approval
 from bot.handlers.admin.common import BACK_MENU, kb, pct, show
-from bot.handlers.admin.states import ChatEdit
 from bot.textutil import esc, plural, short
 
 router = Router(name="admin-chats")
-
-FIELDS = {
-    "bot_name": ("Имя бота", 40,
-                 "Как бота зовут в этом чате. На это имя он и откликается."),
-    "aliases": ("Доп. имена", 200,
-                "Другие имена, на которые бот откликается, через запятую.\n"
-                "Например: <code>паучок, спайди, бро</code>\nЧтобы очистить, пришли «-»."),
-    "persona": ("Характер", 1200,
-                "Кто он и как общается. Пиши как описание человека, например:\n"
-                "<i>25 лет, из Алматы, работает таксистом, любит футбол и шашлыки, "
-                "дерзкий но добрый, постоянно подкалывает, отвечает коротко</i>"),
-    "topic": ("Тема чата", 600,
-              "О чём этот чат и что в нём принято. Например:\n"
-              "<i>чат знакомств и общения Сатпаева, народ 18-30, болтают обо всём</i>"),
-}
-
-CYCLES = {
-    "chance": [0.0, 0.02, 0.04, 0.07, 0.12, 0.2],
-    "ai_share": [0.0, 0.3, 0.5, 0.7, 1.0],
-    "cooldown": [30, 60, 90, 180, 300, 600],
-    "results_hour": [20, 21, 22, 23],
-}
-TOGGLES = {"greet": "👋 Приветствия", "games": "🎲 Игры", "ads": "📣 Реклама", "pairpoll": "💘 Как вам пара",
-           "results": "🌙 Итоги дня", "rep": "⭐ Репутация", "bday": "🎂 Дни рождения", "shop": "🛒 Магазин"}
-
-
-def _chunks(items: list, n: int) -> list[list]:
-    return [items[i:i + n] for i in range(0, len(items), n)]
-
-
-def _next(values: list, current) -> object:
-    for v in values:
-        if v > current + 1e-9:
-            return v
-    return values[0]
-
 
 def _status(c) -> str:
     if not c["active"]:
@@ -54,7 +18,8 @@ def _status(c) -> str:
     if not c["approved"]:
         return "⏳ ждёт одобрения, бот молчит"
     if c["rent_until"]:
-        return f"📅 аренда до {approval.until_text(c['rent_until'])}"
+        kind = "🎁 пробный" if c["trial"] else "📅 аренда"
+        return f"{kind} до {approval.until_text(c['rent_until'])}"
     return "✅ работает, без срока"
 
 
@@ -69,21 +34,21 @@ async def _card(target, chat_id: int) -> None:
                                   "и статистикой этого чата.",
                           kb([[("🗑 Убрать из списка", f"ch:del:{chat_id}", "danger")],
                               [("⬅️ Удалённые чаты", "ch:dead"), BACK_MENU]]))
-    on = sum(1 for f in TOGGLES if c[f])
     text = (f"💬 <b>{esc(c['title'] or str(chat_id))}</b>\n"
             f"{_status(c)}\n\n"
-            f"🎭 Бот здесь: <b>{esc(c['bot_name'])}</b>\n"
+            f"🎭 Бот здесь: <b>{esc(c['bot_name'])}</b>, болтает {pct(c['chance'])}\n"
             f"👥 Участников: {c['members'] or '?'}\n"
             f"👤 Добавил: {approval.adder_html(c)}\n"
-            f"⚙️ Влезает в {pct(c['chance'])} разговоров, через ИИ {pct(c['ai_share'])}\n"
-            f"🎲 Включено фишек: {on} из {len(TOGGLES)}\n\n"
-            "Выбери, что настроить 👇")
+            f"📣 Реклама в чате: {'✅ идёт' if c['ads'] else '❌ выключена'}")
     cid = chat_id
+    pending = c["active"] and not c["approved"]
     await show(target, text, kb([
-        [("✅ Разрешить работу", f"ap:ok:{cid}", "success")] if c["active"] and not c["approved"] else [],
-        [("🎭 Личность", f"ch:s:{cid}:who", "primary"), ("⚙️ Поведение", f"ch:s:{cid}:act", "primary")],
-        [("🎲 Фишки", f"ch:s:{cid}:fx", "primary"), ("📅 Доступ и аренда", f"ch:s:{cid}:rent", "primary")],
-        [("🧹 Память", f"ch:wipe:{cid}"), ("🚪 Выйти из чата", f"ap:no:{cid}", "danger")],
+        [("✅ Разрешить", f"ap:ok:{cid}", "success"), (f"🎁 Пробные {config.TRIAL_DAYS} дн", f"ap:trial:{cid}")]
+        if pending else [],
+        [("⚙️ Настроить бота в чате", f"mc:o:{cid}", "primary")] if not pending else [],
+        [("📅 Доступ и аренда", f"ch:s:{cid}:rent"),
+         (f"📣 Реклама: {'✅' if c['ads'] else '❌'}", f"ch:ads:{cid}")],
+        [("🚪 Выйти из чата", f"ap:no:{cid}", "danger")],
     ] + _contact(c) + [[("⬅️ Чаты", "ch:list"), BACK_MENU]]))
 
 
@@ -97,44 +62,20 @@ def _contact(c) -> list[list[tuple]]:
     return [row]
 
 
-async def _section(target, chat_id: int, sec: str) -> None:
+async def _section(target, chat_id: int, sec: str = "rent") -> None:
     c = await db.get_chat(chat_id)
     if c is None:
         return await show(target, "Чат не найден.", kb([[("⬅️ Чаты", "ch:list")]]))
     cid = chat_id
-    back = [("⬅️ К чату", f"ch:o:{cid}"), BACK_MENU]
     title = esc(c["title"] or str(chat_id))
-    if sec == "who":
-        text = (f"🎭 <b>Личность бота</b> · {title}\n\n"
-                f"<b>Имя:</b> {esc(c['bot_name'])}\n"
-                f"<b>Ещё откликается на:</b> {esc(c['aliases']) or 'нет'}\n\n"
-                f"<b>Характер:</b>\n<blockquote>{esc(short(c['persona'], 600))}</blockquote>\n"
-                f"<b>Тема чата:</b>\n<blockquote>{esc(short(c['topic'], 400))}</blockquote>")
-        rows = [[("✏️ Имя", f"ch:e:{cid}:bot_name"), ("🔤 Доп. имена", f"ch:e:{cid}:aliases")],
-                [("🎭 Характер", f"ch:e:{cid}:persona"), ("📌 Тема", f"ch:e:{cid}:topic")], back]
-    elif sec == "act":
-        text = (f"⚙️ <b>Поведение</b> · {title}\n\n"
-                f"🎯 <b>Шанс влезть</b> в чужой разговор: {pct(c['chance'])} сообщений\n"
-                f"🤖 <b>Из них через ИИ:</b> {pct(c['ai_share'])}, остальное фразы и стикеры\n"
-                f"⏱ <b>Пауза</b> между такими влезаниями: {c['cooldown']} сек\n"
-                f"🌙 <b>Итоги дня</b> в {c['results_hour']}:00\n\n"
-                "<i>Если бота зовут по имени или отвечают ему, он отвечает всегда. Нажимай на кнопку, "
-                "значение меняется по кругу.</i>")
-        rows = [[(f"🎯 Шанс: {pct(c['chance'])}", f"ch:c:{cid}:chance"),
-                 (f"🤖 ИИ: {pct(c['ai_share'])}", f"ch:c:{cid}:ai_share")],
-                [(f"⏱ Пауза: {c['cooldown']}с", f"ch:c:{cid}:cooldown"),
-                 (f"🌙 Итоги: {c['results_hour']}:00", f"ch:c:{cid}:results_hour")], back]
-    elif sec == "fx":
-        text = f"🎲 <b>Фишки</b> · {title}\n\n🟢 включено · ⚪️ выключено. Нажми, чтобы переключить."
-        rows = [[(f"{'🟢' if c[f] else '⚪️'} {label}", f"ch:t:{cid}:{f}", "success" if c[f] else None)
-                 for f, label in pair] for pair in _chunks(list(TOGGLES.items()), 2)] + [back]
-    else:
-        text = (f"📅 <b>Доступ и аренда</b> · {title}\n\nСейчас: {_status(c)}\n\n"
-                "<i>Аренда: бот сам предупредит за 3 дня до конца и выйдет, когда срок кончится.</i>")
-        rows = [[("✅ Разрешить", f"ap:ok:{cid}", "success")] if c["active"] and not c["approved"] else [],
-                [("📅 +30 дней", f"ap:rent:{cid}", "primary"), ("♾ Без срока", f"ap:inf:{cid}")]
-                if c["active"] else [],
-                [("🚪 Выйти из чата", f"ap:no:{cid}", "danger")], back]
+    text = (f"📅 <b>Доступ и аренда</b> · {title}\n\nСейчас: {_status(c)}\n\n"
+            "<i>Аренда: бот сам предупредит за 3 дня до конца (пробный период: за день) и выйдет, когда срок "
+            "кончится.</i>")
+    rows = [[("✅ Разрешить", f"ap:ok:{cid}", "success")] if c["active"] and not c["approved"] else [],
+            [("📅 +30 дней", f"ap:rent:{cid}", "primary"), (f"🎁 Пробные {config.TRIAL_DAYS} дн", f"ap:trial:{cid}")]
+            if c["active"] else [],
+            [("♾ Без срока", f"ap:inf:{cid}")] if c["active"] else [],
+            [("🚪 Выйти из чата", f"ap:no:{cid}", "danger")], [("⬅️ К чату", f"ch:o:{cid}"), BACK_MENU]]
     await show(target, text, kb(rows))
 
 
@@ -217,68 +158,13 @@ async def cb_open(cb: CallbackQuery, state: FSMContext) -> None:
     await _card(cb, int(cb.data.split(":")[2]))
 
 
-@router.callback_query(F.data.startswith("ch:c:"))
-async def cb_cycle(cb: CallbackQuery) -> None:
-    _, _, cid, field = cb.data.split(":")
-    chat = await db.get_chat(int(cid))
-    if chat and field in CYCLES:
-        await db.update_chat(int(cid), **{field: _next(CYCLES[field], chat[field])})
-    await _section(cb, int(cid), "act")
-
-
-@router.callback_query(F.data.startswith("ch:t:"))
-async def cb_toggle(cb: CallbackQuery) -> None:
-    _, _, cid, field = cb.data.split(":")
-    chat = await db.get_chat(int(cid))
-    if chat and field in TOGGLES:
-        await db.update_chat(int(cid), **{field: 0 if chat[field] else 1})
-    await _section(cb, int(cid), "fx")
-
-
-@router.callback_query(F.data.startswith("ch:wipe:"))
-async def cb_wipe(cb: CallbackQuery) -> None:
-    cid = cb.data.split(":")[2]
-    await show(cb, "🧹 Стереть историю сообщений и заметки о людях в этом чате? Настройки останутся.",
-               kb([[("Да, стереть", f"ch:wipe!:{cid}"), ("Отмена", f"ch:o:{cid}")]]))
-
-
-@router.callback_query(F.data.startswith("ch:wipe!:"))
-async def cb_wipe_ok(cb: CallbackQuery) -> None:
+@router.callback_query(F.data.startswith("ch:ads:"))
+async def cb_ads(cb: CallbackQuery) -> None:
     cid = int(cb.data.split(":")[2])
-    await db.clear_memory(cid)
+    chat = await db.get_chat(cid)
+    if chat:
+        await db.update_chat(cid, ads=0 if chat["ads"] else 1)
     await _card(cb, cid)
-
-
-@router.callback_query(F.data.startswith("ch:e:"))
-async def cb_edit(cb: CallbackQuery, state: FSMContext) -> None:
-    _, _, cid, field = cb.data.split(":")
-    if field not in FIELDS:
-        return await cb.answer()
-    chat = await db.get_chat(int(cid))
-    title, _, hint = FIELDS[field]
-    await state.set_state(ChatEdit.value)
-    await state.update_data(chat_id=int(cid), field=field)
-    current = esc(chat[field]) if chat and chat[field] else "пусто"
-    await show(cb, f"✏️ <b>{title}</b>\n\nСейчас: {current}\n\n{hint}\n\nПришли новое значение или /cancel.",
-               kb([[("Отмена", f"ch:s:{cid}:who")]]))
-
-
-@router.message(ChatEdit.value, F.text)
-async def on_value(message: Message, state: FSMContext) -> None:
-    data = await state.get_data()
-    field, cid = data["field"], data["chat_id"]
-    title, limit, _ = FIELDS[field]
-    value = message.text.strip()
-    if field == "aliases" and value == "-":
-        value = ""
-    if len(value) > limit:
-        return await message.answer(f"Слишком длинно, максимум {limit} символов. Сократи и пришли ещё раз.")
-    if field != "aliases" and not value:
-        return await message.answer("Пустое значение не подойдёт, пришли текст.")
-    await db.update_chat(cid, **{field: value})
-    await state.clear()
-    await message.answer(f"✅ {title}: сохранил.")
-    await _section(message, cid, "who")
 
 
 # ---------- одобрение и аренда ----------
@@ -298,8 +184,12 @@ async def cb_approval(cb: CallbackQuery) -> None:
         await approval.approve(bot, chat_id, rent_days=approval.RENT_DAYS, announce=not chat["approved"])
         chat = await db.get_chat(chat_id)
         await cb.answer(f"📅 Аренда до {approval.until_text(chat['rent_until'])}")
+    elif action == "trial":
+        await approval.approve(bot, chat_id, rent_days=config.TRIAL_DAYS, announce=not chat["approved"], trial=True)
+        chat = await db.get_chat(chat_id)
+        await cb.answer(f"🎁 Пробный период до {approval.until_text(chat['rent_until'])}")
     elif action == "inf":
-        await db.update_chat(chat_id, rent_until=0, rent_warned=0)
+        await db.update_chat(chat_id, rent_until=0, rent_warned=0, trial=0)
         await cb.answer("♾ Теперь без срока")
     elif action == "no":
         await approval.leave(bot, chat_id, "Хозяин попросил тебя уйти из этого чата.")

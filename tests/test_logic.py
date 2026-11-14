@@ -1,3 +1,4 @@
+import pytest
 """Тесты чистой логики (без Telegram и сети): python -m pytest -q"""
 
 import random
@@ -232,3 +233,60 @@ def test_roast_full_intent_and_donors():
     assert brain.detect_intent("спидермен прожарь диму по полной") == "roast_full"
     assert brain.detect_intent("спидермен прожарь его") == "roast"
     assert games.match("топ донатеров")[0] == "donors_top"
+
+
+# ---------- новое: тихие часы, триггеры, зазывала, эмодзи, команды ----------
+
+def test_quiet_hours():
+    from bot import presets
+    assert presets.in_quiet(3, 0, 8) and not presets.in_quiet(8, 0, 8)
+    assert presets.in_quiet(23, 23, 8) and presets.in_quiet(2, 23, 8) and not presets.in_quiet(12, 23, 8)
+    assert not presets.in_quiet(3, -1, -1)
+    assert presets.every(0.05) == "примерно раз в 20 сообщений"
+    assert presets.CHANCE_STEPS[-1] == 0.20 and presets.CHANCE_STEPS[1] == 0.01
+
+
+def test_trigger_norm():
+    pytest.importorskip("aiogram")
+    from bot.services.triggers import norm
+    assert norm("Правила!") == "правила" == norm("/правила") == norm("  ПРАВИЛА?? ")
+    assert norm("Ёлка где") == "елка где"
+
+
+def test_caller_batch():
+    pytest.importorskip("aiogram")
+    from bot.services.caller import batch_html
+    html = batch_html("🎮 Игра!", [(1, "Аня"), (2, "<b>")], "names")
+    assert 'tg://user?id=1">Аня</a>' in html and "&lt;b&gt;" in html
+    assert html.count("tg://user") == 2
+    assert batch_html("x", [(5, "a")], "emoji").count("tg://user?id=5") == 1
+
+
+def test_emoji_decorate():
+    pytest.importorskip("aiogram")
+    from bot.services import emoji
+    emoji.PACK.clear()
+    emoji.PACK["🔥"] = ["123"]
+    out = emoji.decorate('огонь 🔥 <a href="tg://user?id=1">🔥</a>')
+    assert out.startswith('огонь <tg-emoji emoji-id="123">🔥</tg-emoji>')
+    assert out.endswith('<a href="tg://user?id=1">🔥</a>')
+    emoji.PACK.clear()
+    assert emoji.decorate("🔥") == "🔥"
+
+
+def test_new_commands_and_intents():
+    assert brain.detect_command("/quiet") == "quiet"
+    assert brain.detect_command("зазывай") == "call"
+    assert brain.detect_command("/stopcall@S_Spiderman_bot") == "stopcall"
+    assert brain.detect_command("/roast") == "roast"
+    assert brain.detect_intent("спидермен, помолчи часок") == "quiet"
+    assert brain.detect_intent("спидермен, можно болтать") == "talk"
+
+
+def test_creator_in_prompt():
+    block = prompts.creator_block("Сатпаев", "@satpaev", ["Сатпаев", "Satpaev"])
+    assert "Сатпаев" in block and "@satpaev" in block and "Satpaev" in block
+    rows = [{"name": "Сатпаев", "text": "привет", "reply_name": "", "is_bot": 0, "user_id": 7}]
+    assert "(создатель)" in prompts.format_history(rows, "Бот", {7})
+    for text in (block, prompts.emoji_rule(["🔥"])):
+        assert "—" not in text and "«" not in text

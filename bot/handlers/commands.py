@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot import brain, db
 from bot.middlewares import GROUPS
-from bot.services import daily, fun, perms, stars, talk
+from bot.services import caller, daily, fun, perms, stars, talk
 from bot.services.out import say
 
 log = logging.getLogger(__name__)
@@ -36,13 +36,23 @@ async def on_command(message: Message, bot: Bot, command: str, chat_row) -> None
                 return
             me = await bot.me()
             kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-                text="⚙️ Открыть настройки", url=f"https://t.me/{me.username}?start=mychats", style="primary")]])
+                text="⚙️ Открыть настройки", url=f"https://t.me/{me.username}?start=mc{chat_id}", style="primary")]])
             await say(bot, chat_id, "настройки этого чата в личке 👇", reply_to=message, markup=kb)
         elif command == "shop":
             if chat_row["shop"]:
                 await stars.chat_shop(bot, chat_row, message)
         elif command == "pair":
             await _pair(bot, message, chat_row, admin)
+        elif command in ("quiet", "talk", "call", "stopcall"):
+            await _admin_tools(bot, message, chat_row, command, admin)
+        elif command == "joke":
+            async with talk.chat_lock(chat_id):
+                await fun.joke(bot, chat_row, message, message.from_user.first_name or "друг")
+        elif command == "roast":
+            user_row = await db.get_user(chat_id, message.from_user.id)
+            if user_row:
+                async with talk.chat_lock(chat_id):
+                    await fun.roast(bot, chat_row, message, user_row)
         elif command == "summary":
             if not admin:
                 await say(bot, chat_id, "сводку делаю только по просьбе админов чата", reply_to=message)
@@ -80,3 +90,26 @@ async def _pair(bot: Bot, message: Message, chat, admin: bool) -> None:
         await db.update_chat(chat_id, last_pairpoll=db.today())
     else:
         await say(bot, chat_id, "сегодня мало кто писал, не из кого выбрать пару", reply_to=message)
+
+
+async def _admin_tools(bot: Bot, message: Message, chat, command: str, admin: bool) -> None:
+    chat_id = message.chat.id
+    if not admin:
+        await say(bot, chat_id, "это только для админов чата", reply_to=message)
+        return
+    if command == "quiet":
+        await db.update_chat(chat_id, quiet_until=time.time() + 3600)
+        await say(bot, chat_id, "ладно, ухожу в тень на час 🤐 позовёте по имени, отвечу", reply_to=message)
+    elif command == "talk":
+        await db.update_chat(chat_id, quiet_until=0)
+        await say(bot, chat_id, "всё, я снова с вами 😎", reply_to=message)
+    elif command == "stopcall":
+        stopped = caller.stop(chat_id)
+        await say(bot, chat_id, "ок, больше не зову" if stopped else "я и так никого не зову", reply_to=message)
+    else:
+        n = await caller.start(bot, chat, message, starter=message.from_user.id if message.from_user else 0)
+        if n == -1:
+            await say(bot, chat_id, "уже зову, подожди. остановить: /stopcall", reply_to=message)
+        elif n == 0:
+            await say(bot, chat_id, "некого звать: я ещё не видел тут людей по этому списку. настроить: /settings",
+                      reply_to=message)

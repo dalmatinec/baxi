@@ -142,6 +142,11 @@ async def check(bot: Bot, raw_payload: str, buyer_id: int) -> str | None:
     p = parse_payload(raw_payload)
     if p["item"] == "roast_full" and await shielded(p.get("target")):
         return "У этого человека щит 🛡, не пробить"
+    if p["item"] == "roast_full" and p.get("target"):
+        chat = await db.get_chat(p["chat_id"])
+        why = await fun.protected(bot, chat, p["target"]) if chat else ""
+        if why:
+            return why[:100]
     return None
 
 

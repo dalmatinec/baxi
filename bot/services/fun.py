@@ -8,7 +8,7 @@ import time
 from aiogram import Bot
 from aiogram.types import Message
 
-from bot import ai, db, nominations, prompts
+from bot import ai, config, db, nominations, prompts
 from bot.nominations import Nominees
 from bot.services import talk
 from bot.services.out import say
@@ -124,9 +124,24 @@ async def roast_target(bot: Bot, chat_id: int, message: Message):
     return None
 
 
+async def protected(bot: Bot, chat, user_id: int) -> str:
+    """Почему этого человека нельзя прожарить ('' если можно): создатель или защищённый админ."""
+    if config.CREATOR_NAME and user_id in config.CREATOR_IDS:
+        return "создателя не жарю, он святое 🙏 выбери кого попроще"
+    if chat["protect_admins"]:
+        from bot.services import perms
+        if await perms.is_admin_id(bot, chat["chat_id"], user_id):
+            return "админов в этом чате жарить нельзя, такие правила 🛡"
+    return ""
+
+
 async def roast(bot: Bot, chat, message: Message, author_row) -> None:
     chat_id = chat["chat_id"]
     target = await roast_target(bot, chat_id, message) or author_row
+    why = await protected(bot, chat, target["user_id"])
+    if why:
+        await say(bot, chat_id, why, reply_to=message)
+        return
     perks = await db.get_perks(target["user_id"])
     if perks and perks["shield_until"] > time.time():
         await say(bot, chat_id, f"у {mention(target['user_id'], target['name'])} щит от прожарки 🛡, не пробить",

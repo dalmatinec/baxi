@@ -39,14 +39,14 @@ async def cb_add(cb: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(PhraseAdd.collecting)
     await show(cb, "➕ <b>Добавление</b>\n\nПрисылай:\n"
                    "• текст: каждая строка станет отдельной фразой\n"
-                   "• стикеры\n• гифки\n\nСколько угодно подряд. Закончил, жми «Готово».",
+                   "• стикеры\n• гифки\n\nСколько угодно подряд. Закончил, жми Готово.",
                kb([[("✅ Готово", "ph:menu")]]))
 
 
 @router.message(PhraseAdd.collecting, F.text)
 async def on_text(message: Message) -> None:
     if message.text.startswith("/"):
-        return await message.answer("Это похоже на команду. Закончить добавление: кнопка «Готово» или /cancel.")
+        return await message.answer("Это похоже на команду. Закончить добавление: кнопка Готово или /cancel.")
     lines = [" ".join(line.split()) for line in message.text.splitlines()]
     lines = [line[:500] for line in lines if line]
     added = 0
@@ -114,7 +114,7 @@ async def _view(cb: CallbackQuery, kind: str, idx: int) -> None:
         rows, total = await db.list_phrases(kind, 0, 1)
     await cb.answer()
     if not rows:
-        return await cb.message.answer(f"{KIND_NAMES[kind]}: пока пусто. Добавь через «➕ Добавить».",
+        return await cb.message.answer(f"{KIND_NAMES[kind]}: пока пусто. Добавь через ➕ Добавить.",
                                        reply_markup=kb([[("⬅️ Назад", "ph:menu")]]))
     item = rows[0]
     markup = kb([

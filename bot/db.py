@@ -250,6 +250,47 @@ CREATE TABLE IF NOT EXISTS dm_users (
     blocked     INTEGER NOT NULL DEFAULT 0       -- заблокировал бота: рассылки ему не шлём
 );
 
+CREATE TABLE IF NOT EXISTS triggers (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id     INTEGER NOT NULL,
+    word        TEXT    NOT NULL,               -- слово или фраза, в нижнем регистре
+    media_kind  TEXT    NOT NULL DEFAULT '',    -- '' | photo | video | gif | sticker
+    file_id     TEXT    NOT NULL DEFAULT '',
+    text_html   TEXT    NOT NULL DEFAULT '',
+    created     REAL    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS triggers_chat ON triggers (chat_id);
+
+CREATE TABLE IF NOT EXISTS support_threads (
+    user_id     INTEGER PRIMARY KEY,
+    name        TEXT    NOT NULL DEFAULT '',
+    username    TEXT    NOT NULL DEFAULT '',
+    topic       TEXT    NOT NULL DEFAULT '',
+    status      TEXT    NOT NULL DEFAULT 'new', -- new | answered | closed
+    last_ts     REAL    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS support_msgs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    direction   TEXT    NOT NULL,               -- in: от человека, out: ответ владельца
+    text        TEXT    NOT NULL DEFAULT '',
+    ts          REAL    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS support_msgs_user ON support_msgs (user_id, id);
+
+CREATE TABLE IF NOT EXISTS emoji_pack (
+    emoji_id    TEXT    PRIMARY KEY,            -- id премиум-эмодзи
+    alt         TEXT    NOT NULL                -- обычный эмодзи, вместо которого он показывается
+);
+
+CREATE TABLE IF NOT EXISTS call_list (
+    chat_id     INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    name        TEXT    NOT NULL DEFAULT '',
+    PRIMARY KEY (chat_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS quiz_scores (
     chat_id     INTEGER NOT NULL,
     user_id     INTEGER NOT NULL,
@@ -279,6 +320,20 @@ NEW_COLUMNS = {
         "shop": "INTEGER NOT NULL DEFAULT 1",             # магазин в чате (прожарка по полной)
         "added_name": "TEXT NOT NULL DEFAULT ''",         # кто добавил бота: имя
         "added_username": "TEXT NOT NULL DEFAULT ''",     # и юзернейм, чтобы владелец мог связаться
+        "quiz": "INTEGER NOT NULL DEFAULT 1",             # викторины включены
+        "quiz_count": "INTEGER NOT NULL DEFAULT 5",       # вопросов в викторине
+        "quiet_from": "INTEGER NOT NULL DEFAULT -1",      # тихие часы: с какого часа (-1 выкл)
+        "quiet_to": "INTEGER NOT NULL DEFAULT -1",
+        "quiet_until": "REAL NOT NULL DEFAULT 0",         # «помолчи часок»: до какого времени молчать
+        "humor": "INTEGER NOT NULL DEFAULT 1",            # 0 мягко, 1 обычно, 2 дерзко
+        "mat": "INTEGER NOT NULL DEFAULT 1",              # 0 нельзя, 1 в меру, 2 можно
+        "banned": "TEXT NOT NULL DEFAULT ''",             # запретные темы
+        "protect_admins": "INTEGER NOT NULL DEFAULT 0",   # админов нельзя прожаривать
+        "call_text": "TEXT NOT NULL DEFAULT ''",          # зазывала: текст (HTML)
+        "call_who": "TEXT NOT NULL DEFAULT 'day'",        # hour | day | week | all | list
+        "call_style": "TEXT NOT NULL DEFAULT 'names'",    # names: имена, emoji: отметки спрятаны в эмодзи
+        "call_max": "INTEGER NOT NULL DEFAULT 50",
+        "trial": "INTEGER NOT NULL DEFAULT 0",            # сейчас идёт пробный период
     },
     "users": {
         "birthday": "TEXT NOT NULL DEFAULT ''",         # 'MM-DD'
@@ -302,7 +357,9 @@ CHAT_FIELDS = {"bot_name", "aliases", "persona", "topic", "chance", "ai_share",
                "cooldown", "greet", "games", "ads", "title", "active", "last_jump",
                "pairpoll", "results", "rep", "bday", "results_hour", "last_results", "last_pairpoll",
                "results_manual", "approved", "pending_since", "added_by", "rent_until", "rent_warned", "members",
-               "shop", "added_name", "added_username"}
+               "shop", "added_name", "added_username", "quiz", "quiz_count", "quiet_from", "quiet_to",
+               "quiet_until", "humor", "mat", "banned", "protect_admins", "call_text", "call_who", "call_style",
+               "call_max", "trial"}
 AD_FIELDS = {"title", "media_kind", "file_id", "text_html", "buttons", "interval",
              "enabled", "delete_prev"}
 
@@ -1195,3 +1252,194 @@ async def stars_total(since: float = 0) -> int:
     async with conn().execute("SELECT COALESCE(SUM(stars), 0) FROM star_payments WHERE refunded = 0 AND ts >= ?",
                               (since,)) as cur:
         return (await cur.fetchone())[0]
+
+
+# ---------- триггеры: слово в чате → готовый ответ ----------
+
+async def add_trigger(chat_id: int, word: str, media_kind: str, file_id: str, text_html: str) -> int:
+    await conn().execute("DELETE FROM triggers WHERE chat_id = ? AND word = ?", (chat_id, word))
+    cur = await conn().execute(
+        "INSERT INTO triggers (chat_id, word, media_kind, file_id, text_html, created) VALUES (?, ?, ?, ?, ?, ?)",
+        (chat_id, word, media_kind, file_id, text_html, time.time()))
+    await conn().commit()
+    return cur.lastrowid
+
+
+async def list_triggers(chat_id: int) -> list[aiosqlite.Row]:
+    async with conn().execute("SELECT * FROM triggers WHERE chat_id = ? ORDER BY word", (chat_id,)) as cur:
+        return list(await cur.fetchall())
+
+
+async def get_trigger(tid: int) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM triggers WHERE id = ?", (tid,)) as cur:
+        return await cur.fetchone()
+
+
+async def delete_trigger(tid: int) -> None:
+    await conn().execute("DELETE FROM triggers WHERE id = ?", (tid,))
+    await conn().commit()
+
+
+# ---------- поддержка: переписки с людьми ----------
+
+async def support_add(user_id: int, name: str, username: str, topic: str, direction: str, text: str) -> None:
+    now = time.time()
+    status = "new" if direction == "in" else "answered"
+    await conn().execute(
+        "INSERT INTO support_threads (user_id, name, username, topic, status, last_ts) VALUES (?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET status = excluded.status, last_ts = excluded.last_ts, "
+        "name = CASE WHEN excluded.name != '' THEN excluded.name ELSE name END, "
+        "username = CASE WHEN excluded.name != '' THEN excluded.username ELSE username END, "
+        "topic = CASE WHEN excluded.topic != '' THEN excluded.topic ELSE topic END",
+        (user_id, name, username, topic, status, now))
+    await conn().execute("INSERT INTO support_msgs (user_id, direction, text, ts) VALUES (?, ?, ?, ?)",
+                         (user_id, direction, text[:2000], now))
+    await conn().commit()
+
+
+async def support_threads(closed: bool = False, limit: int = 30) -> list[aiosqlite.Row]:
+    sql = ("SELECT * FROM support_threads WHERE status " + ("= 'closed'" if closed else "!= 'closed'")
+           + " ORDER BY (status = 'new') DESC, last_ts DESC LIMIT ?")
+    async with conn().execute(sql, (limit,)) as cur:
+        return list(await cur.fetchall())
+
+
+async def support_thread(user_id: int) -> aiosqlite.Row | None:
+    async with conn().execute("SELECT * FROM support_threads WHERE user_id = ?", (user_id,)) as cur:
+        return await cur.fetchone()
+
+
+async def support_msgs(user_id: int, limit: int = 8) -> list[aiosqlite.Row]:
+    async with conn().execute("SELECT * FROM support_msgs WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+                              (user_id, limit)) as cur:
+        rows = list(await cur.fetchall())
+    rows.reverse()
+    return rows
+
+
+async def support_close(user_id: int) -> None:
+    await conn().execute("UPDATE support_threads SET status = 'closed' WHERE user_id = ?", (user_id,))
+    await conn().commit()
+
+
+async def support_new_count() -> int:
+    async with conn().execute("SELECT COUNT(*) FROM support_threads WHERE status = 'new'") as cur:
+        return (await cur.fetchone())[0]
+
+
+# ---------- премиум-эмодзи бота ----------
+
+async def emoji_add(emoji_id: str, alt: str) -> None:
+    await conn().execute("INSERT OR REPLACE INTO emoji_pack (emoji_id, alt) VALUES (?, ?)", (emoji_id, alt))
+    await conn().commit()
+
+
+async def emoji_list() -> list[aiosqlite.Row]:
+    async with conn().execute("SELECT * FROM emoji_pack ORDER BY rowid") as cur:
+        return list(await cur.fetchall())
+
+
+async def emoji_clear() -> None:
+    await conn().execute("DELETE FROM emoji_pack")
+    await conn().commit()
+
+
+# ---------- зазывала: свой список людей ----------
+
+async def call_add(chat_id: int, user_id: int, name: str) -> None:
+    await conn().execute("INSERT OR REPLACE INTO call_list (chat_id, user_id, name) VALUES (?, ?, ?)",
+                         (chat_id, user_id, name))
+    await conn().commit()
+
+
+async def call_remove(chat_id: int, user_id: int) -> None:
+    await conn().execute("DELETE FROM call_list WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
+    await conn().commit()
+
+
+async def call_list(chat_id: int) -> list[aiosqlite.Row]:
+    async with conn().execute("SELECT * FROM call_list WHERE chat_id = ? ORDER BY name", (chat_id,)) as cur:
+        return list(await cur.fetchall())
+
+
+async def users_since(chat_id: int, since: float, limit: int) -> list[aiosqlite.Row]:
+    """Участники, которые писали после since (since=0: все, кого бот видел)."""
+    async with conn().execute(
+            "SELECT * FROM users WHERE chat_id = ? AND last_seen >= ? ORDER BY last_seen DESC LIMIT ?",
+            (chat_id, since, limit)) as cur:
+        return list(await cur.fetchall())
+
+
+# ---------- статистика и деньги для админок ----------
+
+async def days_totals(chat_id: int, days: list[str]) -> dict[str, int]:
+    """Сколько сообщений было в каждый из дней."""
+    marks = ",".join("?" * len(days))
+    async with conn().execute(f"SELECT day, SUM(msgs) FROM daily_stats WHERE chat_id = ? AND day IN ({marks}) "
+                              "GROUP BY day", (chat_id, *days)) as cur:
+        found = {r[0]: r[1] for r in await cur.fetchall()}
+    return {d: found.get(d, 0) for d in days}
+
+
+async def top_talkers(chat_id: int, days: list[str], limit: int = 5) -> list[aiosqlite.Row]:
+    marks = ",".join("?" * len(days))
+    async with conn().execute(
+            f"SELECT user_id, MAX(name) AS name, SUM(msgs) AS msgs FROM daily_stats WHERE chat_id = ? "
+            f"AND day IN ({marks}) GROUP BY user_id ORDER BY msgs DESC LIMIT ?", (chat_id, *days, limit)) as cur:
+        return list(await cur.fetchall())
+
+
+async def known_people(chat_id: int) -> int:
+    async with conn().execute("SELECT COUNT(*) FROM users WHERE chat_id = ? AND msg_count > 0", (chat_id,)) as cur:
+        return (await cur.fetchone())[0]
+
+
+async def paid_orders(since: float) -> list[aiosqlite.Row]:
+    async with conn().execute("SELECT * FROM orders WHERE paid_at >= ? AND paid_at > 0 AND status != 'rejected'",
+                              (since,)) as cur:
+        return list(await cur.fetchall())
+
+
+async def people_count() -> int:
+    async with conn().execute("SELECT COUNT(DISTINCT user_id) FROM users WHERE msg_count > 0") as cur:
+        return (await cur.fetchone())[0]
+
+
+async def find_person(query: str) -> dict | None:
+    """Человек по id или @username: из лички и из чатов."""
+    q = query.strip().lstrip("@")
+    if not q:
+        return None
+    if q.lstrip("-").isdigit():
+        where, arg = "user_id = ?", int(q)
+    else:
+        where, arg = "lower(username) = ?", q.lower()
+    async with conn().execute(f"SELECT user_id, name, username FROM dm_users WHERE {where}", (arg,)) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        async with conn().execute(f"SELECT user_id, name, username FROM users WHERE {where} "
+                                  "ORDER BY last_seen DESC LIMIT 1", (arg,)) as cur:
+            row = await cur.fetchone()
+    if row is None:
+        return None
+    uid = row["user_id"]
+    async with conn().execute("SELECT c.title FROM users u JOIN chats c ON c.chat_id = u.chat_id "
+                              "WHERE u.user_id = ? AND c.active = 1", (uid,)) as cur:
+        chats = [r[0] for r in await cur.fetchall()]
+    async with conn().execute("SELECT 1 FROM dm_users WHERE user_id = ? AND blocked = 0", (uid,)) as cur:
+        dm = await cur.fetchone() is not None
+    async with conn().execute("SELECT COALESCE(SUM(stars), 0) FROM star_payments WHERE user_id = ? AND refunded = 0",
+                              (uid,)) as cur:
+        stars = (await cur.fetchone())[0]
+    return {"user_id": uid, "name": row["name"], "username": row["username"], "chats": chats, "dm": dm,
+            "stars": stars}
+
+
+async def username_of(user_id: int) -> str:
+    async with conn().execute("SELECT username FROM dm_users WHERE user_id = ? AND username != ''", (user_id,)) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        async with conn().execute("SELECT username FROM users WHERE user_id = ? AND username != '' "
+                                  "ORDER BY last_seen DESC LIMIT 1", (user_id,)) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else ""

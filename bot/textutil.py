@@ -55,21 +55,21 @@ def parse_buttons(text: str) -> tuple[list[list[list[str]]], list[str]]:
             part = part.strip()
             pieces = re.split(r"\s+[-—–]\s+", part)
             if len(pieces) < 2:
-                errors.append(f"строка {n}: «{part}» — нужно «Текст - ссылка»")
+                errors.append(f"строка {n}: {part}: нужно Текст - ссылка")
                 continue
             style = ""
             if len(pieces) >= 3:
                 word = pieces[-1].strip().lower()
                 style = next((v for k, v in COLORS.items() if word.startswith(k)), "")
                 if not style:
-                    errors.append(f"строка {n}: цвет «{pieces[-1]}» не знаю, есть зелёная, синяя, красная")
+                    errors.append(f"строка {n}: цвет {pieces[-1]} не знаю, есть зелёная, синяя, красная")
                     continue
                 pieces = pieces[:-1]
             label, url = " - ".join(pieces[:-1]).strip(), pieces[-1].strip()
             if url.lower().startswith("t.me/"):
                 url = "https://" + url
             if not _URL.match(url):
-                errors.append(f"строка {n}: «{url}» не похоже на ссылку")
+                errors.append(f"строка {n}: {url} не похоже на ссылку")
                 continue
             row.append([label[:64], url] + ([style] if style else []))
         if row:

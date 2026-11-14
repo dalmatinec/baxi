@@ -1,41 +1,65 @@
 """«⚙️ Мои чаты»: создатели чатов и админы с правом назначать админов сами настраивают бота у себя.
-Видят только свои чаты, где бот одобрен. Могут: имя, характер, тема, частота реплик, доля ИИ,
-пауза, час итогов, фишки (кроме рекламы), стереть память. Остальное только у владельца бота."""
+Видят только свои чаты, где бот одобрен. Деньги, реклама, фразы, стикеры и тексты меню только у владельца бота.
+
+Разделы: личность, активность, фишки, правила, триггеры, зазывала, статистика, пробный ответ."""
 
 import time
+from datetime import datetime, timedelta
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, User
 
-from bot import config, db
-from bot.handlers.admin.chats import CYCLES, FIELDS, TOGGLES, _chunks, _next
-from bot.services import menu
-from bot.textutil import esc, short
+from bot import ai, config, db, presets
+from bot.presets import CLIENT_TOGGLES, FIELDS, every, pct, quiet_text
+from bot.services import caller, menu, talk, triggers
+from bot.textutil import esc, full_name, short
 
 router = Router(name="chatadmin")
-
-# реклама остаётся у владельца бота
-CLIENT_TOGGLES = {k: v for k, v in TOGGLES.items() if k != "ads"}
 _rights: dict[tuple[int, int], tuple[float, bool]] = {}
 
-
 DENIED = "Настраивать бота могут создатель чата и админы с правом назначать админов"
+MAX_TRIGGERS = 30
+WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
 
 class McEdit(StatesGroup):
     value = State()
 
 
+class McTry(StatesGroup):
+    text = State()
+
+
+class McTrig(StatesGroup):
+    word = State()
+    reply = State()
+
+
+class McCall(StatesGroup):
+    add = State()
+
+
 def _kb(rows: list[list[tuple]]) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=t, callback_data=d, style=s[0] if s and s[0] else None) for t, d, *s in row]
-        for row in rows if row])
+    out = []
+    for row in rows:
+        if not row:
+            continue
+        buttons = []
+        for t, d, *s in row:
+            style = s[0] if s and s[0] else None
+            if d.startswith(("http://", "https://")):
+                buttons.append(InlineKeyboardButton(text=t, url=d, style=style))
+            else:
+                buttons.append(InlineKeyboardButton(text=t, callback_data=d, style=style))
+        out.append(buttons)
+    return InlineKeyboardMarkup(inline_keyboard=out)
 
 
-def pct(v: float) -> str:
-    return f"{round(v * 100)}%"
+def _opt(label: str, data: str, on: bool) -> tuple[str, str, str]:
+    """Кнопка-вариант: выбранная синяя с галочкой."""
+    return (f"✓ {label}" if on else label), data, ("primary" if on else "")
 
 
 async def can_manage(bot: Bot, user_id: int, chat_id: int) -> bool:
@@ -64,20 +88,20 @@ async def my_chats(bot: Bot, user_id: int) -> list:
     return [c for c in await db.candidate_chats(user_id) if await can_manage(bot, user_id, c["chat_id"])]
 
 
-async def start_rows(user: User) -> list[list[InlineKeyboardButton]]:
-    """Кнопка в главном меню лички, только если у человека есть свои чаты с ботом."""
+async def has_chats(user: User) -> bool:
     bot = menu.CURRENT_BOT
-    if bot and await my_chats(bot, user.id):
-        return [[InlineKeyboardButton(text="⚙️ Мои чаты: настроить бота", callback_data="mc:list")]]
-    return []
+    return bool(bot and await my_chats(bot, user.id))
 
 
-menu.EXTRA_ROWS["start"] = start_rows
+menu.SHOW_IF["act:mychats"] = has_chats
 
 
 async def _show(target: Message | CallbackQuery, text: str, kb: InlineKeyboardMarkup) -> None:
     if isinstance(target, CallbackQuery):
-        await target.answer()
+        try:
+            await target.answer()
+        except Exception:
+            pass
         try:
             return await target.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
         except Exception as exc:
@@ -91,19 +115,17 @@ async def show_list(bot: Bot, target: Message | CallbackQuery) -> None:
     chats = await my_chats(bot, target.from_user.id)
     if not chats:
         me = await bot.me()
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Добавить бота в чат", url=f"https://t.me/{me.username}?startgroup=true")],
-            [InlineKeyboardButton(text="⬅️ В меню", callback_data="sc:start")]])
         return await _show(target, "⚙️ <b>Мои чаты</b>\n\nЗдесь появятся чаты, где ты создатель или админ с правом "
-                                   "назначать админов и где бот уже работает. "
-                                   "Пока таких нет. Если только что добавил бота, дождись одобрения: "
-                                   "я напишу сюда, когда всё готово.", kb)
+                                   "назначать админов и где бот уже работает.\n\nПока таких нет. Если только что "
+                                   "добавил бота, дождись одобрения: я напишу сюда, когда всё готово.",
+                           _kb([[("➕ Добавить бота в чат", f"https://t.me/{me.username}?startgroup=true", "success")],
+                                [("⬅️ В меню", "sc:start")]]))
     rows = [[(f"💬 {short(c['title'] or str(c['chat_id']), 40)}", f"mc:o:{c['chat_id']}")] for c in chats]
     await _show(target, "⚙️ <b>Мои чаты</b>\n\nВыбери чат, чтобы настроить бота в нём.",
                 _kb(rows + [[("⬅️ В меню", "sc:start")]]))
 
 
-@router.callback_query(F.data == "mc:list")
+@router.callback_query(F.data.in_({"mc:list", "act:mychats"}))
 async def cb_list(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     await state.clear()
     await show_list(bot, cb)
@@ -116,49 +138,150 @@ async def _guard(cb: CallbackQuery, bot: Bot, chat_id: int) -> bool:
     return False
 
 
-async def _card(target, chat_id: int) -> None:
+def last_days(n: int) -> list[str]:
+    now = datetime.now(config.TZ)
+    return [(now - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(n - 1, -1, -1)]
+
+
+def status_line(c) -> str:
+    from bot.services.approval import until_text
+    if c["rent_until"]:
+        kind = "🎁 пробный до" if c["trial"] else "📅 аренда до"
+        return f"🟢 работаю · {kind} {until_text(c['rent_until'])}"
+    return "🟢 работаю"
+
+
+async def card(target, chat_id: int, viewer: int = 0) -> None:
     c = await db.get_chat(chat_id)
-    on = sum(1 for f in CLIENT_TOGGLES if c[f])
-    text = (f"⚙️ <b>{esc(c['title'] or str(chat_id))}</b>\n\n"
-            f"🎭 Бот здесь: <b>{esc(c['bot_name'])}</b>\n"
-            f"💬 Влезает в {pct(c['chance'])} разговоров, через ИИ {pct(c['ai_share'])}\n"
-            f"🎲 Включено фишек: {on} из {len(CLIENT_TOGGLES)}\n\nЧто настроить? 👇")
+    week = sum((await db.days_totals(chat_id, last_days(7))).values())
+    lines = [f"⚙️ <b>{esc(c['title'] or str(chat_id))}</b>", status_line(c),
+             f"👥 {c['members'] or '?'} участников · 💬 {week} сообщ. за неделю", "",
+             f"🎭 <b>{esc(c['bot_name'])}</b>, {esc(short(c['persona'], 70))}",
+             f"📌 {esc(short(c['topic'], 70))}",
+             f"💬 болтаю: {pct(c['chance'])}" + (f" · 🌙 тихо {quiet_text(c['quiet_from'], c['quiet_to'])}"
+                                                if c["quiet_from"] >= 0 else "")]
+    if c["quiet_until"] > time.time():
+        lines.append(f"🤫 молчу до {datetime.fromtimestamp(c['quiet_until'], config.TZ):%H:%M}")
     cid = chat_id
-    await _show(target, text, _kb([
-        [("🎭 Личность", f"mc:s:{cid}:who", "primary"), ("⚙️ Поведение", f"mc:s:{cid}:act", "primary")],
-        [("🎲 Фишки", f"mc:s:{cid}:fx", "primary"), ("🧹 Стереть память", f"mc:w:{cid}")],
-        [("🆘 Написать владельцу бота", f"mc:sup:{cid}")],
-        [("⬅️ Мои чаты", "mc:list")]]))
+    rows = [
+        [("🎭 Личность", f"mc:s:{cid}:who"), ("💬 Активность", f"mc:s:{cid}:act")],
+        [("🎲 Фишки", f"mc:s:{cid}:fx"), ("🛡 Правила", f"mc:s:{cid}:rules")],
+        [("📝 Триггеры", f"mc:s:{cid}:trig"), ("📣 Зазывала", f"mc:s:{cid}:call")],
+        [("📊 Статистика", f"mc:s:{cid}:stats")],
+        [("👀 Пробный ответ", f"mc:try:{cid}", "primary")],
+        [("💳 Продлить аренду", f"rt:{cid}"), ("🆘 Владельцу", f"mc:sup:{cid}")],
+        [("🧹 Стереть память", f"mc:w:{cid}", "danger")],
+        [("⬅️ Мои чаты", "mc:list")] + ([("👑 В админку", f"ch:o:{cid}")] if viewer in config.OWNER_IDS else []),
+    ]
+    await _show(target, "\n".join(lines), _kb(rows))
 
 
-async def _section(target, chat_id: int, sec: str) -> None:
+def _activity(c) -> tuple[str, list]:
+    cid = c["chat_id"]
+    results = f"в {c['results_hour']}:00" if c["results"] else "выкл"
+    text = (f"💬 <b>Активность</b>\n\n"
+            f"Сам влезаю в разговор: <b>{pct(c['chance'])}</b>\n<i>{every(c['chance'])}</i>\n\n"
+            f"🤖 Из них через ИИ: <b>{pct(c['ai_share'])}</b>, остальное фразы и стикеры\n"
+            f"⏱ Пауза между влезаниями: <b>{c['cooldown']} сек</b>\n"
+            f"🌙 Тихие часы: <b>{quiet_text(c['quiet_from'], c['quiet_to'])}</b>\n"
+            f"<i>ночью сам не пишу, но отвечаю, если позвать</i>\n"
+            f"😏 Юмор: <b>{presets.HUMOR.get(c['humor'], '')}</b>\n"
+            f"🕚 Итоги дня: <b>{results}</b>\n\n"
+            "<i>Если меня зовут по имени или отвечают мне, отвечаю всегда.</i>")
+    steps = list(enumerate(presets.CHANCE_STEPS))
+    rows = [[_opt("выкл" if v == 0 else pct(v), f"mc:v:{cid}:chance:{i}", abs(c["chance"] - v) < 1e-6)
+             for i, v in part] for part in (steps[:5], steps[5:])]
+    rows.append([(f"🤖 ИИ: {pct(c['ai_share'])}", f"mc:c:{cid}:ai_share"),
+                 (f"⏱ Пауза: {c['cooldown']}с", f"mc:c:{cid}:cooldown")])
+    rows.append([_opt("🌙 выкл" if a < 0 else f"{a:02d}-{b:02d}", f"mc:v:{cid}:quiet:{i}",
+                      (a, b) == (c["quiet_from"], c["quiet_to"])) for i, (a, b) in enumerate(presets.QUIET_OPTIONS)])
+    rows.append([_opt(label, f"mc:v:{cid}:humor:{k}", c["humor"] == k) for k, label in presets.HUMOR.items()])
+    rows.append([_opt(f"{h}:00", f"mc:v:{cid}:rh:{h}", bool(c["results"]) and c["results_hour"] == h)
+                 for h in (21, 22, 23)] + [_opt("Выкл", f"mc:v:{cid}:rh:0", not c["results"])])
+    return text, rows
+
+
+async def section(target, chat_id: int, sec: str) -> None:
     c = await db.get_chat(chat_id)
     cid = chat_id
     back = [("⬅️ К чату", f"mc:o:{cid}")]
     if sec == "who":
-        text = (f"🎭 <b>Личность бота</b>\n\n<b>Имя:</b> {esc(c['bot_name'])}\n"
+        text = (f"🎭 <b>Личность</b>\n\n<b>Имя:</b> {esc(c['bot_name'])}\n"
                 f"<b>Ещё откликается на:</b> {esc(c['aliases']) or 'нет'}\n\n"
-                f"<b>Характер:</b>\n<blockquote>{esc(short(c['persona'], 600))}</blockquote>\n"
-                f"<b>Тема чата:</b>\n<blockquote>{esc(short(c['topic'], 400))}</blockquote>")
+                f"<b>Кто он и характер:</b>\n<blockquote expandable>{esc(short(c['persona'], 2500))}</blockquote>\n"
+                f"<b>Тема чата:</b>\n<blockquote>{esc(short(c['topic'], 600))}</blockquote>\n"
+                "<i>Характер можно писать длинно и подробно: кто он, где находится, как общается. "
+                "Чем подробнее, тем живее бот.</i>")
         rows = [[("✏️ Имя", f"mc:e:{cid}:bot_name"), ("🔤 Доп. имена", f"mc:e:{cid}:aliases")],
-                [("🎭 Характер", f"mc:e:{cid}:persona"), ("📌 Тема", f"mc:e:{cid}:topic")], back]
+                [("🎭 Характер", f"mc:e:{cid}:persona"), ("📌 Тема", f"mc:e:{cid}:topic")],
+                [("✨ Готовые характеры", f"wz:s:{cid}")], back]
     elif sec == "act":
-        text = (f"⚙️ <b>Поведение</b>\n\n"
-                f"🎯 <b>Шанс влезть</b> в чужой разговор: {pct(c['chance'])} сообщений\n"
-                f"🤖 <b>Из них через ИИ:</b> {pct(c['ai_share'])}, остальное фразы и стикеры\n"
-                f"⏱ <b>Пауза</b> между такими влезаниями: {c['cooldown']} сек\n"
-                f"🌙 <b>Итоги дня</b> в {c['results_hour']}:00\n\n"
-                "<i>Если бота зовут по имени или отвечают ему, он отвечает всегда. Нажимай на кнопку, "
-                "значение меняется по кругу.</i>")
-        rows = [[(f"🎯 Шанс: {pct(c['chance'])}", f"mc:c:{cid}:chance"),
-                 (f"🤖 ИИ: {pct(c['ai_share'])}", f"mc:c:{cid}:ai_share")],
-                [(f"⏱ Пауза: {c['cooldown']}с", f"mc:c:{cid}:cooldown"),
-                 (f"🌙 Итоги: {c['results_hour']}:00", f"mc:c:{cid}:results_hour")], back]
-    else:
-        text = "🎲 <b>Фишки</b>\n\n🟢 включено · ⚪️ выключено. Нажми, чтобы переключить."
-        rows = [[(f"{'🟢' if c[f] else '⚪️'} {label}", f"mc:t:{cid}:{f}", "success" if c[f] else "")
-                 for f, label in pair] for pair in _chunks(list(CLIENT_TOGGLES.items()), 2)] + [back]
+        text, rows = _activity(c)
+        rows.append(back)
+    elif sec == "fx":
+        text = (f"🎲 <b>Фишки в {esc(c['title'] or '')}</b>\n\nНажми, чтобы включить или выключить.\n\n"
+                f"🧠 Вопросов в викторине: <b>{c['quiz_count']}</b>")
+        items = list(CLIENT_TOGGLES.items())
+        rows = [[(f"{'✅' if c[f] else '❌'} {label}", f"mc:t:{cid}:{f}") for f, label in items[i:i + 2]]
+                for i in range(0, len(items), 2)]
+        rows.append([_opt(f"🧠 {n} вопросов", f"mc:v:{cid}:qc:{n}", c["quiz_count"] == n) for n in presets.QUIZ_COUNTS])
+        rows.append(back)
+    elif sec == "rules":
+        text = (f"🛡 <b>Правила</b>\n\n"
+                f"🚫 Не шутить про: <i>{esc(c['banned']) or 'ограничений нет'}</i>\n"
+                f"🛡 Прожаривать админов: <i>{'нельзя' if c['protect_admins'] else 'можно'}</i>\n"
+                f"🤬 Мат: <i>{presets.MAT.get(c['mat'], '')}</i>")
+        rows = [[("🚫 Запретные темы", f"mc:e:{cid}:banned")],
+                [(f"🛡 Защита админов: {'✅' if c['protect_admins'] else '❌'}", f"mc:t:{cid}:protect_admins")],
+                [_opt(label, f"mc:v:{cid}:mat:{k}", c["mat"] == k) for k, label in presets.MAT.items()], back]
+    elif sec == "trig":
+        items = await db.list_triggers(cid)
+        listing = "\n".join(f"• <code>{esc(t['word'])}</code> → {_trig_kind(t)}" for t in items) or "пока нет"
+        text = (f"📝 <b>Триггеры</b> ({len(items)})\nСлово в чате, на которое я сразу отвечаю твоим текстом, "
+                f"фото или видео. Удобно для правил, прайса, адреса.\n\n{listing}")
+        rows = [[(short(t["word"], 18), f"mc:td:{t['id']}") for t in items[i:i + 3]] for i in range(0, len(items), 3)]
+        rows += [[("➕ Новый триггер", f"mc:tn:{cid}", "success")], back]
+    elif sec == "call":
+        people = len(await db.call_list(cid))
+        sample = c["call_text"] or esc(presets.CALL_DEFAULT_TEXT)
+        style = "имена спрятаны в эмодзи" if c["call_style"] == "emoji" else "именами"
+        text = (f"📣 <b>Зазывала</b>\nОтмечаю людей пачками по {presets.CALL_BATCH} в сообщении, например когда "
+                f"в чат пришла игра.\n\n<b>Текст:</b>\n<blockquote>{sample}</blockquote>\n"
+                f"<b>Кого звать:</b> {presets.CALL_WHO.get(c['call_who'], '')}\n"
+                f"<b>Как отмечать:</b> {style}\n<b>Максимум:</b> {c['call_max']} человек\n\n"
+                "Запуск в чате: /call или слово <b>зазывай</b>, можно ответом на пост с игрой. Стоп: /stopcall\n"
+                "<i>Онлайн Telegram ботам не показывает, поэтому ближе всего к онлайну вариант писали за час. "
+                "Зову только тех, кто писал, пока я в чате.</i>")
+        who = list(presets.CALL_WHO.items())
+        rows = [[("✏️ Текст", f"mc:e:{cid}:call_text")]]
+        rows += [[_opt(label, f"mc:v:{cid}:cw:{k}", c["call_who"] == k) for k, label in who[i:i + 2]]
+                 for i in range(0, len(who), 2)]
+        rows.append([_opt(label, f"mc:v:{cid}:cs:{k}", c["call_style"] == k)
+                     for k, label in (("names", "👤 Именами"), ("emoji", "🎮 В эмодзи"))])
+        rows.append([_opt(str(n), f"mc:v:{cid}:cm:{n}", c["call_max"] == n) for n in presets.CALL_MAX])
+        rows += [[(f"📋 Мой список ({people})", f"mc:cl:{cid}")],
+                 [("▶️ Позвать сейчас", f"mc:run:{cid}", "success")], back]
+    else:  # stats
+        days = last_days(7)
+        totals = await db.days_totals(cid, days)
+        top = await db.top_talkers(cid, days, 5)
+        peak = max(totals.values()) or 1
+        bars = []
+        for d, n in totals.items():
+            wd = WEEKDAYS[datetime.strptime(d, "%Y-%m-%d").weekday()]
+            bar = "▇" * (max(1, round(n * 8 / peak)) if n else 0)
+            bars.append(f"<code>{wd} {bar:<8} {n}</code>")
+        medals = ["🥇", "🥈", "🥉", "4.", "5."]
+        talkers = "\n".join(f"{medals[i]} {esc(r['name'])}: {r['msgs']}" for i, r in enumerate(top)) or "пока пусто"
+        text = (f"📊 <b>Статистика за 7 дней</b>\n\n💬 Сообщений: <b>{sum(totals.values())}</b>\n"
+                f"👥 Участников: <b>{c['members'] or '?'}</b> · знаю в лицо: <b>{await db.known_people(cid)}</b>\n\n"
+                + "\n".join(bars) + f"\n\n🗣 <b>Самые активные:</b>\n{talkers}")
+        rows = [back]
     await _show(target, text, _kb(rows))
+
+
+def _trig_kind(t) -> str:
+    return {"photo": "фото", "video": "видео", "gif": "гифка", "sticker": "стикер"}.get(t["media_kind"], "текст")
 
 
 @router.callback_query(F.data.startswith("mc:sup:"))
@@ -176,7 +299,7 @@ async def cb_open(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     await state.clear()
     cid = int(cb.data.split(":")[2])
     if await _guard(cb, bot, cid):
-        await _card(cb, cid)
+        await card(cb, cid, cb.from_user.id)
 
 
 @router.callback_query(F.data.startswith("mc:s:"))
@@ -184,7 +307,11 @@ async def cb_section(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     await state.clear()
     _, _, cid, sec = cb.data.split(":")
     if await _guard(cb, bot, int(cid)):
-        await _section(cb, int(cid), sec)
+        await section(cb, int(cid), sec)
+
+
+CYCLES = {"ai_share": presets.AI_SHARE_STEPS, "cooldown": presets.COOLDOWN_STEPS}
+TOGGLE_FIELDS = set(CLIENT_TOGGLES) | {"protect_admins"}
 
 
 @router.callback_query(F.data.startswith(("mc:c:", "mc:t:")))
@@ -195,11 +322,49 @@ async def cb_change(cb: CallbackQuery, bot: Bot) -> None:
         return
     chat = await db.get_chat(cid)
     if op == "c" and field in CYCLES:
-        await db.update_chat(cid, **{field: _next(CYCLES[field], chat[field])})
-        return await _section(cb, cid, "act")
-    if op == "t" and field in CLIENT_TOGGLES:
+        await db.update_chat(cid, **{field: presets.next_value(CYCLES[field], chat[field])})
+        return await section(cb, cid, "act")
+    if op == "t" and field in TOGGLE_FIELDS:
         await db.update_chat(cid, **{field: 0 if chat[field] else 1})
-    await _section(cb, cid, "fx")
+    await section(cb, cid, "rules" if field == "protect_admins" else "fx")
+
+
+@router.callback_query(F.data.startswith("mc:v:"))
+async def cb_value(cb: CallbackQuery, bot: Bot) -> None:
+    """Выбор значения кнопкой: шанс, тихие часы, юмор, итоги, мат, зазывала, число вопросов."""
+    _, _, cid, key, val = cb.data.split(":")
+    cid = int(cid)
+    if not await _guard(cb, bot, cid):
+        return
+    sec = {"mat": "rules", "qc": "fx", "cw": "call", "cs": "call", "cm": "call"}.get(key, "act")
+    try:
+        if key == "chance":
+            await db.update_chat(cid, chance=presets.CHANCE_STEPS[int(val)])
+        elif key == "quiet":
+            a, b = presets.QUIET_OPTIONS[int(val)]
+            await db.update_chat(cid, quiet_from=a, quiet_to=b)
+        elif key == "humor" and int(val) in presets.HUMOR:
+            await db.update_chat(cid, humor=int(val))
+        elif key == "rh":
+            h = int(val)
+            await db.update_chat(cid, **({"results": 0} if h == 0 else {"results": 1, "results_hour": h}))
+        elif key == "mat" and int(val) in presets.MAT:
+            await db.update_chat(cid, mat=int(val))
+        elif key == "qc" and int(val) in presets.QUIZ_COUNTS:
+            await db.update_chat(cid, quiz_count=int(val))
+        elif key == "cw" and val in presets.CALL_WHO:
+            await db.update_chat(cid, call_who=val)
+        elif key == "cs" and val in ("names", "emoji"):
+            await db.update_chat(cid, call_style=val)
+        elif key == "cm" and int(val) in presets.CALL_MAX:
+            await db.update_chat(cid, call_max=int(val))
+    except (ValueError, IndexError):
+        pass
+    await section(cb, cid, sec)
+
+
+EDIT_BACK = {"banned": "rules", "call_text": "call"}
+CAN_BE_EMPTY = {"aliases", "banned", "call_text"}
 
 
 @router.callback_query(F.data.startswith("mc:e:"))
@@ -208,12 +373,13 @@ async def cb_edit(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     if field not in FIELDS or not await _guard(cb, bot, int(cid)):
         return
     chat = await db.get_chat(int(cid))
-    title, _, hint = FIELDS[field]
+    title, limit, hint = FIELDS[field]
     await state.set_state(McEdit.value)
     await state.update_data(chat_id=int(cid), field=field)
-    current = esc(chat[field]) if chat[field] else "пусто"
-    await _show(cb, f"✏️ <b>{title}</b>\n\nСейчас: {current}\n\n{hint}\n\nПришли новое значение сообщением.",
-                _kb([[("Отмена", f"mc:s:{cid}:who")]]))
+    current = chat[field] if field == "call_text" else esc(short(chat[field], 1500))
+    await _show(cb, f"✏️ <b>{title}</b>\n\nСейчас: {current or 'пусто'}\n\n{hint}\n\n"
+                    f"Пришли новое значение сообщением (до {limit} символов).",
+                _kb([[("Отмена", f"mc:s:{cid}:{EDIT_BACK.get(field, 'who')}")]]))
 
 
 @router.message(McEdit.value, F.text)
@@ -224,18 +390,190 @@ async def on_value(message: Message, bot: Bot, state: FSMContext) -> None:
         await state.clear()
         return await message.answer(DENIED)
     title, limit, _ = FIELDS[field]
-    value = message.text.strip()
-    if field == "aliases" and value == "-":
+    value = message.html_text.strip() if field == "call_text" else message.text.strip()
+    if field in CAN_BE_EMPTY and message.text.strip() == "-":
         value = ""
     if len(value) > limit:
         return await message.answer(f"Слишком длинно, максимум {limit} символов. Сократи и пришли ещё раз.")
-    if field != "aliases" and not value:
+    if field not in CAN_BE_EMPTY and not value:
         return await message.answer("Пустое значение не подойдёт, пришли текст.")
     await db.update_chat(cid, **{field: value})
     await state.clear()
     await message.answer(f"✅ {title}: сохранил.")
-    await _section(message, cid, "who")
+    await section(message, cid, EDIT_BACK.get(field, "who"))
 
+
+# ---------- пробный ответ ----------
+
+@router.callback_query(F.data.startswith("mc:try:"))
+async def cb_try(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
+    cid = int(cb.data.split(":")[2])
+    if not await _guard(cb, bot, cid):
+        return
+    await state.set_state(McTry.text)
+    await state.update_data(chat_id=cid)
+    await _show(cb, "👀 <b>Пробный ответ</b>\n\nНапиши фразу, как будто ты в чате. Отвечу так, как ответил бы там. "
+                    "В чат ничего не уйдёт.", _kb([[("⬅️ К чату", f"mc:o:{cid}")]]))
+
+
+@router.message(McTry.text, F.text)
+async def on_try(message: Message, bot: Bot, state: FSMContext) -> None:
+    cid = (await state.get_data())["chat_id"]
+    chat = await db.get_chat(cid)
+    if not chat or not await can_manage(bot, message.from_user.id, cid):
+        await state.clear()
+        return await message.answer(DENIED)
+    back = _kb([[("⬅️ К чату", f"mc:o:{cid}")]])
+    if not ai.enabled():
+        return await message.answer("Нейросеть сейчас выключена, пробный ответ недоступен.", reply_markup=back)
+    try:
+        await bot.send_chat_action(message.chat.id, "typing")
+    except Exception:
+        pass
+    reply = await talk.test_reply(chat, full_name(message.from_user.first_name, message.from_user.last_name),
+                                  message.text[:500])
+    await message.answer(f"💬 {esc(reply)}\n\n<i>Пиши ещё фразу или вернись к чату.</i>" if reply else
+                         "Сейчас не получилось ответить: возможно, кончился дневной лимит. Попробуй позже.",
+                         parse_mode="HTML", reply_markup=back)
+
+
+# ---------- триггеры ----------
+
+@router.callback_query(F.data.startswith("mc:tn:"))
+async def cb_trig_new(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
+    cid = int(cb.data.split(":")[2])
+    if not await _guard(cb, bot, cid):
+        return
+    if len(await db.list_triggers(cid)) >= MAX_TRIGGERS:
+        return await cb.answer(f"Максимум {MAX_TRIGGERS} триггеров, удали лишние", show_alert=True)
+    await state.set_state(McTrig.word)
+    await state.update_data(chat_id=cid)
+    await _show(cb, "📝 <b>Новый триггер, шаг 1 из 2</b>\n\nНа какое слово или фразу отвечать? Например: "
+                    "<code>правила</code>, <code>прайс</code>, <code>адрес</code>.\n\n"
+                    "<i>Сработает, когда в чате напишут ровно это слово, без разницы, большими буквами или с "
+                    "восклицательным знаком.</i>", _kb([[("Отмена", f"mc:s:{cid}:trig")]]))
+
+
+@router.message(McTrig.word, F.text)
+async def on_trig_word(message: Message, state: FSMContext) -> None:
+    word = triggers.norm(message.text)
+    if not word or len(word) > 40:
+        return await message.answer("Нужно слово или короткая фраза до 40 символов, не одни смайлики.")
+    await state.update_data(word=word)
+    await state.set_state(McTrig.reply)
+    await message.answer(f"📝 <b>Шаг 2 из 2</b>\n\nСлово: <code>{esc(word)}</code>\n\nТеперь пришли ответ: текст, "
+                         "фото с подписью, видео, гифку или стикер. Можно с премиум-эмодзи и жирным текстом.",
+                         parse_mode="HTML")
+
+
+@router.message(McTrig.reply)
+async def on_trig_reply(message: Message, bot: Bot, state: FSMContext) -> None:
+    data = await state.get_data()
+    cid = data["chat_id"]
+    if not await can_manage(bot, message.from_user.id, cid):
+        await state.clear()
+        return await message.answer(DENIED)
+    kind, file_id, html = triggers.extract(message)
+    if not kind and not html:
+        return await message.answer("Пришли текст, фото, видео, гифку или стикер.")
+    await db.add_trigger(cid, data["word"], kind, file_id, html[:3500])
+    triggers.forget(cid)
+    await state.clear()
+    await message.answer(f"✅ Триггер <code>{esc(data['word'])}</code> готов. Напиши это слово в чате, и я отвечу.",
+                         parse_mode="HTML")
+    await section(message, cid, "trig")
+
+
+@router.callback_query(F.data.startswith(("mc:td:", "mc:tx:")))
+async def cb_trig_item(cb: CallbackQuery, bot: Bot) -> None:
+    op, tid = cb.data.split(":")[1], int(cb.data.split(":")[2])
+    trig = await db.get_trigger(tid)
+    if not trig or not await _guard(cb, bot, trig["chat_id"]):
+        return await cb.answer()
+    cid = trig["chat_id"]
+    if op == "tx":
+        await db.delete_trigger(tid)
+        triggers.forget(cid)
+        return await section(cb, cid, "trig")
+    preview = trig["text_html"] or "без текста"
+    await _show(cb, f"📝 <b>Триггер</b> <code>{esc(trig['word'])}</code>\n\nОтвет: {_trig_kind(trig)}\n\n{preview}",
+                _kb([[("🗑 Удалить", f"mc:tx:{tid}", "danger")], [("⬅️ Триггеры", f"mc:s:{cid}:trig")]]))
+
+
+# ---------- зазывала ----------
+
+async def _call_list(target, cid: int) -> None:
+    people = await db.call_list(cid)
+    rows = [[(f"❌ {short(p['name'] or str(p['user_id']), 20)}", f"mc:cr:{cid}:{p['user_id']}")
+             for p in people[i:i + 2]] for i in range(0, min(len(people), 60), 2)]
+    rows += [[("➕ Добавить людей", f"mc:ca:{cid}", "success")], [("⬅️ Зазывала", f"mc:s:{cid}:call")]]
+    await _show(target, f"📋 <b>Мой список для зазывалы</b>: {len(people)}\n\nКого звать, когда выбрано "
+                        "Мой список. Нажми на человека, чтобы убрать.", _kb(rows))
+
+
+@router.callback_query(F.data.startswith("mc:cl:"))
+async def cb_call_list(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
+    cid = int(cb.data.split(":")[2])
+    if await _guard(cb, bot, cid):
+        await state.clear()
+        await _call_list(cb, cid)
+
+
+@router.callback_query(F.data.startswith("mc:cr:"))
+async def cb_call_remove(cb: CallbackQuery, bot: Bot) -> None:
+    _, _, cid, uid = cb.data.split(":")
+    if await _guard(cb, bot, int(cid)):
+        await db.call_remove(int(cid), int(uid))
+        await _call_list(cb, int(cid))
+
+
+@router.callback_query(F.data.startswith("mc:ca:"))
+async def cb_call_add(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
+    cid = int(cb.data.split(":")[2])
+    if not await _guard(cb, bot, cid):
+        return
+    await state.set_state(McCall.add)
+    await state.update_data(chat_id=cid)
+    await _show(cb, "➕ <b>Добавить в список</b>\n\nПришли юзернеймы или имена через пробел или с новой строки, "
+                    "например:\n<code>@vasya @anya Олег</code>\n\nИщу среди тех, кто писал в чате при мне.",
+                _kb([[("Готово", f"mc:cl:{cid}")]]))
+
+
+@router.message(McCall.add, F.text)
+async def on_call_add(message: Message, bot: Bot, state: FSMContext) -> None:
+    cid = (await state.get_data())["chat_id"]
+    if not await can_manage(bot, message.from_user.id, cid):
+        await state.clear()
+        return await message.answer(DENIED)
+    added, missed = [], []
+    for token in message.text.replace(",", " ").split()[:50]:
+        user = await db.find_user(cid, token)
+        if user:
+            await db.call_add(cid, user["user_id"], user["name"])
+            added.append(user["name"])
+        else:
+            missed.append(token)
+    text = f"✅ Добавил: {esc(', '.join(added))}" if added else "Никого не нашёл."
+    if missed:
+        text += f"\nНе нашёл: {esc(', '.join(missed))} (они ещё не писали в чате при мне)"
+    await message.answer(text + "\n\nПришли ещё или нажми Готово.", parse_mode="HTML",
+                         reply_markup=_kb([[("Готово", f"mc:cl:{cid}")]]))
+
+
+@router.callback_query(F.data.startswith("mc:run:"))
+async def cb_call_run(cb: CallbackQuery, bot: Bot) -> None:
+    cid = int(cb.data.split(":")[2])
+    if not await _guard(cb, bot, cid):
+        return
+    n = await caller.start(bot, await db.get_chat(cid), starter=cb.from_user.id)
+    if n == -1:
+        return await cb.answer("Уже зову. Остановить: /stopcall в чате", show_alert=True)
+    if n == 0:
+        return await cb.answer("Некого звать: никто из выбранных ещё не писал в чате при мне", show_alert=True)
+    await cb.answer(f"📣 Зову {n} человек в чате", show_alert=True)
+
+
+# ---------- стереть память ----------
 
 @router.callback_query(F.data.startswith("mc:w:"))
 async def cb_wipe(cb: CallbackQuery, bot: Bot) -> None:
@@ -250,4 +588,5 @@ async def cb_wipe_ok(cb: CallbackQuery, bot: Bot) -> None:
     cid = int(cb.data.split(":")[2])
     if await _guard(cb, bot, cid):
         await db.clear_memory(cid)
-        await _card(cb, cid)
+        await cb.answer("🧹 Память стёрта", show_alert=True)
+        await card(cb, cid, cb.from_user.id)

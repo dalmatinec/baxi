@@ -35,6 +35,26 @@ def chat_lock(chat_id: int) -> asyncio.Lock:
     return _locks.setdefault(chat_id, asyncio.Lock())
 
 
+async def rules(chat) -> list[str]:
+    """Правила чата для нейросети: юмор, мат, запретные темы, эмодзи, создатель."""
+    from bot import presets
+    from bot.services import emoji
+    out = [presets.HUMOR_RULE.get(chat["humor"], ""), presets.MAT_RULE.get(chat["mat"], "")]
+    if chat["banned"]:
+        out.append(f"Никогда не шути и не говори на эти темы, уходи от них: {chat['banned']}.")
+    out.append(prompts.emoji_rule(emoji.alts()))
+    if config.CREATOR_NAME:
+        contact = config.CREATOR_CONTACT
+        if not contact:
+            for uid in sorted(config.CREATOR_IDS):
+                username = await db.username_of(uid)
+                if username:
+                    contact = "@" + username
+                    break
+        out.append(prompts.creator_block(config.CREATOR_NAME, contact, config.CREATOR_ALIASES))
+    return [x for x in out if x]
+
+
 async def context(chat) -> tuple[str, str]:
     """Системный промпт с заметками об участниках и текст последних сообщений."""
     rows = await db.recent_history(chat["chat_id"], config.CONTEXT_MESSAGES)
@@ -44,8 +64,8 @@ async def context(chat) -> tuple[str, str]:
     notes = [f"{u['name']}: {u['notes']}" for u in users if u["notes"]]
     notes += [f"{u['name']}: VIP чата, обращайся к нему с шутливым уважением" for u in users if u["user_id"] in vips]
     system = prompts.system_prompt(chat["bot_name"], chat["persona"], chat["topic"],
-                                   chat["title"] or "без названия", notes)
-    return system, prompts.format_history(rows, chat["bot_name"])
+                                   chat["title"] or "без названия", notes, await rules(chat))
+    return system, prompts.format_history(rows, chat["bot_name"], config.CREATOR_IDS)
 
 
 async def _ask(chat, make_task) -> str | None:
@@ -143,7 +163,8 @@ async def in_character(bot: Bot, chat_id: int, situation: str, fallbacks: list[s
     chat = await db.get_chat(chat_id)
     text = None
     if chat:
-        system = prompts.system_prompt(chat["bot_name"], chat["persona"], chat["topic"], chat["title"] or "", [])
+        system = prompts.system_prompt(chat["bot_name"], chat["persona"], chat["topic"], chat["title"] or "", [],
+                                       await rules(chat))
         answer = await ai.chat([{"role": "system", "content": system}, {"role": "user", "content": situation}],
                                max_tokens=160)
         text = prompts.clean_reply(answer or "", chat["bot_name"])
@@ -151,3 +172,8 @@ async def in_character(bot: Bot, chat_id: int, situation: str, fallbacks: list[s
     sent = await say(bot, chat_id, esc(text) + (f"\n\n{tail_html}" if tail_html else ""), markup=markup)
     if chat:
         await remember_self(bot, chat, sent, text)
+
+
+async def test_reply(chat, author: str, text: str) -> str | None:
+    """Пробный ответ для админа: как бот ответил бы в чате. В чат ничего не отправляется."""
+    return await _ask(chat, lambda history: prompts.test_task(author, text))

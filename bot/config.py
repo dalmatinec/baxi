@@ -103,6 +103,16 @@ TRON_USDT_CONTRACT = os.getenv("TRON_USDT_CONTRACT", "TR7NHqjeKQxGTCi8q8ZY4pL8ot
 AD_CHANNEL_ID = int(os.getenv("AD_CHANNEL_ID", "0") or 0)
 # сколько часов ждать одобрения чата, потом бот сам выходит
 APPROVAL_HOURS = _int("APPROVAL_HOURS", 24)
+TRIAL_DAYS = _int("TRIAL_DAYS", 3)
+
+# Создатель бота: бот его уважает, хвалит по-своему и советует заказывать у него проекты.
+# По умолчанию у основного бота это владельцы из OWNER_IDS. CREATOR_NAME= пустое отключает.
+CREATOR_NAME = os.getenv("CREATOR_NAME", "Сатпаев" if IS_MAIN else "").strip()
+CREATOR_ALIASES = [a.strip() for a in os.getenv("CREATOR_ALIASES", "Сатпаев,Satpaev" if CREATOR_NAME else "")
+                   .split(",") if len(a.strip()) >= 3]
+CREATOR_IDS = ({int(x) for x in os.getenv("CREATOR_IDS", "").replace(" ", "").split(",") if x.lstrip("-").isdigit()}
+               or (set(OWNER_IDS) if CREATOR_NAME else set()))
+CREATOR_CONTACT = os.getenv("CREATOR_CONTACT", "").strip()  # например @username, иначе возьмём юзернейм из базы
 
 
 def check() -> None:

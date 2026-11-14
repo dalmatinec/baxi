@@ -47,7 +47,7 @@ _games: dict[int, Game] = {}
 _tasks: set[asyncio.Task] = set()
 
 
-def parse_questions(data: dict | None) -> list[Question]:
+def parse_questions(data: dict | None, limit: int = QUESTIONS) -> list[Question]:
     """Проверяем, что модель вернула нормальные вопросы: текст, 4 варианта, номер правильного."""
     out = []
     for item in (data or {}).get("questions", []) if isinstance(data, dict) else []:
@@ -59,7 +59,7 @@ def parse_questions(data: dict | None) -> list[Question]:
             continue
         if q and len(options) == 4 and all(options) and len(set(options)) == 4 and 0 <= answer < 4:
             out.append(Question(q[:300], options, answer))
-    return out[:QUESTIONS]
+    return out[:limit]
 
 
 def running(chat_id: int) -> bool:
@@ -72,6 +72,7 @@ async def start(bot: Bot, chat, message: Message) -> None:
         await say(bot, chat_id, "викторина уже идёт, отвечай на текущий вопрос", reply_to=message)
         return
     _games[chat_id] = Game(chat_id, "", [])  # занимаем чат, пока готовим вопросы
+    count = chat["quiz_count"] if chat["quiz_count"] in (5, 10) else QUESTIONS
     try:
         await talk.typing(bot, chat_id, "...")
         rows = await db.recent_history(chat_id, 80)
@@ -79,9 +80,9 @@ async def start(bot: Bot, chat, message: Message) -> None:
         data = await ai.chat_json([{"role": "system", "content": system},
                                    {"role": "user", "content": prompts.quiz_task(chat["topic"],
                                                                                   prompts.transcript(rows, 80, 120),
-                                                                                  QUESTIONS)}],
-                                  max_tokens=1400, temperature=0.8)
-        questions = parse_questions(data)
+                                                                                  count)}],
+                                  max_tokens=250 * count + 200, temperature=0.8)
+        questions = parse_questions(data, count)
     except Exception:
         log.exception("Викторина не собралась")
         questions = []

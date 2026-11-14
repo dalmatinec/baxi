@@ -17,7 +17,7 @@ router = Router(name="admin-ads")
 
 INTERVALS = [30, 60, 120, 180, 360, 720, 1440]
 BUTTONS_HINT = (
-    "Каждая строка — ряд кнопок, кнопки в одном ряду через <code>|</code>, "
+    "Каждая строка: ряд кнопок, кнопки в одном ряду через <code>|</code>, "
     "цвет можно дописать в конце: зелёная, синяя или красная:\n\n"
     "<code>Общение 💬 - https://t.me/chat</code>\n"
     "<code>Найти ❤️ - https://t.me/bot - зелёная | Хочу 💋 - https://site.com - красная</code>"
@@ -230,7 +230,7 @@ async def cb_edit_buttons(cb: CallbackQuery, state: FSMContext) -> None:
     current = buttons_to_text(json.loads(ad["buttons"])) if ad else ""
     await show(cb, "🔘 <b>Кнопки</b>\n\n" +
                (f"Сейчас:\n<code>{esc(current)}</code>\n\n" if current else "Сейчас кнопок нет.\n\n") +
-               BUTTONS_HINT + "\n\nПришли новые кнопки или «-», чтобы убрать все.",
+               BUTTONS_HINT + "\n\nПришли новые кнопки или -, чтобы убрать все.",
                kb([[("Отмена", f"ad:o:{ad_id}")]]))
 
 

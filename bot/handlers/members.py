@@ -55,7 +55,7 @@ async def on_my_status(update: ChatMemberUpdated, bot: Bot) -> None:
             # вернуть бота в этот чат снова можно будет только через одобрение
             await db.update_chat(update.chat.id, active=0, approved=0, pending_since=0)
         if chat and chat["active"]:  # если вышли сами (аренда, отказ), владелец уже знает
-            await notify.owners(bot, f"🚪 Меня убрали из чата «{esc(title)}»")
+            await notify.owners(bot, f"🚪 Меня убрали из чата {esc(title)}")
         return
     old = update.old_chat_member.status
     if old in ("left", "kicked"):

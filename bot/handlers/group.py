@@ -1,19 +1,27 @@
 """Обычные сообщения в группе: решаем, отвечать или нет, и чем."""
 
 import logging
+import random
 import time
+from datetime import datetime
 
 from aiogram import Bot, F, Router
 from aiogram.types import Message
 
-from bot import brain, db
+from bot import brain, config, db, presets
 from bot.middlewares import GROUPS, TRACKED, describe
-from bot.services import fun, memory, perms, quiz, stars, talk
+from bot.services import fun, memory, perms, quiz, stars, talk, triggers
 from bot.services.out import say
 
 log = logging.getLogger(__name__)
 router = Router(name="group")
 spam_guard = brain.RateLimit(limit=5, window=60)
+CREATOR_ALIASES = brain.parse_aliases("", ",".join(config.CREATOR_ALIASES))
+
+QUIET_REPLIES = ["ладно, ухожу в тень на час 🤐 позовёте по имени, отвечу",
+                 "понял, молчу час. но если позовёте, я тут 👀",
+                 "окей, беру паузу на часик 😶"]
+TALK_REPLIES = ["о, наконец-то, я соскучился 😎", "всё, я снова с вами, держитесь", "ну всё, понеслась 🔥"]
 
 
 @router.message(F.chat.type.in_(GROUPS), F.content_type.in_(TRACKED))
@@ -23,6 +31,14 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
     chat_id = message.chat.id
     memory.maybe_update(chat_id, user_row)
 
+    trig = await triggers.find(chat_id, message.text or "")
+    if trig:
+        try:
+            await triggers.send(bot, chat_id, trig, reply_to=message)
+        except Exception:
+            log.exception("Триггер %s в чате %s не отправился", trig["word"], chat_id)
+        return
+
     me = await bot.me()
     text = message.text or message.caption or ""
     rt = message.reply_to_message
@@ -30,8 +46,21 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
     aliases = brain.parse_aliases(chat_row["bot_name"], chat_row["aliases"])
     addressed = brain.is_addressed(text, me.username or "", aliases, reply_to_bot)
 
-    act = brain.decide(addressed, time.time(), chat_row["last_jump"], chat_row["cooldown"],
-                       chat_row["chance"], chat_row["ai_share"])
+    now = time.time()
+    if not addressed:
+        hour = datetime.now(config.TZ).hour
+        if chat_row["quiet_until"] > now or presets.in_quiet(hour, chat_row["quiet_from"], chat_row["quiet_to"]):
+            return  # «помолчи часок» или тихие часы: сам не влезает, но на обращения отвечает
+    chance = chat_row["chance"]
+    creator_hit = False
+    if not addressed and config.CREATOR_NAME:
+        if user_row["user_id"] in config.CREATOR_IDS:
+            chance, creator_hit = max(chance, 0.12), True
+        elif brain.mentions_name(text, CREATOR_ALIASES):
+            chance, creator_hit = max(chance, 0.3), True
+    act = brain.decide(addressed, now, chat_row["last_jump"], chat_row["cooldown"], chance, chat_row["ai_share"])
+    if act is brain.Act.PHRASE and creator_hit:
+        act = brain.Act.AI_JUMP  # про создателя говорит сам, а не фразой из базы
     if act is brain.Act.NONE:
         return
     if act is brain.Act.AI_REPLY and not spam_guard.allow(chat_id, user_row["user_id"], time.time()):
@@ -45,8 +74,18 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
 
     author = user_row["name"]
     intent = brain.detect_intent(text) if act is brain.Act.AI_REPLY else None
-    if intent == "quiz" and not chat_row["games"]:
+    if intent == "quiz" and not (chat_row["games"] and chat_row["quiz"]):
         intent = None
+    if intent in ("quiet", "talk"):
+        if not await perms.is_admin(bot, message):
+            await say(bot, chat_id, "это пусть админы решают 😏", reply_to=message)
+        elif intent == "quiet":
+            await db.update_chat(chat_id, quiet_until=now + 3600)
+            await say(bot, chat_id, random.choice(QUIET_REPLIES), reply_to=message)
+        else:
+            await db.update_chat(chat_id, quiet_until=0)
+            await say(bot, chat_id, random.choice(TALK_REPLIES), reply_to=message)
+        return
     if intent == "summary" and not await perms.is_admin(bot, message):
         await say(bot, chat_id, "сводку делаю только по просьбе админов чата", reply_to=message)
         return

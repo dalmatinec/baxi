@@ -18,6 +18,8 @@ CURRENT_BOT: Bot | None = None  # нужен разделам, которые с
 
 # экран → функция, которая возвращает дополнительные ряды кнопок (форматы рекламы, товары магазина)
 EXTRA_ROWS: dict[str, Callable[[User], Awaitable[list[list[InlineKeyboardButton]]]]] = {}
+# кнопка с таким действием видна, только если функция вернула True (например «Мои чаты»)
+SHOW_IF: dict[str, Callable[[User], Awaitable[bool]]] = {}
 
 
 async def load(key: str) -> dict:
@@ -40,7 +42,9 @@ def make_button(b: dict, bot_username: str) -> InlineKeyboardButton:
     elif action.startswith("url:"):
         kwargs["url"] = action[4:]
     elif action == "act:add_group":
-        kwargs["url"] = f"https://t.me/{bot_username}?startgroup=true"
+        # сразу просим права админа, которые нужны боту: удалять, закреплять, приглашать
+        kwargs["url"] = (f"https://t.me/{bot_username}?startgroup=true"
+                         "&admin=delete_messages+pin_messages+invite_users")
     else:
         kwargs["callback_data"] = action[:64] or "sc:start"
     return InlineKeyboardButton(**kwargs)
@@ -52,7 +56,8 @@ async def render(bot: Bot, key: str, user: User | None) -> tuple[str, str, Inlin
     screen = await load(key)
     me = await bot.me()
     text = screen["text"]
-    values = {"name": esc(user.first_name if user else ""), "bot": me.username or ""}
+    values = {"name": esc(user.first_name if user else ""), "bot": me.username or "",
+              "botname": esc(config.DEFAULT_NAME or getattr(me, "first_name", "") or "")}
     if any(f"{{{k}}}" in text for k in ("chats", "members", "dm")):
         values.update({k: f"{v:,}".replace(",", " ") for k, v in (await db.reach()).items()})
     for key_, kind in (("rent_price", "rent"), ("wl_price", "wl")):
@@ -61,6 +66,13 @@ async def render(bot: Bot, key: str, user: User | None) -> tuple[str, str, Inlin
             values[key_] = f"{product['price']:g}" if product else "?"
     text = screens.fill(text, values)
 
+    buttons = []
+    for b in screen["buttons"]:
+        check = SHOW_IF.get(b.get("action", ""))
+        if check and not (user and await check(user)):
+            continue
+        buttons.append(b)
+    screen["buttons"] = buttons
     button_rows = [[make_button(b, me.username or "") for b in row] for row in screens.rows(screen["buttons"])]
     extra = EXTRA_ROWS.get(key)
     if extra and user:

@@ -54,8 +54,14 @@ def thread_of(message: Message | None) -> int | None:
 
 async def say(bot: Bot, chat_id: int, html: str, *, reply_to: Message | None = None,
               thread: int | None = None, markup: InlineKeyboardMarkup | None = None) -> Message:
-    return await bot.send_message(
-        chat_id, humanize(html), parse_mode="HTML", link_preview_options=NO_PREVIEW,
-        reply_parameters=reply_params(reply_to),
-        message_thread_id=thread if reply_to is None else None,
-        reply_markup=markup)
+    from bot.services import emoji
+    html = humanize(html)
+    pretty = emoji.decorate(html)
+    kwargs = dict(parse_mode="HTML", link_preview_options=NO_PREVIEW, reply_parameters=reply_params(reply_to),
+                  message_thread_id=thread if reply_to is None else None, reply_markup=markup)
+    try:
+        return await bot.send_message(chat_id, pretty, **kwargs)
+    except Exception:
+        if pretty == html:
+            raise
+        return await bot.send_message(chat_id, html, **kwargs)  # премиум-эмодзи не прошли: шлём обычные

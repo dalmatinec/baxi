@@ -1,17 +1,62 @@
 """Игры в чате: пара дня, шип, кто, предсказание."""
 
 import random
+import time
 from datetime import datetime
 
 from aiogram import Bot, F, Router
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, User
 
 from bot import brain, config, db, games
 from bot.services import quiz, stars
 from bot.middlewares import GROUPS
+from bot.services.out import say
 from bot.textutil import full_name, human_date, humanize, mention
 
 router = Router(name="games")
+
+HELP_KB = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🎯 Викторина", callback_data="gm:quiz"),
+     InlineKeyboardButton(text="💘 Пара дня", callback_data="gm:couple")],
+    [InlineKeyboardButton(text="📊 Итоги", callback_data="gm:results"),
+     InlineKeyboardButton(text="🏆 Топ репы", callback_data="gm:rep_top")],
+    [InlineKeyboardButton(text="🔮 Предсказание", callback_data="gm:predict"),
+     InlineKeyboardButton(text="🔥 Прожарка ⭐", callback_data="gm:roast")],
+])
+
+
+async def couple_html(bot: Bot, chat_id: int) -> str:
+    day = db.today()
+    couple = await db.get_couple(chat_id, day)
+    if couple is None:
+        ids = [u["user_id"] for u in await db.active_users(chat_id, days=7) if u["user_id"] != bot.id]
+        picked = games.pick_couple(ids)
+        if picked is None:
+            return "мало народу для пары, пусть сначала кто-нибудь ещё напишет"
+        await db.set_couple(chat_id, day, *picked)
+        couple = await db.get_couple(chat_id, day)
+    users = {u["user_id"]: u for u in await db.users_by_ids(chat_id, [couple["user1"], couple["user2"]])}
+    a, b = users.get(couple["user1"]), users.get(couple["user2"])
+    tpl = random.Random(f"{chat_id}:{day}").choice(games.COUPLE_TEMPLATES)
+    return tpl.format(a=mention(couple["user1"], a["name"] if a else "кто-то"),
+                      b=mention(couple["user2"], b["name"] if b else "кто-то"))
+
+
+async def top_html(chat_id: int, name: str) -> str:
+    rows = await (db.rep_top if name == "rep_top" else db.quiz_top)(chat_id, 10)
+    title = "🏆 <b>Топ репутации</b>" if name == "rep_top" else "🧠 <b>Топ знатоков викторины</b>"
+    if not rows:
+        return title + "\n\nпока пусто"
+    medals = ["🥇", "🥈", "🥉"]
+    names = await stars.decorate(rows)
+    lines = [f"{medals[i] if i < 3 else f'{i + 1}.'} {mention(r['user_id'], names[r['user_id']])}: "
+             f"<b>{r['points']}</b>" for i, r in enumerate(rows)]
+    return title + "\n\n" + "\n".join(lines)
+
+
+def predict_html(user: User) -> str:
+    rnd = random.Random(f"{user.id}:{db.today()}")
+    return f"🔮 {mention(user.id, full_name(user.first_name, user.last_name))}, {rnd.choice(games.PREDICTIONS)}"
 
 
 async def game_filter(message: Message, chat_row=None) -> dict | bool:
@@ -40,28 +85,13 @@ async def on_game(message: Message, bot: Bot, game: tuple[str, str], chat_row) -
     me = await bot.me()
 
     if name == "help":
-        return await _send(message, games.HELP)
+        return await say(bot, chat_id, games.HELP, reply_to=message, markup=HELP_KB)
 
     if name == "predict":
-        rnd = random.Random(f"{message.from_user.id}:{day}")
-        return await _send(message, f"🔮 {rnd.choice(games.PREDICTIONS)}")
+        return await _send(message, predict_html(message.from_user))
 
     if name == "couple":
-        couple = await db.get_couple(chat_id, day)
-        if couple is None:
-            ids = [u["user_id"] for u in await db.active_users(chat_id, days=7) if u["user_id"] != me.id]
-            picked = games.pick_couple(ids)
-            if picked is None:
-                return await _send(message, "мало народу для пары, пусть сначала кто-нибудь ещё напишет")
-            await db.set_couple(chat_id, day, *picked)
-            couple = await db.get_couple(chat_id, day)
-        users = {u["user_id"]: u for u in await db.users_by_ids(chat_id, [couple["user1"], couple["user2"]])}
-        a = users.get(couple["user1"])
-        b = users.get(couple["user2"])
-        a_html = mention(couple["user1"], a["name"] if a else "кто-то")
-        b_html = mention(couple["user2"], b["name"] if b else "кто-то")
-        tpl = random.Random(f"{chat_id}:{day}").choice(games.COUPLE_TEMPLATES)
-        return await _send(message, tpl.format(a=a_html, b=b_html))
+        return await _send(message, await couple_html(bot, chat_id))
 
     if name == "ship":
         rt = message.reply_to_message
@@ -75,18 +105,12 @@ async def on_game(message: Message, bot: Bot, game: tuple[str, str], chat_row) -
                            f"{games.ship_bar(p)} <b>{p}%</b>\n{games.ship_comment(p)}")
 
     if name == "quiz":
+        if not chat_row["quiz"]:
+            return await _send(message, "викторины в этом чате выключены")
         return await quiz.start(bot, chat_row, message)
 
     if name in ("rep_top", "quiz_top"):
-        rows = await (db.rep_top if name == "rep_top" else db.quiz_top)(chat_id, 10)
-        title = "🏆 <b>Топ репутации</b>" if name == "rep_top" else "🧠 <b>Топ знатоков викторины</b>"
-        if not rows:
-            return await _send(message, title + "\n\nпока пусто")
-        medals = ["🥇", "🥈", "🥉"]
-        names = await stars.decorate(rows)
-        lines = [f"{medals[i] if i < 3 else f'{i + 1}.'} {mention(r['user_id'], names[r['user_id']])}: "
-                 f"<b>{r['points']}</b>" for i, r in enumerate(rows)]
-        return await _send(message, title + "\n\n" + "\n".join(lines))
+        return await _send(message, await top_html(chat_id, name))
 
     if name == "donors_top":
         from bot.handlers.stars import donors_text
@@ -115,3 +139,44 @@ async def on_game(message: Message, bot: Bot, game: tuple[str, str], chat_row) -
         who = random.choice(people)
         return await _send(message, random.choice(games.WHO_TEMPLATES).format(
             who=mention(who["user_id"], who["name"])))
+
+
+@router.callback_query(F.data.startswith("gm:"))
+async def on_game_button(cb: CallbackQuery, bot: Bot) -> None:
+    """Кнопки под /games в чате."""
+    if not cb.message or cb.message.chat.type not in GROUPS:
+        return await cb.answer()
+    chat = await db.get_chat(cb.message.chat.id)
+    if not chat or not chat["approved"] or not chat["games"]:
+        return await cb.answer("игры в этом чате выключены", show_alert=True)
+    action, chat_id = cb.data[3:], chat["chat_id"]
+    if action == "roast":
+        return await cb.answer("Ответь словом магазин на сообщение человека или напиши мне: "
+                               "прожарь его по полной", show_alert=True)
+    if action == "quiz":
+        if not chat["quiz"]:
+            return await cb.answer("викторины в этом чате выключены", show_alert=True)
+        await cb.answer("🧠 готовлю вопросы...")
+        return await quiz.start(bot, chat, cb.message)
+    if action == "results":
+        from bot.services import daily, perms
+        wait = daily.MANUAL_RESULTS_EVERY - (time.time() - chat["results_manual"])
+        admin = await perms.is_admin_id(bot, chat_id, cb.from_user.id)
+        if wait > 0 and not admin and not await stars.is_vip(cb.from_user.id):
+            return await cb.answer(f"итоги уже были, следующие через {max(1, round(wait / 60))} мин", show_alert=True)
+        await cb.answer()
+        await db.update_chat(chat_id, results_manual=time.time())
+        if not await daily.post_results(bot, chat, manual=True):
+            await db.update_chat(chat_id, results_manual=chat["results_manual"])
+            await say(bot, chat_id, "сегодня тут почти тихо, итожить нечего")
+        return
+    await cb.answer()
+    if action == "couple":
+        html = await couple_html(bot, chat_id)
+    elif action == "rep_top":
+        html = await top_html(chat_id, "rep_top")
+    elif action == "predict":
+        html = predict_html(cb.from_user)
+    else:
+        return
+    await say(bot, chat_id, html)

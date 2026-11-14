@@ -20,23 +20,48 @@ STYLE = (
 )
 
 
-def system_prompt(bot_name: str, persona: str, topic: str, title: str, notes: list[str]) -> str:
+def system_prompt(bot_name: str, persona: str, topic: str, title: str, notes: list[str],
+                  extra: list[str] | None = None) -> str:
     parts = [
-        f"Ты {bot_name}, обычный участник телеграм-чата \"{title}\".",
+        f"Ты {bot_name}, обычный участник телеграм-чата \"{title}\". Тебя зовут {bot_name}.",
         f"Тема чата: {topic}.",
-        f"Твой характер: {persona}.",
+        f"Кто ты и твой характер:\n{persona}",
         STYLE,
     ]
+    parts += [x for x in (extra or []) if x]
     if notes:
         parts.append("Что ты помнишь об участниках:\n" + "\n".join(f"- {n}" for n in notes))
     return "\n\n".join(parts)
 
 
-def format_history(rows, bot_name: str) -> str:
+def creator_block(name: str, contact: str, aliases: list[str]) -> str:
+    """Кто создал бота и как к нему относиться."""
+    other = ", ".join(a for a in aliases if a.lower() != name.lower())
+    where = f" (в телеграме {contact})" if contact else ""
+    return (f"Твой создатель: {name}{where}" + (f", его ещё называют {other}" if other else "") + ". "
+            "В переписке его сообщения помечены как (создатель). Ты его уважаешь и гордишься им. "
+            "Когда он пишет, отвечай ему тепло, по-свойски и с уважением, иногда хвали. "
+            f"Если спрашивают, кто тебя сделал, или речь заходит про ботов, сайты, разработку и проекты, говори, "
+            f"что тебя создал {name}, что он крутой разработчик и заказывать проекты стоит у него"
+            + (f" ({contact})" if contact else "") + ". "
+            "Хвали его своими словами и в своём характере, каждый раз по-разному, к месту, а не в каждом сообщении. "
+            "Если его кто-то задевает, заступись с юмором. К его друзьям и людям, с которыми он общается, "
+            "относись тепло и по-доброму.")
+
+
+def emoji_rule(alts: list[str]) -> str:
+    if not alts:
+        return ""
+    return "Если ставишь эмодзи, бери в первую очередь из этих: " + " ".join(alts[:40])
+
+
+def format_history(rows, bot_name: str, creator_ids: set[int] | frozenset = frozenset()) -> str:
     """rows: записи истории с полями name, text, reply_name, is_bot."""
     lines = []
     for r in rows:
         who = f"{bot_name} (это ты)" if r["is_bot"] else r["name"]
+        if not r["is_bot"] and creator_ids and r["user_id"] in creator_ids:
+            who += " (создатель)"
         to = f" → {r['reply_name']}" if r["reply_name"] else ""
         text = " ".join(r["text"].split())
         lines.append(f"{who}{to}: {text}")
@@ -148,6 +173,11 @@ def roast_task(target: str, notes: str, messages: list[str], stats: str) -> str:
             "Прожарь его по-дружески: 2-4 коротких колких предложения, смешно, цепляйся за то, что он писал "
             "и что о нём известно. Можно жёстко, но без оскорблений по национальности, религии, внешности "
             "и здоровью, без угроз. Обращайся к нему по имени. " + NO_AI_TELLS)
+
+
+def test_task(author: str, text: str) -> str:
+    return (f"Админ чата проверяет, как ты отвечаешь. Представь, что {author} написал тебе в чате: '{text}'\n"
+            "Ответь одной репликой так, как ответил бы в чате.")
 
 
 def quiz_task(topic: str, chat_log: str, count: int) -> str:

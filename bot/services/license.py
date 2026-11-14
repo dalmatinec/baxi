@@ -60,7 +60,7 @@ def chat_limit() -> int:
 
 
 def until_text(ts: float) -> str:
-    return datetime.fromtimestamp(ts, config.TZ).strftime("%d.%m.%Y") if ts else "—"
+    return datetime.fromtimestamp(ts, config.TZ).strftime("%d.%m.%Y") if ts else "-"
 
 
 async def tick(bot: Bot) -> None:

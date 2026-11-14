@@ -17,7 +17,7 @@ router = Router(name="admin-screens")
 STYLES = ["", "primary", "success", "danger"]
 STYLE_NAMES = {"": "обычная", "primary": "🔵 синяя", "success": "🟢 зелёная", "danger": "🔴 красная"}
 ACTIONS = {"act:support": "🆘 Поддержка", "act:add_group": "➕ Добавить в чат", "act:donors": "👑 Топ донатеров",
-           "act:rent": "💳 Оплатить аренду", "act:wl_pay": "💳 Оплатить свой бот"}
+           "act:rent": "💳 Оплатить аренду", "act:wl_pay": "💳 Оплатить свой бот", "act:mychats": "⚙️ Мои чаты"}
 
 
 class Edit(StatesGroup):
@@ -31,7 +31,7 @@ class Edit(StatesGroup):
 
 def action_name(action: str) -> str:
     if action.startswith("screen:"):
-        return "экран «" + screens.TITLES.get(action[7:], action[7:]) + "»"
+        return "экран " + screens.TITLES.get(action[7:], action[7:]) + ""
     if action.startswith("url:"):
         return "ссылка " + short(action[4:], 40)
     if action.startswith("act:support"):
@@ -125,7 +125,7 @@ async def cb_photo(cb: CallbackQuery, state: FSMContext) -> None:
     key = cb.data[5:]
     await state.set_state(Edit.photo)
     await state.update_data(key=key)
-    await show(cb, "🖼 Пришли картинку для экрана. Чтобы убрать картинку, пришли «-».",
+    await show(cb, "🖼 Пришли картинку для экрана. Чтобы убрать картинку, пришли -.",
                kb([[("Отмена", f"se:o:{key}")]]))
 
 
@@ -137,7 +137,7 @@ async def on_photo(message: Message, state: FSMContext) -> None:
     elif (message.text or "").strip() == "-":
         await _save(key, photo="")
     else:
-        return await message.answer("Нужна картинка (фото) или «-».")
+        return await message.answer("Нужна картинка (фото) или -.")
     await state.clear()
     await message.answer("✅ Сохранил")
     await _card(message, key)
@@ -154,7 +154,7 @@ async def _buttons(target, key: str) -> None:
             color = {"primary": "🔵", "success": "🟢", "danger": "🔴"}.get(b.get("style", ""), "⚪️")
             rows.append([(f"{color} ряд {b.get('row', 0)}: {short(b['text'], 28)}", f"se:bo:{key}:{i}")])
     extra = "\n\nКнопки форматов рекламы и товаров добавляются сами, их тут нет." if key in ("ads", "shop") else ""
-    await show(target, f"🔘 <b>Кнопки экрана «{esc(screens.TITLES.get(key, key))}»</b>\n\n"
+    await show(target, f"🔘 <b>Кнопки экрана {esc(screens.TITLES.get(key, key))}</b>\n\n"
                        f"Кнопки с одинаковым номером ряда стоят рядом.{extra}",
                kb(rows + [[("➕ Добавить кнопку", f"se:ba:{key}", "success")], [("⬅️ К экрану", f"se:o:{key}")]]))
 
@@ -251,7 +251,7 @@ async def cb_btn_emoji(cb: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(Edit.btn_emoji)
     await state.update_data(key=key, i=i)
     await show(cb, "✨ Пришли сообщение с одним <b>премиум-эмодзи</b>, оно встанет на кнопку перед текстом. "
-                   "Работает, если у владельца бота есть Telegram Premium.\n\nУбрать эмодзи: пришли «-».",
+                   "Работает, если у владельца бота есть Telegram Premium.\n\nУбрать эмодзи: пришли -.",
                kb([[("Отмена", f"se:bo:{key}:{i}")]]))
 
 
@@ -263,7 +263,7 @@ async def on_btn_emoji(message: Message, state: FSMContext) -> None:
     else:
         found = [e.custom_emoji_id for e in (message.entities or []) if e.type == "custom_emoji"]
         if not found:
-            return await message.answer("Не вижу премиум-эмодзи в сообщении. Пришли его или «-».")
+            return await message.answer("Не вижу премиум-эмодзи в сообщении. Пришли его или -.")
         emoji = found[0]
     await state.clear()
     await _change(data["key"], data["i"], lambda bs, idx: bs[idx].update(emoji=emoji))
