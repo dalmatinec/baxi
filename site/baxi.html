@@ -17,12 +17,19 @@
   .bhero h1{font-size:clamp(52px,8vw,96px);margin:18px 0 4px}
   .bhero .tagline{font-family:Unbounded;font-weight:700;font-size:clamp(20px,2.6vw,28px);color:var(--coral)}
   .bhero .ava.big{width:110px;height:110px;font-size:46px;box-shadow:5px 5px 0 var(--ink);border-width:3px}
-  .bhero .stage{min-height:470px}
-  .bhero .phone{position:relative;width:100%;max-width:400px;margin-left:auto;transform:rotate(2deg)}
-  .bhero .feed{min-height:380px}
+  .bhero .stage{min-height:620px}
+  .baxi{--coral:#7c3aed;--pink:#c026d3}
+  .baxi .btn.coral{background:#7c3aed}
+  .bhero .phone{position:absolute;right:-20px;bottom:0;width:300px;transform:rotate(3deg)}
+  .baxi .logo i{background:#ff6b4a}
+  .art{position:absolute;left:0;top:0;width:310px;border:3px solid var(--ink);border-radius:30px;box-shadow:8px 8px 0 var(--ink);
+    transform:rotate(-4deg);overflow:hidden;background:#140a26}
+  .art img{width:100%;display:block}
+  @media (max-width:640px){.art{width:72%}.bhero .phone{width:84%}}
+  .bhero .feed{min-height:300px}
 </style>
 </head>
-<body>
+<body class="baxi">
 <nav class="nav"><div class="wrap">
   <a class="logo" href="/"><i>S</i><b>satpaev<span>.ceo</span></b></a>
   <div class="menu">
@@ -33,11 +40,11 @@
 </div></nav>
 
 <header class="hero bhero">
-  <div class="blob" style="width:560px;height:560px;background:#ffc9b5;top:-200px;left:-180px"></div>
+  <div class="blob" style="width:560px;height:560px;background:#e2d2ff;top:-200px;left:-180px"></div>
   <div class="blob" style="width:480px;height:480px;background:#ffe39a;top:160px;right:-160px"></div>
   <div class="wrap">
     <div>
-      <div class="ava big">Б<img src="/img/baxi.png" alt="Бакси" onerror="this.remove()"></div>
+      <div class="ava big">Б<img src="/img/baxi.jpg" alt="Бакси" onerror="this.remove()"></div>
       <h1>Бакси</h1>
       <div class="tagline">Свой в каждом чате</div>
       <p class="lead" style="margin-top:18px">Бот, который общается в группе как живой участник. Помнит людей и что они писали, шутит в своём характере, подводит итоги дня, устраивает викторины и зовёт всех в игру.</p>
@@ -52,12 +59,13 @@
       </div>
     </div>
     <div class="stage" aria-hidden="true">
+      <div class="art"><img src="/img/baxi-art.jpg" alt="Бакси"></div>
       <div class="phone">
         <div class="top"><div class="ava">🔥</div><div><div class="nm">Кальянная Алматы</div><div class="sb">214 участников · Бакси в чате</div></div></div>
         <div class="feed" id="feed"></div>
       </div>
-      <div class="sticker" style="top:-20px;left:30px">😂</div>
-      <div class="sticker" style="bottom:20px;left:-6px;animation-delay:-2s">🎯</div>
+      <div class="sticker" style="top:-24px;left:300px">👑</div>
+      <div class="sticker" style="bottom:30px;left:10px;animation-delay:-2s">💸</div>
     </div>
   </div>
 </header>

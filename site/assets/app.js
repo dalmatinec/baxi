@@ -113,7 +113,7 @@
       }
       const m = document.createElement("div");
       m.className = "msg" + (color === "bot" ? " bot" : "");
-      const c = color === "bot" ? "#ff6b4a" : color;
+      const c = color === "bot" ? (document.body.classList.contains("baxi") ? "#7c3aed" : "#ff6b4a") : color;
       m.innerHTML = `<span class="who" style="color:${c}">${esc(who)}</span>${esc(text)}`;
       feed.appendChild(m);
       while (feed.children.length > 5) feed.firstElementChild.remove();
