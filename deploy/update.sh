@@ -13,5 +13,9 @@ systemctl restart linkhub
 for unit in $(systemctl list-units --type=service --state=running --no-legend 'linkhub@*' | awk '{print $1}'); do
     systemctl restart "$unit"
 done
+# если сайт уже настроен (deploy/site.sh), обновляем и его файлы
+if [ -d /var/www/site ]; then
+    cp -r /opt/linkhub/site/. /var/www/site/
+fi
 sleep 2
 systemctl --no-pager --lines=5 status linkhub || true
