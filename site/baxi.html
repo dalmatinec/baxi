@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Бакси: бот, который свой в каждом чате</title>
+<meta name="description" content="Бакси общается в Telegram-группе как живой участник: помнит людей, шутит, подводит итоги дня, устраивает викторины, зовёт всех в игру. Все команды и тарифы.">
+<meta property="og:title" content="Бакси: свой в каждом чате">
+<meta property="og:description" content="Бот для Telegram-чатов, который общается как живой участник.">
+<meta property="og:image" content="https://satpaev.ceo/img/og.png">
+<meta name="theme-color" content="#fff8f1">
+<link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Unbounded:wght@600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/style.css">
+<style>
+  .bhero h1{font-size:clamp(52px,8vw,96px);margin:18px 0 4px}
+  .bhero .tagline{font-family:Unbounded;font-weight:700;font-size:clamp(20px,2.6vw,28px);color:var(--coral)}
+  .bhero .ava.big{width:110px;height:110px;font-size:46px;box-shadow:5px 5px 0 var(--ink);border-width:3px}
+  .bhero .stage{min-height:470px}
+  .bhero .phone{position:relative;width:100%;max-width:400px;margin-left:auto;transform:rotate(2deg)}
+  .bhero .feed{min-height:380px}
+</style>
+</head>
+<body>
+<nav class="nav"><div class="wrap">
+  <a class="logo" href="/"><i>S</i><b>satpaev<span>.ceo</span></b></a>
+  <div class="menu">
+    <a href="/#products">Продукты</a><a class="on" href="/baxi">Бакси</a><a href="#commands">Команды</a><a href="#price">Тарифы</a><a href="#faq">Вопросы</a>
+  </div>
+  <a class="btn sm coral" href="/add">➕ Добавить в чат</a>
+  <button class="burger" aria-label="Меню">☰</button>
+</div></nav>
+
+<header class="hero bhero">
+  <div class="blob" style="width:560px;height:560px;background:#ffc9b5;top:-200px;left:-180px"></div>
+  <div class="blob" style="width:480px;height:480px;background:#ffe39a;top:160px;right:-160px"></div>
+  <div class="wrap">
+    <div>
+      <div class="ava big">Б<img src="/img/baxi.png" alt="Бакси" onerror="this.remove()"></div>
+      <h1>Бакси</h1>
+      <div class="tagline">Свой в каждом чате</div>
+      <p class="lead" style="margin-top:18px">Бот, который общается в группе как живой участник. Помнит людей и что они писали, шутит в своём характере, подводит итоги дня, устраивает викторины и зовёт всех в игру.</p>
+      <div class="cta">
+        <a class="btn coral" href="/add">➕ Добавить в чат</a>
+        <a class="btn" href="/bot">💬 Написать Бакси</a>
+      </div>
+      <div class="stats">
+        <div class="stat stat-live"><b data-stat="chats">…</b><span>чатов</span></div>
+        <div class="stat stat-live"><b data-stat="members">…</b><span>участников</span></div>
+        <div class="stat"><b>~2 сек</b><span>на ответ</span></div>
+      </div>
+    </div>
+    <div class="stage" aria-hidden="true">
+      <div class="phone">
+        <div class="top"><div class="ava">🔥</div><div><div class="nm">Кальянная Алматы</div><div class="sb">214 участников · Бакси в чате</div></div></div>
+        <div class="feed" id="feed"></div>
+      </div>
+      <div class="sticker" style="top:-20px;left:30px">😂</div>
+      <div class="sticker" style="bottom:20px;left:-6px;animation-delay:-2s">🎯</div>
+    </div>
+  </div>
+</header>
+
+<div class="mq"><div class="marquee" aria-hidden="true"><div class="track">
+  <span>болтает как живой ✦</span><span>помнит всех ✦</span><span>итоги дня ✦</span><span>викторины ✦</span><span>пара дня ✦</span><span>зазывала ✦</span><span>триггеры ✦</span>
+  <span>болтает как живой ✦</span><span>помнит всех ✦</span><span>итоги дня ✦</span><span>викторины ✦</span><span>пара дня ✦</span><span>зазывала ✦</span><span>триггеры ✦</span>
+</div></div></div>
+
+<section id="features">
+  <div class="wrap">
+    <div class="head reveal"><h2>Что умеет <span class="hl">Бакси</span></h2><p>Всё включается и выключается админом чата. Бакси подстраивается под тему и характер вашего чата.</p></div>
+    <div class="grid4">
+      <div class="card feat reveal"><div class="ic" style="background:#ffe2d6">💬</div><h3>Болтает как живой</h3><p>Отвечает по смыслу разговора, иногда сам влезает в беседу и шутит в своём характере.</p></div>
+      <div class="card feat reveal"><div class="ic" style="background:#e6e0ff">🧠</div><h3>Помнит людей</h3><p>Знает, кто есть кто в чате, что писал и чем увлекается, и использует это в шутках.</p></div>
+      <div class="card feat reveal"><div class="ic" style="background:#fff2c7">🏆</div><h3>Итоги дня</h3><p>Кто болтун, кто самый смешной, кто матерился и на сколько процентов. Каждый вечер.</p></div>
+      <div class="card feat reveal"><div class="ic" style="background:#dcf8ee">🎯</div><h3>Викторины</h3><p>5 или 10 вопросов по теме вашего чата, очки и общий топ знатоков.</p></div>
+      <div class="card feat reveal"><div class="ic" style="background:#ffd9e8">💘</div><h3>Игры и пара дня</h3><p>Пара дня, шип, предсказания, репутация и поздравления с днём рождения.</p></div>
+      <div class="card feat reveal"><div class="ic" style="background:#d6efff">📣</div><h3>Зазывала</h3><p>Пришла игра? Бакси отметит людей пачками по 5 с вашим текстом.</p></div>
+      <div class="card feat reveal"><div class="ic" style="background:#ffe2d6">📝</div><h3>Триггеры</h3><p>Слово в чате, и Бакси отвечает готовым текстом, фото или видео: правила, прайс, адрес.</p></div>
+      <div class="card feat reveal"><div class="ic" style="background:#e6e0ff">🌙</div><h3>Правила и тишина</h3><p>Тихие часы, запретные темы, уровень юмора и мата, помолчать час по команде.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="commands" style="padding-top:20px">
+  <div class="wrap">
+    <div class="head reveal"><h2>Команды</h2><p>В чате все команды видны по кнопке / рядом с полем ввода. Можно писать и обычными словами. Нажми на команду, чтобы скопировать.</p></div>
+    <div class="tabs reveal"><button class="on" data-show="all">👥 Для всех</button><button data-show="admin">🛡 Для админов</button><button data-show="words">💬 Словами</button></div>
+    <div class="cmds" data-tab="all">
+      <div class="cmd"><code>/games</code><span>все игры и команды с кнопками</span></div>
+      <div class="cmd"><code>/quiz</code><span>викторина по теме чата</span></div>
+      <div class="cmd"><code>/results</code><span>итоги дня прямо сейчас, раз в час</span></div>
+      <div class="cmd"><code>/couple</code><span>пара дня</span></div>
+      <div class="cmd"><code>/ship</code><span>совместимость, ответом на сообщение</span></div>
+      <div class="cmd"><code>/predict</code><span>предсказание на сегодня</span></div>
+      <div class="cmd"><code>/top</code><span>топ репутации</span></div>
+      <div class="cmd"><code>/rep</code><span>моя репутация</span></div>
+      <div class="cmd"><code>/joke</code><span>шутка с чёрным юмором</span></div>
+      <div class="cmd"><code>/roast</code><span>прожарка, ответом на сообщение</span></div>
+      <div class="cmd"><code>/bdays</code><span>ближайшие дни рождения</span></div>
+      <div class="cmd"><code>/shop</code><span>магазин чата за звёзды</span></div>
+    </div>
+    <div class="cmds hidden" data-tab="admin">
+      <div class="cmd"><code>/settings</code><span>все настройки Бакси для этого чата</span></div>
+      <div class="cmd"><code>/summary</code><span>что тут было: выжимка переписки</span></div>
+      <div class="cmd"><code>/pair</code><span>голосование как вам пара</span></div>
+      <div class="cmd"><code>/call</code><span>зазывала, можно ответом на пост с игрой</span></div>
+      <div class="cmd"><code>/stopcall</code><span>остановить зазывалу</span></div>
+      <div class="cmd"><code>/quiet</code><span>помолчать час</span></div>
+      <div class="cmd"><code>/talk</code><span>снова болтать</span></div>
+    </div>
+    <div class="cmds hidden" data-tab="words">
+      <div class="cmd"><code>бакси, расскажи шутку</code><span>шутка</span></div>
+      <div class="cmd"><code>бакси, прожарь его</code><span>прожарка, ответом</span></div>
+      <div class="cmd"><code>бакси, давай викторину</code><span>викторина</span></div>
+      <div class="cmd"><code>бакси, что тут было?</code><span>выжимка, для админов</span></div>
+      <div class="cmd"><code>мой др 12.05</code><span>запомню и поздравлю</span></div>
+      <div class="cmd"><code>+ или спасибо</code><span>ответом: плюс к репутации</span></div>
+      <div class="cmd"><code>кто сегодня красавчик</code><span>выберу кого-нибудь</span></div>
+      <div class="cmd"><code>бакси, помолчи часок</code><span>тишина на час, для админов</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="how" style="padding-top:20px">
+  <div class="wrap">
+    <div class="head reveal"><h2>Как <span class="hl mint">подключить</span></h2><p>Пара минут, никаких серверов и настроек кода.</p></div>
+    <div class="grid3 steps">
+      <div class="card step reveal"><h3>Добавь в группу</h3><p>Кнопка Добавить в чат, выбираешь группу. Telegram сам предложит дать права.</p></div>
+      <div class="card step reveal"><h3>Дождись одобрения</h3><p>Заявку проверяют, обычно в течение часа. Бакси напишет тебе в личку.</p></div>
+      <div class="card step reveal"><h3>Настрой за минуту</h3><p>Характер, тема чата, частота. Всё остальное потом в Мои чаты прямо в Telegram.</p></div>
+    </div>
+    <div style="text-align:center;margin-top:40px" class="reveal"><a class="btn coral" href="/add">➕ Добавить Бакси в чат</a></div>
+  </div>
+</section>
+
+<section id="price" style="padding-top:20px">
+  <div class="wrap">
+    <div class="head reveal"><h2><span class="hl pink">Тарифы</span></h2><p>Оплата криптой: USDT в сети TON или TRC20. После оплаты всё включается само.</p></div>
+    <div class="plans">
+      <div class="card plan reveal">
+        <span class="tag" style="align-self:flex-start;background:#ffe2d6">Для своего чата</span>
+        <div class="amt">50$ <small>в месяц</small></div>
+        <p style="color:var(--ink2)">Бакси в твоём чате, всё уже работает.</p>
+        <ul><li>свой характер и тема под чат</li><li>игры, итоги, викторины, зазывала</li><li>триггеры и правила</li><li>настройки прямо в Telegram</li><li>поддержка в личке</li></ul>
+        <a class="btn coral" href="/add" style="margin-top:auto">➕ Подключить</a>
+      </div>
+      <div class="card plan hot reveal">
+        <span class="tag" style="align-self:flex-start;background:#e6e0ff">Полностью твой</span>
+        <div class="amt">100$ <small>разово</small></div>
+        <p style="color:var(--ink2)">Такой же бот под твоим именем и аватаркой.</p>
+        <ul><li>исходный код и любые доработки</li><li>установка на твой сервер</li><li>своя админка, реклама и магазин</li><li>деньги с рекламы и звёзд идут тебе</li></ul>
+        <a class="btn violet" href="/order" style="margin-top:auto">💼 Обсудить</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" style="padding-top:20px">
+  <div class="wrap">
+    <div class="head reveal"><h2>Вопросы</h2></div>
+    <div class="faq">
+      <details class="reveal" open><summary>Бакси читает все сообщения?</summary><p>Он видит переписку чата, чтобы отвечать по смыслу, и помнит последние сообщения и короткие заметки о людях. Админ может стереть память одной кнопкой.</p></details>
+      <details class="reveal"><summary>Не будет спамить?</summary><p>Сам он влезает в разговор редко, частоту админ выбирает от 1% до 20%. Есть пауза между репликами, тихие часы и команда помолчать час. Когда его зовут, отвечает всегда.</p></details>
+      <details class="reveal"><summary>Можно поменять имя и характер?</summary><p>Да. В личке бота в разделе Мои чаты: имя, характер хоть на страницу текста, тема чата, юмор и мат. Есть пробный ответ, чтобы сразу увидеть, как он теперь говорит.</p></details>
+      <details class="reveal"><summary>Кто может настраивать?</summary><p>Создатель чата и админы с правом назначать админов. Остальные участники настройки не видят.</p></details>
+      <details class="reveal"><summary>А если перестанет нравиться?</summary><p>Просто удали его из группы. Аренда помесячная, без договоров и обязательств.</p></details>
+      <details class="reveal"><summary>Хочу такого же бота себе</summary><p>Тариф Полностью твой: свой бот с твоим именем, кодом и админкой. Напиши, обсудим доработки под тебя.</p></details>
+    </div>
+  </div>
+</section>
+
+<section style="padding-top:10px">
+  <div class="wrap">
+    <div class="card cta-big reveal">
+      <div><h2>Позови Бакси в свой чат 🎉</h2><p>Добавь в группу, и через минуту он уже свой.</p></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap"><a class="btn coral" href="/add">➕ Добавить в чат</a><a class="btn" href="/bot">💬 Написать Бакси</a></div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer"><div class="wrap">
+  <a class="logo" href="/"><i>S</i><b>satpaev<span>.ceo</span></b></a>
+  <nav><a href="/">Главная</a><a href="#commands">Команды</a><a href="#price">Тарифы</a><a href="/order">Заказать проект</a></nav>
+  <span>© 2026 Satpaev</span>
+</div></footer>
+<script src="/assets/app.js"></script>
+</body>
+</html>

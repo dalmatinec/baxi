@@ -218,9 +218,21 @@ async def tick(bot: Bot) -> None:
     await license.remind_main(bot)
 
 
+async def write_public_stats() -> None:
+    """Открытые цифры для сайта (сколько чатов и участников). Сайт берёт их из data/stats.json."""
+    import json
+    reach = await db.reach()
+    path = config.DATA_DIR / "stats.json"
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"chats": reach["chats"], "members": reach["members"],
+                               "updated": int(time.time())}))
+    tmp.replace(path)
+
+
 async def run_scheduler(bot: Bot) -> None:
     while True:
         try:
+            await write_public_stats()
             await tick(bot)
         except asyncio.CancelledError:
             raise

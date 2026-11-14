@@ -27,6 +27,12 @@ class SupportWrite(StatesGroup):
 async def cmd_start(message: Message, bot: Bot, state: FSMContext, command: CommandObject) -> None:
     await state.clear()
     args = (command.args or "").strip()
+    if args == "order":
+        await state.set_state(SupportWrite.message)
+        await state.update_data(topic="заказ проекта")
+        return await message.answer("💼 <b>Заказать проект</b>\n\nОпиши одним сообщением, что хочешь: бот, сайт, "
+                                    "мини-приложение или автоматизацию. Можно с примерами и сроками. "
+                                    "Отвечу сюда же.", parse_mode="HTML")
     if args == "mychats":
         from bot.handlers.chatadmin import show_list
         return await show_list(bot, message)

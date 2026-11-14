@@ -48,7 +48,7 @@ async def _card(target, chat_id: int) -> None:
         [("⚙️ Настроить бота в чате", f"mc:o:{cid}", "primary")] if not pending else [],
         [("📅 Доступ и аренда", f"ch:s:{cid}:rent"),
          (f"📣 Реклама: {'✅' if c['ads'] else '❌'}", f"ch:ads:{cid}")],
-        [("🚪 Выйти из чата", f"ap:no:{cid}", "danger")],
+        [("🚫 Отказать", f"ap:no:{cid}", "danger")] if pending else [],
     ] + _contact(c) + [[("⬅️ Чаты", "ch:list"), BACK_MENU]]))
 
 
@@ -75,7 +75,8 @@ async def _section(target, chat_id: int, sec: str = "rent") -> None:
             [("📅 +30 дней", f"ap:rent:{cid}", "primary"), (f"🎁 Пробные {config.TRIAL_DAYS} дн", f"ap:trial:{cid}")]
             if c["active"] else [],
             [("♾ Без срока", f"ap:inf:{cid}")] if c["active"] else [],
-            [("🚪 Выйти из чата", f"ap:no:{cid}", "danger")], [("⬅️ К чату", f"ch:o:{cid}"), BACK_MENU]]
+            [("⬅️ К чату", f"ch:o:{cid}"), BACK_MENU],
+            [("🚪 Вывести бота из чата", f"ch:bye:{cid}")] if c["active"] else []]
     await show(target, text, kb(rows))
 
 
@@ -156,6 +157,20 @@ async def cb_delete(cb: CallbackQuery) -> None:
 async def cb_open(cb: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await _card(cb, int(cb.data.split(":")[2]))
+
+
+@router.callback_query(F.data.startswith("ch:bye:"))
+async def cb_bye(cb: CallbackQuery) -> None:
+    """Выход из чата только с подтверждением: случайно нажать нельзя."""
+    cid = int(cb.data.split(":")[2])
+    chat = await db.get_chat(cid)
+    if not chat:
+        return await cb.answer("чат не найден")
+    await show(cb, f"⚠️ <b>Вывести бота из чата {esc(chat['title'] or str(cid))}?</b>\n\n"
+                   "Бот попрощается и выйдет. Вернуть его сможет только админ чата, добавив заново, "
+                   "и чат снова придётся одобрить. Настройки и история сохранятся.",
+               kb([[("Нет, оставить", f"ch:o:{cid}", "success")],
+                   [("Да, вывести бота", f"ap:no:{cid}", "danger")]]))
 
 
 @router.callback_query(F.data.startswith("ch:ads:"))

@@ -3,28 +3,131 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Satpaev</title>
-<meta name="description" content="Продукты и проекты Satpaev. Скоро здесь будет сайт.">
-<style>
-  :root { --bg:#0a0b10; --fg:#f2f3f7; --muted:#8a8fa3; --a:#7c5cff; --b:#2ec5ff; }
-  * { box-sizing:border-box; margin:0 }
-  body { min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--fg);
-         font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; padding:24px; text-align:center }
-  .glow { position:fixed; inset:auto; width:520px; height:520px; border-radius:50%; filter:blur(120px); opacity:.35;
-          background:radial-gradient(circle,var(--a),transparent 60%); top:-120px; left:50%; transform:translateX(-50%) }
-  h1 { font-size:clamp(40px,9vw,88px); letter-spacing:-.04em; font-weight:800; position:relative }
-  h1 span { background:linear-gradient(90deg,var(--a),var(--b)); -webkit-background-clip:text; background-clip:text; color:transparent }
-  p { color:var(--muted); margin-top:14px; font-size:18px; position:relative }
-  a { color:var(--fg); display:inline-block; margin-top:28px; padding:12px 22px; border-radius:14px;
-      background:linear-gradient(90deg,var(--a),var(--b)); text-decoration:none; font-weight:600; position:relative }
-</style>
+<title>Satpaev: боты, мини-приложения и сайты</title>
+<meta name="description" content="Делаю Telegram-ботов, мини-приложения, сайты и автоматизацию с ИИ. Первый продукт: Бакси, бот, который общается в чатах как живой участник.">
+<meta property="og:title" content="satpaev.ceo">
+<meta property="og:description" content="Боты, которые общаются как люди. Бакси и проекты на заказ.">
+<meta property="og:image" content="https://satpaev.ceo/img/og.png">
+<meta name="theme-color" content="#fff8f1">
+<link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Unbounded:wght@600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
-  <div class="glow"></div>
-  <main>
-    <h1>satpaev<span>.ceo</span></h1>
-    <p>Продукты и проекты. Сайт скоро будет здесь.</p>
-    <a href="https://t.me/S_Spiderman_bot">Бакси в Telegram</a>
-  </main>
+<nav class="nav"><div class="wrap">
+  <a class="logo" href="/"><i>S</i><b>satpaev<span>.ceo</span></b></a>
+  <div class="menu">
+    <a href="#products">Продукты</a><a href="/baxi">Бакси</a><a href="#order">Заказать</a><a href="#how">Как работаю</a><a href="#contact">Связь</a>
+  </div>
+  <a class="btn sm coral" href="/order">✈️ Написать</a>
+  <button class="burger" aria-label="Меню">☰</button>
+</div></nav>
+
+<header class="hero">
+  <div class="blob" style="width:520px;height:520px;background:#ffd0b8;top:-160px;left:-160px"></div>
+  <div class="blob" style="width:460px;height:460px;background:#d9ceff;top:120px;right:-140px"></div>
+  <div class="wrap">
+    <div>
+      <span class="kicker"><span class="live"></span> Бакси уже работает в чатах</span>
+      <h1>Делаю ботов, которые <span class="hl">общаются</span> как люди</h1>
+      <p class="lead">Привет! Я делаю Telegram-ботов, мини-приложения и сайты. Мой первый продукт, Бакси, уже живёт в чатах: шутит, помнит людей, подводит итоги дня и зовёт всех в игру.</p>
+      <div class="cta">
+        <a class="btn coral" href="/baxi">🤖 Познакомиться с Бакси</a>
+        <a class="btn" href="/order">💼 Заказать проект</a>
+      </div>
+      <div class="stats">
+        <div class="stat stat-live"><b data-stat="chats">…</b><span>чатов с Бакси</span></div>
+        <div class="stat stat-live"><b data-stat="members">…</b><span>человек в них</span></div>
+        <div class="stat"><b>24/7</b><span>на связи</span></div>
+      </div>
+    </div>
+    <div class="stage" aria-hidden="true">
+      <div class="editor">
+        <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><b id="file">baxi.py</b></div>
+        <pre id="code"></pre>
+      </div>
+      <div class="phone">
+        <div class="top"><div class="ava">Б<img src="/img/baxi.png" alt="" onerror="this.remove()"></div>
+          <div><div class="nm">Кальянная Алматы</div><div class="sb">214 участников · Бакси в чате</div></div></div>
+        <div class="feed" id="feed"></div>
+      </div>
+      <div class="sticker" style="top:-14px;right:20px">⚡</div>
+      <div class="sticker" style="bottom:110px;left:-10px;animation-delay:-2s">💬</div>
+    </div>
+  </div>
+</header>
+
+<div class="mq"><div class="marquee" aria-hidden="true"><div class="track">
+  <span>Telegram-боты ✦</span><span>Мини-приложения ✦</span><span>Сайты ✦</span><span>ИИ и автоматизация ✦</span><span>Игры в чатах ✦</span><span>Оплата криптой ✦</span>
+  <span>Telegram-боты ✦</span><span>Мини-приложения ✦</span><span>Сайты ✦</span><span>ИИ и автоматизация ✦</span><span>Игры в чатах ✦</span><span>Оплата криптой ✦</span>
+</div></div></div>
+
+<section id="products">
+  <div class="wrap">
+    <div class="head reveal"><h2>Мои <span class="hl mint">продукты</span></h2><p>Один бренд, несколько продуктов. Бакси уже работает, следующие готовлю.</p></div>
+    <div class="grid2">
+      <a class="card prod reveal" href="/baxi" style="background:linear-gradient(150deg,#fff,#fff1e6)">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="ava" style="width:72px;height:72px;font-size:30px">Б<img src="/img/baxi.png" alt="Бакси" onerror="this.remove()"></div>
+          <span class="tag ok">● Работает</span>
+        </div>
+        <h3>Бакси</h3>
+        <p>Бот, который становится своим в групповом чате. Болтает как живой участник, помнит всех, подводит итоги дня с номинациями, устраивает викторины и зовёт людей в игру.</p>
+        <div class="tags"><span class="tag">Telegram</span><span class="tag">ИИ</span><span class="tag">игры</span><span class="tag">от 50$ в месяц</span></div>
+        <span class="btn coral sm" style="align-self:flex-start;margin-top:6px">Подробнее о Бакси →</span>
+      </a>
+      <div class="card prod soon reveal">
+        <div style="display:flex;justify-content:space-between;align-items:center"><div class="ic" style="background:#f3eefe">👀</div><span class="tag soon">Скоро</span></div>
+        <h3>Следующий продукт</h3>
+        <p>Уже в работе. Хочешь узнать первым? Напиши, расскажу, что готовлю.</p>
+        <a class="btn sm" href="/order" style="align-self:flex-start;margin-top:auto">Узнать первым</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="order" style="padding-top:20px">
+  <div class="wrap">
+    <div class="head reveal"><h2>Закажи <span class="hl pink">проект</span></h2><p>Делаю под ключ: от идеи и дизайна до запуска на сервере и поддержки. Пишешь в Telegram, отвечаю сам.</p></div>
+    <div class="grid4">
+      <a class="card svc reveal" href="/order"><div class="ic" style="background:#ffe2d6">🤖</div><h3>Telegram-боты</h3><p>Чат-боты, магазины, поддержка, рассылки, оплата криптой и звёздами.</p><span class="price">Обсудить →</span></a>
+      <a class="card svc reveal" href="/order"><div class="ic" style="background:#dcf8ee">📱</div><h3>Мини-приложения</h3><p>Приложения прямо внутри Telegram: каталоги, записи, игры, личные кабинеты.</p><span class="price">Обсудить →</span></a>
+      <a class="card svc reveal" href="/order"><div class="ic" style="background:#fff2c7">🌐</div><h3>Сайты</h3><p>Лендинги и сайты на своём домене: быстрые, красивые, с формами и оплатой.</p><span class="price">Обсудить →</span></a>
+      <a class="card svc reveal" href="/order"><div class="ic" style="background:#e6e0ff">⚡</div><h3>ИИ и автоматизация</h3><p>Нейросети в работе: ответы клиентам, тексты, разбор заявок, отчёты.</p><span class="price">Обсудить →</span></a>
+    </div>
+  </div>
+</section>
+
+<section id="how" style="padding-top:20px">
+  <div class="wrap">
+    <div class="head reveal"><h2>Как <span class="hl sky">работаю</span></h2><p>Без долгих созвонов и бумажек. Всё в Telegram, видно каждый шаг.</p></div>
+    <div class="grid4 steps">
+      <div class="card step reveal"><h3>Пишешь идею</h3><p>Одним сообщением: что нужно и для кого. Можно с примерами.</p></div>
+      <div class="card step reveal"><h3>Обсуждаем</h3><p>Предложу, как сделать проще и лучше, назову сроки и цену.</p></div>
+      <div class="card step reveal"><h3>Делаю</h3><p>Показываю промежуточные версии, чтобы ты мог поправить на ходу.</p></div>
+      <div class="card step reveal"><h3>Запускаем</h3><p>Ставлю на сервер, настраиваю домен и оплату, остаюсь на связи.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="contact" style="padding-top:20px">
+  <div class="wrap">
+    <div class="card cta-big reveal">
+      <div><h2>Есть идея? Давай сделаем 🚀</h2><p>Напиши в Telegram: что хочешь, к какому сроку. Отвечу сам и прикину, как это лучше сделать.</p></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <a class="btn coral" href="/order">✈️ Написать в Telegram</a>
+        <a class="btn" href="/baxi">🤖 Смотреть Бакси</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer"><div class="wrap">
+  <a class="logo" href="/"><i>S</i><b>satpaev<span>.ceo</span></b></a>
+  <nav><a href="/baxi">Бакси</a><a href="#order">Заказать</a><a href="/order">Telegram</a></nav>
+  <span>© 2026 Satpaev</span>
+</div></footer>
+<script src="/assets/app.js"></script>
 </body>
 </html>
