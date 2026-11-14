@@ -196,3 +196,11 @@ details p{color:var(--ink2);margin-top:10px;font-size:15.5px}
 }
 .mq{overflow:hidden;padding:12px 0}
 @media (max-width:640px){.stats{gap:8px;flex-wrap:nowrap}.stat{min-width:0;flex:1;padding:10px 12px}.stat b{font-size:19px}.stat span{font-size:12.5px}}
+
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:inherit;font-weight:800;font-size:14px;border:2px solid var(--ink);border-radius:999px;padding:7px 13px;background:#fff;cursor:pointer;transition:transform .12s}
+.chip:hover{transform:translateY(-1px)}
+.chip.on{background:var(--ink);color:#fff}
+.chip-text{color:var(--ink2);font-weight:600;min-height:48px}
+.btn.sky-btn{background:var(--sky);color:#fff}
+[id]{scroll-margin-top:90px}

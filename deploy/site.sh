@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # Сайт на своём домене с HTTPS (сертификат Let's Encrypt выпускается и продлевается сам).
 # Перед запуском в DNS домена должны быть A-записи @ и www на IP этого сервера.
-#   bash /opt/linkhub/deploy/site.sh satpaev.ceo
+#   bash /opt/linkhub/deploy/site.sh satpaev.ceo [юзернейм_бота_Store] [юзернейм_канала]
+# Юзернеймы запоминаются в /opt/linkhub/site.env, второй раз можно не писать.
 set -euo pipefail
 DOMAIN="${1:-satpaev.ceo}"
+CONF=/opt/linkhub/site.env
+[ -f "$CONF" ] && . "$CONF"
+STORE_BOT="${2:-${STORE_BOT:-}}"; STORE_BOT="${STORE_BOT#@}"
+CHANNEL="${3:-${CHANNEL:-newssatbox}}"; CHANNEL="${CHANNEL#@}"
+printf 'STORE_BOT=%s\nCHANNEL=%s\n' "$STORE_BOT" "$CHANNEL" > "$CONF"
 WEB=/var/www/site
 
 if ! command -v caddy >/dev/null; then
@@ -27,7 +33,8 @@ BOT=$(curl -fsS "https://api.telegram.org/bot${TOKEN}/getMe" | python3 -c 'impor
 if [ -z "$BOT" ]; then
     echo "Не смог узнать юзернейм бота (проверь BOT_TOKEN в /opt/linkhub/.env)"; exit 1
 fi
-echo "Бот: @$BOT"
+echo "Бот: @$BOT · Store: ${STORE_BOT:+@$STORE_BOT}${STORE_BOT:-не указан} · канал: @$CHANNEL"
+STORE_URL="https://t.me/${STORE_BOT:-$CHANNEL}"
 
 cat > /etc/caddy/Caddyfile <<CADDY
 # Сгенерировано deploy/site.sh. Сайт: $DOMAIN, www перекидывает на основной адрес.
@@ -42,6 +49,8 @@ $DOMAIN {
     redir /add   https://t.me/$BOT?startgroup=true&admin=delete_messages+pin_messages+invite_users 302
     redir /order https://t.me/$BOT?start=order 302
     redir /my    https://t.me/$BOT?start=mychats 302
+    redir /store $STORE_URL 302
+    redir /news  https://t.me/$CHANNEL 302
     # живые цифры (сколько чатов и участников) бот пишет сам
     handle /stats.json {
         root * /opt/linkhub/data

@@ -4,8 +4,29 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, reduce ? 0 : ms));
 
   // ---------- меню на телефоне ----------
+  // меню на телефоне: открывается бургером, закрывается по нажатию на пункт, мимо меню или Esc
   const burger = document.querySelector(".burger");
-  if (burger) burger.addEventListener("click", () => document.querySelector(".menu").classList.toggle("open"));
+  const menu = document.querySelector(".menu");
+  if (burger && menu) {
+    const close = () => { menu.classList.remove("open"); burger.textContent = "☰"; };
+    burger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = menu.classList.toggle("open");
+      burger.textContent = open ? "✕" : "☰";
+    });
+    menu.querySelectorAll("a").forEach((a) => a.addEventListener("click", close));
+    document.addEventListener("click", (e) => { if (!menu.contains(e.target)) close(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+    window.addEventListener("scroll", () => { if (menu.classList.contains("open")) close(); }, { passive: true });
+  }
+
+  // вкладки Store: обмен, NFT, звёзды, Premium, юзернеймы
+  document.querySelectorAll(".chip").forEach((c) => c.addEventListener("click", (e) => {
+    e.preventDefault();
+    const box = c.closest(".card");
+    box.querySelectorAll(".chip").forEach((x) => x.classList.toggle("on", x === c));
+    box.querySelectorAll(".chip-text").forEach((t) => t.classList.toggle("hidden", t.dataset.text !== c.dataset.chip));
+  }));
 
   // ---------- живые цифры от бота ----------
   fetch("/stats.json", { cache: "no-store" })

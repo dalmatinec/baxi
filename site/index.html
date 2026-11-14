@@ -18,7 +18,7 @@
 <nav class="nav"><div class="wrap">
   <a class="logo" href="/"><i>S</i><b>satpaev<span>.ceo</span></b></a>
   <div class="menu">
-    <a href="#products">Продукты</a><a href="/baxi">Бакси</a><a href="#order">Заказать</a><a href="#how">Как работаю</a><a href="#contact">Связь</a>
+    <a href="/baxi">Бакси</a><a href="#store">Store</a><a href="#news">Канал</a><a href="#order">Заказать</a><a href="#contact">Связь</a>
   </div>
   <a class="btn sm coral" href="/order">✈️ Написать</a>
   <button class="burger" aria-label="Меню">☰</button>
@@ -65,7 +65,7 @@
 
 <section id="products">
   <div class="wrap">
-    <div class="head reveal"><h2>Мои <span class="hl mint">продукты</span></h2><p>Один бренд, несколько продуктов. Бакси уже работает, следующие готовлю.</p></div>
+    <div class="head reveal"><h2>Мои <span class="hl mint">продукты</span></h2><p>Всё в одной экосистеме: бот для чатов, магазин для Telegram и канал с новостями.</p></div>
     <div class="grid2">
       <a class="card prod reveal" href="/baxi" style="background:linear-gradient(150deg,#fff,#f1e8ff 70%,#fff4cf)">
         <div style="display:flex;justify-content:space-between;align-items:center">
@@ -77,12 +77,39 @@
         <div class="tags"><span class="tag">Telegram</span><span class="tag">ИИ</span><span class="tag">игры</span><span class="tag">от 50$ в месяц</span></div>
         <span class="btn violet sm" style="align-self:flex-start;margin-top:6px">Подробнее о Бакси →</span>
       </a>
-      <div class="card prod soon reveal">
-        <div style="display:flex;justify-content:space-between;align-items:center"><div class="ic" style="background:#f3eefe">👀</div><span class="tag soon">Скоро</span></div>
-        <h3>Следующий продукт</h3>
-        <p>Уже в работе. Хочешь узнать первым? Напиши, расскажу, что готовлю.</p>
-        <a class="btn sm" href="/order" style="align-self:flex-start;margin-top:auto">Узнать первым</a>
+      <div class="card prod reveal" id="store" style="background:linear-gradient(150deg,#fff,#e9fbf4 70%,#fff4cf)">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="ic" style="background:#c9f5e6;width:72px;height:72px;border-radius:22px;font-size:34px">💎</div>
+          <span class="tag ok">● Работает</span>
+        </div>
+        <h3>Satpaev Store</h3>
+        <p>Всё для Telegram в одном боте. Выбери, что нужно:</p>
+        <div class="chips" role="tablist">
+          <button class="chip on" data-chip="0">💱 Обмен крипты</button><button class="chip" data-chip="1">🎁 NFT подарки</button>
+          <button class="chip" data-chip="2">⭐ Звёзды</button><button class="chip" data-chip="3">💎 Premium</button>
+          <button class="chip" data-chip="4">🏷 Юзернеймы</button>
+        </div>
+        <div class="chip-text" data-text="0">Быстрый обмен криптовалют по курсу из бота, без лишних шагов.</div>
+        <div class="chip-text hidden" data-text="1">Коллекционные NFT подарки Telegram: купить, продать, подобрать редкий.</div>
+        <div class="chip-text hidden" data-text="2">Звёзды Telegram дешевле, чем в приложении. Себе или в подарок.</div>
+        <div class="chip-text hidden" data-text="3">Telegram Premium на 3, 6 или 12 месяцев, себе или другу.</div>
+        <div class="chip-text hidden" data-text="4">Коллекционные юзернеймы: проверка, цена и аукцион на Fragment.</div>
+        <a class="btn mint sm" href="/store" style="align-self:flex-start;margin-top:auto">Открыть Store →</a>
       </div>
+    </div>
+  </div>
+</section>
+
+<section id="news" style="padding-top:20px">
+  <div class="wrap">
+    <div class="card cta-big reveal" style="background:linear-gradient(120deg,#d6efff,#efe6ff 55%,#ffe2d6)">
+      <div style="display:flex;gap:22px;align-items:center;flex-wrap:wrap">
+        <div class="ic" style="width:84px;height:84px;border-radius:26px;font-size:40px;background:#fff">📰</div>
+        <div><span class="tag" style="background:#fff">Telegram-канал</span>
+          <h2 style="margin-top:10px">News Satbox</h2>
+          <p>Новости Telegram, NFT, звёзд и крипты, акции Store и новые фишки Бакси. Коротко и по делу.</p></div>
+      </div>
+      <a class="btn sky-btn" href="/news">📢 Подписаться</a>
     </div>
   </div>
 </section>
@@ -125,7 +152,7 @@
 
 <footer class="footer"><div class="wrap">
   <a class="logo" href="/"><i>S</i><b>satpaev<span>.ceo</span></b></a>
-  <nav><a href="/baxi">Бакси</a><a href="#order">Заказать</a><a href="/order">Telegram</a></nav>
+  <nav><a href="/baxi">Бакси</a><a href="/store">Store</a><a href="/news">Канал</a><a href="#order">Заказать</a></nav>
   <span>© 2026 Satpaev</span>
 </div></footer>
 <script src="/assets/app.js"></script>
