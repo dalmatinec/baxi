@@ -133,7 +133,9 @@ async def on_game(message: Message, bot: Bot, game: tuple[str, str], chat_row) -
             f"{human_date(r['birthday'])}: {mention(r['user_id'], r['name'])}" for r in rows))
 
     if name == "who":
-        people = [u for u in await db.active_users(chat_id, days=3, limit=100) if u["user_id"] != me.id]
+        # создателя в «кто самый ...» не выбираем: вопросы там бывают обидные
+        people = [u for u in await db.active_users(chat_id, days=3, limit=100)
+                  if u["user_id"] != me.id and u["user_id"] not in config.CREATOR_IDS]
         if not people:
             return await _send(message, "тут пока никого, кроме меня")
         who = random.choice(people)

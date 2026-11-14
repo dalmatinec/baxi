@@ -29,6 +29,7 @@ GREETINGS = [
 ]
 
 FALLBACK_REPLIES = ["щас не до тебя, позже", "ага", "ну допустим", "отстань, я думаю", "хм"]
+CREATOR_FALLBACK = ["секунду, сейчас соображу 🙏", "понял тебя, дай минутку", "принял 👌"]
 
 
 def chat_lock(chat_id: int) -> asyncio.Lock:
@@ -101,10 +102,14 @@ async def ai_answer(bot: Bot, chat, message: Message, author: str, text: str, ju
     """Ответ нейросети на сообщение. Не вышло (лимит, ошибка), отвечает фразой из базы."""
     build = prompts.jump_task if jump else prompts.reply_task
     reply = await _ask(chat, lambda history: build(history, author, text or "[без текста]"))
+    creator = bool(message.from_user and message.from_user.id in config.CREATOR_IDS)
     if reply is None:
-        if jump:
+        if jump and not creator:
             return await phrase_answer(bot, chat, message, author)
-        reply = await db.random_phrase("text") or random.choice(FALLBACK_REPLIES)
+        if jump:
+            return  # создателю фразами из базы не отвечаем: там бывают подколы
+        reply = (random.choice(CREATOR_FALLBACK) if creator
+                 else await db.random_phrase("text") or random.choice(FALLBACK_REPLIES))
     await send_text(bot, chat, esc(reply), reply, reply_to=message, reply_name=author)
 
 
@@ -132,7 +137,8 @@ async def phrase_answer(bot: Bot, chat, message: Message, author: str) -> None:
         await send_text(bot, chat, esc(phrase), phrase, reply_to=message, reply_name=author)
         return
     # тегнуть кого-нибудь из недавно писавших, как живой участник
-    people = [u for u in await db.active_users(chat_id, days=1, limit=30) if u["user_id"] != bot.id]
+    people = [u for u in await db.active_users(chat_id, days=1, limit=30)
+              if u["user_id"] != bot.id and u["user_id"] not in config.CREATOR_IDS]
     if not people:
         await send_text(bot, chat, esc(phrase), phrase, reply_to=message, reply_name=author)
         return

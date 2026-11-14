@@ -58,7 +58,7 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
         elif await _mentions_creator(message):
             chance, creator_hit = max(chance, 0.3), True
     act = brain.decide(addressed, now, chat_row["last_jump"], chat_row["cooldown"], chance, chat_row["ai_share"])
-    if act is brain.Act.PHRASE and creator_hit:
+    if act is brain.Act.PHRASE and (creator_hit or user_row["user_id"] in config.CREATOR_IDS):
         act = brain.Act.AI_JUMP  # про создателя говорит сам, а не фразой из базы
     if act is brain.Act.NONE:
         return
