@@ -91,11 +91,19 @@ _TRIGGERS = [
 ]
 
 
+# «кто ты по нации?», «кто он такой?», «кто это?» — это вопросы, а не игра «кто сегодня красавчик»
+_NOT_WHO = {"ты", "тебя", "тебе", "тобой", "вы", "вас", "вам", "он", "она", "они", "оно", "это", "этот", "эта",
+            "такой", "такая", "такие", "там", "здесь", "писал", "написал", "звонил", "пришёл", "пришел"}
+_WORDS = re.compile(r"[\wё]+", re.I)
+
+
 def match(text: str) -> tuple[str, str] | None:
     """Какая игра вызвана сообщением. Возвращает (игра, хвост текста)."""
     for name, rx in _TRIGGERS:
         m = rx.match(text or "")
         if m:
             tail = m.group(1) if name == "who" else ""
+            if name == "who" and set(w.lower() for w in _WORDS.findall(tail)) & _NOT_WHO:
+                return None
             return name, tail.strip().rstrip("?!.")
     return None

@@ -66,9 +66,9 @@ async def game_filter(message: Message, chat_row=None) -> dict | bool:
     found = games.match(message.text or "")
     if not found:
         return False
-    # «кто ты, марат?» — это вопрос боту, а не игра
-    if found[0] == "who" and brain.mentions_name(message.text, brain.parse_aliases(chat_row["bot_name"],
-                                                                                    chat_row["aliases"])):
+    # «кто ты, марат?» или ответ на чьё-то сообщение — это вопрос, а не игра
+    if found[0] == "who" and (message.reply_to_message is not None or brain.mentions_name(
+            message.text, brain.parse_aliases(chat_row["bot_name"], chat_row["aliases"]))):
         return False
     return {"game": found}
 

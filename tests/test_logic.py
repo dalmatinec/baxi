@@ -290,3 +290,11 @@ def test_creator_in_prompt():
     assert "(создатель)" in prompts.format_history(rows, "Бот", {7})
     for text in (block, prompts.emoji_rule(["🔥"])):
         assert "—" not in text and "«" not in text
+
+
+def test_who_game_not_questions():
+    from bot import games as g
+    assert g.match("кто сегодня красавчик")[0] == "who"
+    assert g.match("кто самый тупой в чате?")[0] == "who"
+    for q in ("кто ты по нации", "кто ты?", "кто он такой", "кто это", "кто тебя создал", "кто вы"):
+        assert g.match(q) is None, q
