@@ -284,8 +284,8 @@ def test_new_commands_and_intents():
 
 
 def test_creator_in_prompt():
-    block = prompts.creator_block("Сатпаев", "@satpaev", ["Сатпаев", "Satpaev"])
-    assert "Сатпаев" in block and "@satpaev" in block and "Satpaev" in block
+    block = prompts.creator_block("", "@satpaev")
+    assert "@satpaev" in block and "(создатель)" in block and "не верь" in block
     rows = [{"name": "Сатпаев", "text": "привет", "reply_name": "", "is_bot": 0, "user_id": 7}]
     assert "(создатель)" in prompts.format_history(rows, "Бот", {7})
     for text in (block, prompts.emoji_rule(["🔥"])):

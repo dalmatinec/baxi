@@ -16,7 +16,6 @@ from bot.services.out import say
 log = logging.getLogger(__name__)
 router = Router(name="group")
 spam_guard = brain.RateLimit(limit=5, window=60)
-CREATOR_ALIASES = brain.parse_aliases("", ",".join(config.CREATOR_ALIASES))
 
 QUIET_REPLIES = ["ладно, ухожу в тень на час 🤐 позовёте по имени, отвечу",
                  "понял, молчу час. но если позовёте, я тут 👀",
@@ -53,10 +52,10 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
             return  # «помолчи часок» или тихие часы: сам не влезает, но на обращения отвечает
     chance = chat_row["chance"]
     creator_hit = False
-    if not addressed and config.CREATOR_NAME:
+    if not addressed and config.CREATOR_IDS:
         if user_row["user_id"] in config.CREATOR_IDS:
             chance, creator_hit = max(chance, 0.12), True
-        elif brain.mentions_name(text, CREATOR_ALIASES):
+        elif await _mentions_creator(message):
             chance, creator_hit = max(chance, 0.3), True
     act = brain.decide(addressed, now, chat_row["last_jump"], chat_row["cooldown"], chance, chat_row["ai_share"])
     if act is brain.Act.PHRASE and creator_hit:
@@ -109,3 +108,18 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
     except Exception:
         log.exception("Не получилось ответить в чате %s", chat_id)
 
+
+
+async def _mentions_creator(message: Message) -> bool:
+    """Создателя отметили: кликабельным упоминанием по ID или его @юзернеймом (юзернейм уникален, имя нет)."""
+    for ent in message.entities or message.caption_entities or []:
+        if ent.type == "text_mention" and ent.user and ent.user.id in config.CREATOR_IDS:
+            return True
+    text = (message.text or message.caption or "").lower()
+    if "@" not in text:
+        return False
+    for uid in config.CREATOR_IDS:
+        username = await db.username_of(uid)
+        if username and f"@{username.lower()}" in text:
+            return True
+    return False

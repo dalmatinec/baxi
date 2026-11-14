@@ -8,7 +8,6 @@ from aiogram.types import CallbackQuery, Message
 from bot import config, db
 from bot.handlers.admin.common import BACK_MENU, kb, show
 from bot.services import emoji
-from bot.textutil import esc
 
 router = Router(name="admin-settings")
 
@@ -20,8 +19,8 @@ class EmojiAdd(StatesGroup):
 @router.callback_query(F.data == "cfg:menu")
 async def cb_menu(cb: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    creator = (f"{esc(config.CREATOR_NAME)}, отмечаю его как создателя и хвалю по-своему"
-               if config.CREATOR_NAME else "выключен (CREATOR_NAME в .env)")
+    creator = ("узнаю только по ID (" + ", ".join(str(i) for i in sorted(config.CREATOR_IDS)) + "), хвалю по-своему"
+               if config.CREATOR_IDS else "выключен (CREATOR=0 в .env)")
     text = ("⚙️ <b>Настройки</b>\n\n"
             f"😎 Премиум-эмодзи бота: <b>{len(await db.emoji_list())}</b>\n"
             f"👑 Создатель: {creator}\n"

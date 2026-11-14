@@ -43,7 +43,7 @@ async def rules(chat) -> list[str]:
     if chat["banned"]:
         out.append(f"Никогда не шути и не говори на эти темы, уходи от них: {chat['banned']}.")
     out.append(prompts.emoji_rule(emoji.alts()))
-    if config.CREATOR_NAME:
+    if config.CREATOR_IDS:
         contact = config.CREATOR_CONTACT
         if not contact:
             for uid in sorted(config.CREATOR_IDS):
@@ -51,7 +51,7 @@ async def rules(chat) -> list[str]:
                 if username:
                     contact = "@" + username
                     break
-        out.append(prompts.creator_block(config.CREATOR_NAME, contact, config.CREATOR_ALIASES))
+        out.append(prompts.creator_block(config.CREATOR_NAME, contact))
     return [x for x in out if x]
 
 

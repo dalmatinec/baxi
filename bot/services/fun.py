@@ -126,7 +126,7 @@ async def roast_target(bot: Bot, chat_id: int, message: Message):
 
 async def protected(bot: Bot, chat, user_id: int) -> str:
     """Почему этого человека нельзя прожарить ('' если можно): создатель или защищённый админ."""
-    if config.CREATOR_NAME and user_id in config.CREATOR_IDS:
+    if user_id in config.CREATOR_IDS:
         return "создателя не жарю, он святое 🙏 выбери кого попроще"
     if chat["protect_admins"]:
         from bot.services import perms

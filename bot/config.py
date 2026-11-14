@@ -106,12 +106,12 @@ APPROVAL_HOURS = _int("APPROVAL_HOURS", 24)
 TRIAL_DAYS = _int("TRIAL_DAYS", 3)
 
 # Создатель бота: бот его уважает, хвалит по-своему и советует заказывать у него проекты.
-# По умолчанию у основного бота это владельцы из OWNER_IDS. CREATOR_NAME= пустое отключает.
-CREATOR_NAME = os.getenv("CREATOR_NAME", "Сатпаев" if IS_MAIN else "").strip()
-CREATOR_ALIASES = [a.strip() for a in os.getenv("CREATOR_ALIASES", "Сатпаев,Satpaev" if CREATOR_NAME else "")
-                   .split(",") if len(a.strip()) >= 3]
+# Узнаёт его ТОЛЬКО по Telegram ID (по умолчанию у основного бота это OWNER_IDS), не по имени:
+# любой может подписаться чужим именем. CREATOR=0 отключает.
+CREATOR_ON = os.getenv("CREATOR", "1" if IS_MAIN else "0").strip() not in ("0", "", "no", "off")
+CREATOR_NAME = os.getenv("CREATOR_NAME", "").strip()   # как бот его называет; пусто: просто создатель
 CREATOR_IDS = ({int(x) for x in os.getenv("CREATOR_IDS", "").replace(" ", "").split(",") if x.lstrip("-").isdigit()}
-               or (set(OWNER_IDS) if CREATOR_NAME else set()))
+               or set(OWNER_IDS)) if CREATOR_ON else set()
 CREATOR_CONTACT = os.getenv("CREATOR_CONTACT", "").strip()  # например @username, иначе возьмём юзернейм из базы
 
 
