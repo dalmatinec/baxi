@@ -243,7 +243,7 @@ def test_quiet_hours():
     assert presets.in_quiet(23, 23, 8) and presets.in_quiet(2, 23, 8) and not presets.in_quiet(12, 23, 8)
     assert not presets.in_quiet(3, -1, -1)
     assert presets.every(0.05) == "примерно раз в 20 сообщений"
-    assert presets.CHANCE_STEPS[-1] == 0.20 and presets.CHANCE_STEPS[1] == 0.01
+    assert presets.CHANCE_STEPS[-1] == 0.50 and presets.CHANCE_STEPS[1] == 0.01   # потолок режет plans.max_chance
 
 
 def test_trigger_norm():
