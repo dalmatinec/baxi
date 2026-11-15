@@ -19,7 +19,7 @@ HELP_KB = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="🎯 Викторина", callback_data="gm:quiz"),
      InlineKeyboardButton(text="💘 Пара дня", callback_data="gm:couple")],
     [InlineKeyboardButton(text="📊 Итоги", callback_data="gm:results"),
-     InlineKeyboardButton(text="🏆 Топы", callback_data="gm:tops")],
+     InlineKeyboardButton(text="🎲 Дуэль костей", callback_data="eco:dice")],
     [InlineKeyboardButton(text="👤 Мой ранг", callback_data="eco:w"),
      InlineKeyboardButton(text="🎁 Бонус", callback_data="eco:b")],
     [InlineKeyboardButton(text="🐾 Питомец", callback_data="eco:pet"),

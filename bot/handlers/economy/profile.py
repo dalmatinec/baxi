@@ -1,7 +1,7 @@
 """Личка бота: свой профиль у каждого человека. Монеты, уровень, бонус, питомец, магазин, пополнение
 звёздами или криптой, как заработать, о боте, свой бот и сайт. Кнопки: pf:*, оплата криптой: pf:cx:*.
 
-Открывается: кнопкой «👤 Профиль и магазин» в меню, /profile или /shop в личке, ссылкой из чата (start=profile)."""
+Открывается командой /profile (или /shop) в личке и ссылкой из чата (start=profile). В общем меню /start его нет."""
 
 import logging
 
@@ -40,24 +40,13 @@ async def profile_screen(user: User) -> tuple[str, object]:
     perks = await db.get_perks(user.id)
     nick = ["✨ Свой ник: навсегда ✅"] if perks and perks["look_forever"] else []
     text = "\n".join([f"👤 <b>Профиль</b> {mention(user.id, name_of(user))}", "", *await profile_lines(user), *nick])
-    # мало кнопок и один цвет: зелёная только «Забрать бонус», остальное в «Ещё»
+    # профиль отдельно от общего меню (/start): только своё, мало кнопок, зелёная одна
     rows = [[("🎁 Забрать бонус", "pf:bonus", "success")] if service.bonus_ready(w) else [],
             [("🐾 Питомец", "pf:pet"), ("🛒 Магазин", "pf:shop")],
             [("💳 Пополнить", "pf:top"), ("💡 Как заработать", "pf:earn")],
-            [("☰ Ещё", "pf:more"), ("⬅️ Меню", "sc:start")]]
+            [("📜 Правила", "sc:terms"), ("🤖 О боте", "pf:about")],
+            [("🧪 Тесты (видишь только ты)", "eca:menu")] if user.id in config.OWNER_IDS else []]
     return text, kb(rows)
-
-
-def more_screen(user: User) -> tuple[str, object]:
-    """Всё остальное из лички: мои чаты, реклама, свой бот, о боте, правила."""
-    rows = [[("⚙️ Мои чаты", "act:mychats"), ("📣 Реклама", "sc:ads")],
-            [("💼 Свой бот", "sc:wl"), ("🤖 О боте", "pf:about")] if config.IS_MAIN else [("🤖 О боте", "pf:about")],
-            [("📜 Правила", "sc:terms"), ("💬 Поддержка", "act:support")],
-            [("🧪 Тесты (видишь только ты)", "eca:menu")] if user.id in config.OWNER_IDS else [],
-            [BACK]]
-    return ("☰ <b>Ещё</b>\n\n⚙️ Мои чаты: настроить бота в своём чате\n📣 Реклама в чатах сети\n"
-            + ("💼 Свой бот: такой же, но твой\n" if config.IS_MAIN else "")
-            + "🤖 О боте, 📜 правила и поддержка"), kb(rows)
 
 
 async def shop_screen(user: User) -> tuple[str, object]:
@@ -180,8 +169,6 @@ async def _button(cb: CallbackQuery, bot: Bot, state: FSMContext, user: User, ac
         await show(cb, *await profile_screen(user))
     elif action == "shop":
         await show(cb, *await shop_screen(user))
-    elif action == "more":
-        await show(cb, *more_screen(user))
     elif action == "pets":
         await show(cb, *pets_screen())
     elif action == "pet":

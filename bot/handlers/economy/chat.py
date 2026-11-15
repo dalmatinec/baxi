@@ -41,6 +41,12 @@ COMMANDS = [
     ("gift", re.compile(r"^\s*(передать|перевести|подарить|/give)(@\w+)?\s+(\d{1,6})\s*$", re.I)),
     ("rename", re.compile(r"^\s*(кличка|/petname)(@\w+)?\s+(.{1,30})$", re.I)),
 ]
+DICE_HELP = ("🎲 <b>Дуэль костей</b>\n\n"
+             "1. Ответь на сообщение соперника: <b>кости 100</b> (100 это ставка в монетах)\n"
+             "2. Соперник жмёт ✅ Принять, ставки уходят в банк\n"
+             "3. Каждый по разу кидает 🎲 в чат: сначала тот, кто вызвал\n"
+             "4. У кого больше, тот забирает банк. Ничья: перебрасываете\n\n"
+             "💸 Подарить монеты: ответь <b>передать 100</b>")
 DICE_DELAY = 3.5   # столько крутится кубик в Telegram, ждём, чтобы не спойлерить результат
 
 
@@ -106,8 +112,7 @@ async def on_eco(message: Message, bot: Bot, eco: tuple[str, str], chat_row) -> 
             await say(bot, chat_id, why or f"✅ Теперь твоего питомца зовут <b>{esc(service.clean_pet_name(arg))}</b>",
                       reply_to=message)
         elif name == "dicehelp":
-            await say(bot, chat_id, "🎲 Кости: ответь на сообщение соперника <b>кости 100</b> (ставка в монетах).\n"
-                                    "💸 Перевод: ответь <b>передать 100</b>.", reply_to=message)
+            await say(bot, chat_id, DICE_HELP, reply_to=message)
         elif name in ("dice", "gift"):
             await _with_target(bot, message, name, int(arg))
     except Exception:
@@ -218,6 +223,9 @@ async def on_button(cb: CallbackQuery, bot: Bot) -> None:
         elif action == "tops":
             await cb.answer()
             await say(bot, chat_id, "🏆 <b>Топы</b>: выбирай 👇", markup=kb(TOPS_KB_ROWS))
+        elif action == "dice":
+            await cb.answer()
+            await say(bot, chat_id, DICE_HELP)
         elif action in ("da", "dd"):
             await _duel_button(cb, chat_id, user, action)
         else:

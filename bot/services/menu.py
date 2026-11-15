@@ -22,7 +22,7 @@ EXTRA_ROWS: dict[str, Callable[[User], Awaitable[list[list[InlineKeyboardButton]
 SHOW_IF: dict[str, Callable[[User], Awaitable[bool]]] = {}
 
 
-START_LAYOUT = 4   # 2,4: новые кнопки, 3: аватарка на приветствии. Сохранённое в базе меню обновляется один раз
+START_LAYOUT = 5   # 2,4: новые кнопки, 3: аватарка на приветствии. Сохранённое в базе меню обновляется один раз
 
 
 async def upgrade_start() -> None:

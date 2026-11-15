@@ -32,16 +32,20 @@ TITLES = {
 
 
 def defaults() -> dict[str, dict]:
-    # главное меню коротко: добавить в чат (единственная цветная) / профиль и магазин / что я умею и сайт /
-    # поддержка. Мои чаты, реклама и свой бот: в профиле (кнопка Ещё) и командами /mychats /ads /mybot.
+    # /start: общее меню. Профиль, монеты и магазин сюда не входят, они в команде /profile.
+    # Добавить в чат (единственная цветная) / Мои чаты (видят только админы чатов с ботом) / Свой бот и реклама /
+    # что я умею и сайт / поддержка
     start_buttons = [
         btn("➕ Добавить в чат", "screen:add", 0, "success"),
-        btn("👤 Профиль", "pf:home", 1), btn("🛒 Магазин", "pf:shop", 1),
-        btn("🤖 Что я умею", "screen:help", 2),
+        btn("⚙️ Мои чаты", "act:mychats", 1),
     ]
+    if config.IS_MAIN:
+        start_buttons.append(btn("💼 Свой бот", "screen:wl", 2))
+    start_buttons.append(btn("📣 Реклама", "screen:ads", 2))
+    start_buttons.append(btn("🤖 Что я умею", "screen:help", 3))
     if config.SITE_URL:
-        start_buttons.append(btn("🌐 Сайт", f"url:{config.SITE_URL}/baxi", 2))
-    start_buttons.append(btn("💬 Поддержка", "act:support", 3))
+        start_buttons.append(btn("🌐 Сайт и команды", f"url:{config.SITE_URL}/baxi", 3))
+    start_buttons.append(btn("💬 Поддержка", "act:support", 4))
     return {
         "start": {
             "text": "👋 <b>Привет, {name}!</b>\n\n"
