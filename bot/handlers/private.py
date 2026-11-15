@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 router = Router(name="private")
 router.message.filter(F.chat.type == "private")
 
-START_PAYLOADS = {"rent": "add", "ads": "ads", "wl": "wl", "help": "help"}
+START_PAYLOADS = {"rent": "add", "ads": "ads", "wl": "wl", "help": "help", "terms": "terms"}
 
 
 class SupportWrite(StatesGroup):
@@ -78,6 +78,12 @@ async def cmd_shop(message: Message, bot: Bot, state: FSMContext) -> None:
     await state.clear()
     from bot.handlers.economy.profile import open_shop
     await open_shop(message)
+
+
+@router.message(Command("terms"))
+async def cmd_terms(message: Message, bot: Bot, state: FSMContext) -> None:
+    await state.clear()
+    await menu.show(bot, message, "terms")
 
 
 @router.message(Command("paysupport", "support"))

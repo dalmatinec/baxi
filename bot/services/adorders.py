@@ -86,7 +86,8 @@ def pay_text(order) -> str:
         lines.append(f"🔺 <b>Сеть TRON (TRC20)</b>:\n<code>{config.PAY_TRON_ADDRESS}</code>\n")
     lines.append("⚠️ Отправляй USDT только в той сети, чей адрес выбрал, иначе деньги потеряются. "
                  "Сумма должна совпасть до последней цифры: по ней я узнаю твой платёж "
-                 f"(с биржи учитывай её комиссию). Проверяю сам каждые полминуты, на оплату {PAY_HOURS} ч.")
+                 f"(с биржи учитывай её комиссию). Проверяю сам каждые полминуты, на оплату {PAY_HOURS} ч.\n\n"
+                 "📜 Оплачивая, ты соглашаешься с правилами: возврата после выдачи нет (кнопка Правила ниже).")
     return "\n".join(lines)
 
 
@@ -102,7 +103,8 @@ def pay_kb(order) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📋 Сумма", copy_text=CopyTextButton(text=usdt(order["amount"])))],
         [InlineKeyboardButton(text="🔄 Я оплатил, проверить", callback_data=f"ord:chk:{order['id']}",
                               style="success")],
-        [InlineKeyboardButton(text="🆘 Поддержка", callback_data="act:support:оплата рекламы")],
+        [InlineKeyboardButton(text="📜 Правила", callback_data="sc:terms"),
+         InlineKeyboardButton(text="🆘 Поддержка", callback_data="act:support:оплата")],
     ])
 
 

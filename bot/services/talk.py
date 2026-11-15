@@ -44,6 +44,7 @@ async def rules(chat) -> list[str]:
     if chat["banned"]:
         out.append(f"Никогда не шути и не говори на эти темы, уходи от них: {chat['banned']}.")
     out.append(prompts.emoji_rule(emoji.alts()))
+    out.append(prompts.features_block(bool(chat["shop"])))   # бот знает свои команды и правила монет
     if config.CREATOR_IDS:
         contact = config.CREATOR_CONTACT
         if not contact:

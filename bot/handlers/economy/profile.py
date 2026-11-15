@@ -46,6 +46,7 @@ async def profile_screen(user: User) -> tuple[str, object]:
             [("💳 Пополнить", "pf:top", "success"), ("💡 Как заработать", "pf:earn")],
             [("🤖 О боте и команды", "pf:about"), ("💼 Свой бот", "sc:wl")] if config.IS_MAIN else
             [("🤖 О боте и команды", "pf:about")],
+            [("📜 Правила", "sc:terms")],
             [("🌐 Сайт", config.SITE_URL)] if config.SITE_URL else [],
             [("🧪 Тесты (видишь только ты)", "eca:menu", "danger")] if user.id in config.OWNER_IDS else [],
             [("⬅️ Меню", "sc:start")]]
@@ -94,7 +95,9 @@ async def topup_screen() -> tuple[str, object]:
         rows.append([("💎 Криптой (USDT)", "pf:cr", "primary")])
         prices = ", ".join(f"{c} за {usd} USDT" for c, _, usd in catalog.COIN_PACKS.values())
         text += f"\n💎 <b>Криптой</b>: USDT в сети TON или TRC20. {prices}."
-    return text, kb(rows + [[BACK]])
+    text += ("\n\n⚠️ Монеты игровые: их нельзя вывести или обменять на деньги, возврата после начисления нет. "
+             "Оплачивая, ты соглашаешься с правилами.")
+    return text, kb(rows + [[("📜 Правила", "sc:terms"), BACK]])
 
 
 async def about_screen(bot: Bot) -> tuple[str, object]:
