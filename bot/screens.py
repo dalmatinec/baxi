@@ -34,14 +34,14 @@ TITLES = {
 def defaults() -> dict[str, dict]:
     # /start: общее меню. Профиль, монеты и магазин сюда не входят: это команда /profile.
     # Мои чаты нигде кнопкой не показываем: только команда /mychats в личке и /settings в самом чате.
-    # Добавить в чат (единственная цветная) / Свой бот, Реклама / Что я умею / Сайт и команды, Поддержка
+    # Добавить в чат (единственная цветная) / Свой бот, Реклама / Что я умею, Сайт и команды / Поддержка
     start_buttons = [btn("➕ Добавить в чат", "screen:add", 0, "success")]
     if config.IS_MAIN:
         start_buttons.append(btn("💼 Свой бот", "screen:wl", 1))
     start_buttons.append(btn("📣 Реклама", "screen:ads", 1))
     start_buttons.append(btn("🤖 Что я умею", "screen:help", 2))
     if config.SITE_URL:
-        start_buttons.append(btn("🌐 Сайт и команды", f"url:{config.SITE_URL}/baxi", 3))
+        start_buttons.append(btn("🌐 Сайт и команды", f"url:{config.SITE_URL}/baxi", 2))
     start_buttons.append(btn("💬 Поддержка", "act:support", 3))
     return {
         "start": {
