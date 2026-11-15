@@ -214,18 +214,23 @@ async def cb_backup_go(cb: CallbackQuery) -> None:
 # ---------- тексты бота в чатах ----------
 
 def _texts() -> dict:
-    from bot.handlers.fun import REP_MINUS, REP_PLUS
-    hint = ("<code>{кому}</code> кто получил, <code>{от}</code> кто дал, <code>{сколько}</code> сколько стало, "
-            "<code>{место}</code> место в чате")
-    return {"tpl_rep_plus": ("💜 Плюс к репутации", REP_PLUS, hint),
-            "tpl_rep_minus": ("👎 Минус к репутации", REP_MINUS, hint)}
+    """ключ → (название, текст по умолчанию, подсказка с подстановками моноширинным)."""
+    from bot.services import texts
+    return {key: (title, default, ", ".join(f"<code>{{{k}}}</code> {v[0]}" for k, v in subs.items()))
+            for key, (_, title, default, subs) in texts.TEXTS.items()}
 
 
 @router.callback_query(F.data == "cfg:tx")
 async def cb_texts(cb: CallbackQuery, state: FSMContext) -> None:
+    from bot.services import texts
     await state.clear()
-    rows = [[(title, f"cfg:tx:{key}")] for key, (title, _, _) in _texts().items()]
-    await show(cb, "✏️ <b>Тексты бота в чатах</b>\n\nВыбери, что поменять. Можно с премиум-эмодзи и жирным.",
+    rows = []
+    for group in texts.groups():
+        items = [(title, f"cfg:tx:{key}") for key, (g, title, _, _) in texts.TEXTS.items() if g == group]
+        rows += [items[i:i + 2] for i in range(0, len(items), 2)]
+    await show(cb, "✏️ <b>Тексты бота в чатах</b>\n\nВыбери, что поменять. Можно с премиум-эмодзи, жирным, "
+                   "курсивом: как пришлёшь, так и будет. Действует во всех чатах.\n\n"
+                   "💡 Обычные эмодзи в текстах бот сам меняет на премиум из эмодзи-пака (Настройки → Эмодзи).",
                kb(rows + [[("⬅️ Настройки", "cfg:menu"), BACK_MENU]]))
 
 
@@ -252,9 +257,9 @@ async def on_text_value(message: Message, state: FSMContext) -> None:
     await db.kv_set(key, message.html_text[:1500])
     await state.clear()
     title = _texts()[key][0]
+    from bot.services import texts
     await message.answer(f"✅ {title}: сохранил. Так это будет выглядеть:\n\n"
-                         + message.html_text.replace("{кому}", "<b>Олег</b>").replace("{от}", "Аня")
-                         .replace("{сколько}", "48").replace("{место}", "3"),
+                         + texts.sample(key, message.html_text[:1500]),
                          parse_mode="HTML", reply_markup=kb([[("⬅️ Тексты", "cfg:tx")]]))
 
 

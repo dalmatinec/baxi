@@ -116,7 +116,7 @@ def pet_card(pet, satiety: float, level: int, power: int, owner: str, bot_name: 
     icon = _icon(pet["species"], 230)
     if icon:
         img.alpha_composite(icon, (cx - icon.width // 2, cy - icon.height // 2))
-    if info["stars"]:  # редкий питомец за звёзды: золотая плашка
+    if info["price"] >= catalog.RARE_FROM:  # самые дорогие: золотая плашка
         d.rounded_rectangle((cx - 80, cy + r - 24, cx + 80, cy + r + 22), 22, fill=(250, 204, 21, 255))
         tw = d.textlength("РЕДКИЙ", font=_font(26))
         d.text((cx - tw / 2, cy + r - 17), "РЕДКИЙ", font=_font(26), fill=(113, 63, 18))

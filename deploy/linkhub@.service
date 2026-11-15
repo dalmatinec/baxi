@@ -25,7 +25,8 @@ ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/opt/linkhub/instances/%i
 # лимиты, чтобы одна копия не съела весь сервер
-MemoryMax=180M
+# 250M: с запасом на картинки (питомцы, итоги)
+MemoryMax=250M
 CPUQuota=50%
 
 [Install]

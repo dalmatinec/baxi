@@ -30,10 +30,11 @@ DEFAULT_PRODUCTS = [
 ]
 # не реклама, а оплата аренды и своего бота: продаются через те же заказы и ту же оплату USDT
 SERVICE_PRODUCTS = [("rent", "📅 Аренда бота на 30 дней", 50, 30, 20), ("wl", "💼 Свой бот", 100, 1, 21)]
-SERVICE_KINDS = {"rent", "wl"}
+SERVICE_KINDS = {"rent", "wl", "coins"}   # coins: монеты в чат, days = сколько монет, target = чат
 KIND_TEXT = {
     "rent": "бот в твоём чате на 30 дней, со своим характером и всеми фишками",
     "wl": "свой бот: исходный код, любые настройки, установка на твой сервер",
+    "coins": "монеты на кошелёк в чате",
     "groups": "пост выходит во всех чатах сети, где включена реклама",
     "pin_groups": "пост выходит во всех чатах сети и висит в закрепе сутки",
     "pin_channel": "пост в канале с закрепом на сутки",
@@ -74,7 +75,9 @@ def can_pay() -> bool:
 
 
 def pay_text(order) -> str:
-    lines = [f"✅ <b>Заказ #{order['id']} одобрен!</b>\n",
+    head = (f"🧾 <b>Счёт #{order['id']}: {esc(order['title'])}</b>\n" if order["kind"] in SERVICE_KINDS
+            else f"✅ <b>Заказ #{order['id']} одобрен!</b>\n")
+    lines = [head,
              f"Оплати <b>ровно {usdt(order['amount'])} USDT</b> в одной из сетей:\n"]
     if config.PAY_TON_ADDRESS:
         lines.append(f"💎 <b>Сеть TON</b> (комиссия копейки):\n<code>{config.PAY_TON_ADDRESS}</code>\n"
@@ -261,7 +264,8 @@ async def mark_paid(bot: Bot, order_id: int, tx: str = "manual") -> None:
     if not order or order["status"] not in ("awaiting", "moderation"):
         return
     await db.update_order(order_id, status="paid", tx=tx, paid_at=time.time())
-    await _tell(bot, order["user_id"], f"💸 Оплата заказа #{order_id} получена, спасибо! Публикую.")
+    await _tell(bot, order["user_id"], f"💸 Оплата заказа #{order_id} получена, спасибо!"
+                                       + ("" if order["kind"] in SERVICE_KINDS else " Публикую."))
     await notify.owners(bot, f"💸 Заказ #{order_id} оплачен ({esc(order['title'])}), запускаю")
     order = await db.get_order(order_id)
     spawn(run_order(bot, order))
@@ -307,8 +311,15 @@ async def broadcast_dm(bot: Bot, order) -> tuple[int, int]:
 
 
 async def run_service(bot: Bot, order) -> None:
-    """Оплачена аренда или свой бот."""
+    """Оплачена аренда, свой бот или монеты."""
     oid = order["id"]
+    if order["kind"] == "coins":
+        from bot.economy import hooks
+        name = order["user_name"].split(" @")[0]
+        result = await hooks.paid_coins(bot, order["target"], order["user_id"], name, int(order["days"]))
+        await db.update_order(oid, status="done", result=f"{order['days']} монет в чат {order['target']}")
+        await _tell(bot, order["user_id"], result)
+        return
     if order["kind"] == "rent":
         from bot.services import approval
         chat = await db.get_chat(order["target"])

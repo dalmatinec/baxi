@@ -308,9 +308,18 @@ def test_economy_catalog():
     assert all(catalog.level_for(catalog.xp_for(n)) == n for n in range(1, 30))
     assert catalog.title_for(1) == "Новичок" and catalog.title_for(20) == "Бог чата"
     assert catalog.AWARD_COOLDOWN >= 30   # не чаще 2 раз в минуту
-    star_pets = [k for k in catalog.PET_ORDER if catalog.PETS[k]["stars"]]
-    assert star_pets == ["tiger", "lion"] and all(catalog.PETS[k]["price"] == 0 for k in star_pets)
-    prices = [catalog.PETS[k]["price"] for k in catalog.PET_ORDER if not catalog.PETS[k]["stars"]]
-    assert prices == sorted(prices) and len(catalog.PETS) == 10
+    prices = [catalog.PETS[k]["price"] for k in catalog.PET_ORDER]
+    assert prices == sorted(prices) and all(prices) and len(catalog.PETS) == 20   # все за монеты, от дешёвых к дорогим
+    from pathlib import Path
+    assets = Path(catalog.__file__).parent / "assets"
+    assert all((assets / f"{k}.png").exists() and (assets / f"f_{k}.png").exists() for k in catalog.PETS)
     foods = catalog.foods("cat")
     assert [f["key"] for f in foods] == ["food", "treat"] and foods[1]["price"] > foods[0]["price"]
+
+
+def test_editable_texts():
+    from bot.services import texts
+    for key, (_, _, default, _subs) in texts.TEXTS.items():
+        assert "{" not in texts.sample(key, default), key   # у каждой подстановки есть пример
+        assert "—" not in default and "«" not in default
+    assert texts.fill("{от} → {кому}", {"от": "А", "кому": "Б"}) == "А → Б"

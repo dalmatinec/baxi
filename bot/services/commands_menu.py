@@ -10,7 +10,7 @@ from bot import config
 
 log = logging.getLogger(__name__)
 
-PRIVATE = [("start", "Главное меню"), ("mychats", "Мои чаты: настроить бота"), ("shop", "Магазин"),
+PRIVATE = [("start", "Главное меню"), ("mychats", "Мои чаты: настроить бота"),
            ("support", "Поддержка"), ("paysupport", "Вопрос по оплате")]
 GROUP = [("games", "Игры и команды"), ("results", "Итоги дня"), ("top", "Топ репутации"), ("quiz", "Викторина"),
          ("couple", "Пара дня"), ("predict", "Предсказание"), ("ship", "Совместимость (ответом)"),

@@ -38,6 +38,22 @@ async def shop_rows(user: User) -> list[list[InlineKeyboardButton]]:
 
 
 menu.EXTRA_ROWS["shop"] = shop_rows
+SHOP_IN_DM = False   # магазин в личке пока скрыт: всё покупается в чате (команда «магазин»)
+
+
+async def _shop_visible(user: User) -> bool:
+    return SHOP_IN_DM
+
+
+menu.SHOW_IF["screen:shop"] = _shop_visible   # прячет кнопку, даже если меню сохранено в базе
+
+
+async def dm_shop(message: Message) -> None:
+    """/shop в личке: магазин скрыт, подсказываем, где покупать, и даём настроить ник, если он куплен."""
+    rows = [[("✨ Мой ник и эмодзи", "st:vip", "success")]] if await stars.has_look(message.from_user.id) else []
+    await message.answer("🛒 Магазин работает прямо в чатах: напиши там <b>магазин</b>. Там ник навсегда, питомцы "
+                         "и пополнение монет звёздами или криптой.", parse_mode="HTML",
+                         reply_markup=_kb(rows) if rows else None)
 
 
 async def _invoice(bot: Bot, chat_id: int, key: str) -> None:
@@ -61,14 +77,14 @@ async def cb_donate(cb: CallbackQuery) -> None:
     await cb.answer()
     await cb.message.edit_text("💛 <b>Поддержать бота</b>\n\nВсе донатеры попадают в топ, а самые щедрые "
                                "красуются там на первых местах.", parse_mode="HTML",
-                               reply_markup=_kb(rows + [[("👑 Топ донатеров", "act:donors")], [("⬅️ Магазин", "sc:shop")]]))
+                               reply_markup=_kb(rows + [[("👑 Топ донатеров", "act:donors")], [("⬅️ В меню", "sc:start")]]))
 
 
 async def donors_text(user_ids: list[int] | None = None, viewer: int | None = None) -> str:
     rows = await db.donors_top(10, user_ids)
     if not rows:
         return ("👑 <b>Топ донатеров</b>\n\nПока пусто, первое место свободно 👀\n"
-                "Поддержать бота: личка бота → Магазин.")
+                "Поддержать бота можно звёздами в личке бота.")
     names = await stars.decorate(rows)
     medals = ["🥇", "🥈", "🥉"]
     total = await db.stars_total()
@@ -126,7 +142,7 @@ async def look_screen(target: Message | CallbackQuery, user: User) -> None:
     if not await stars.has_look(user.id):
         text = ("✨ <b>Свой ник</b>\n\nПремиум-эмодзи и жирный ник у имени везде, где бот тебя упоминает. "
                 "Покупается навсегда за монеты: напиши в своём чате <b>магазин</b>.")
-        kb = _kb([[("⬅️ Магазин", "sc:shop")]])
+        kb = _kb([[("⬅️ В меню", "sc:start")]])
     else:
         until = "навсегда" if perks["look_forever"] else \
             "до " + datetime.fromtimestamp(perks["vip_until"], config.TZ).strftime("%d.%m.%Y")
@@ -135,7 +151,7 @@ async def look_screen(target: Message | CallbackQuery, user: User) -> None:
                 "Это везде, где бот тебя упоминает: топы, репутация, итоги, игры, пары.\n"
                 f"Действует <b>{until}</b>.")
         kb = _kb([[("✨ Свой эмодзи", "st:ve", "primary"), ("✏️ Ник", "st:vn", "primary")],
-                  [("↩️ Сбросить вид", "st:vr")], [("⬅️ Магазин", "sc:shop")]])
+                  [("↩️ Сбросить вид", "st:vr")], [("⬅️ В меню", "sc:start")]])
     if isinstance(target, CallbackQuery):
         await target.answer()
         try:

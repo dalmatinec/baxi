@@ -1,9 +1,8 @@
 """Магазин за Telegram Stars. Звёзды только пополняют монеты, остальное покупается за монеты.
 
 В чате (команда «магазин», bot/handlers/economy.py):
-  c1500 … c25000   пачки монет для этого чата
-  pet_tiger, pet_lion   два редких питомца, которых нельзя купить за монеты
-В личке: донаты (топ донатеров). VIP, щит и прожарку за звёзды больше не продаём: уже купленные доживают срок.
+  c1500 … c25000   пачки монет для этого чата (то же самое можно оплатить USDT, см. handlers/economy.py)
+Магазин в личке пока скрыт. VIP, щит и прожарку за звёзды больше не продаём: уже купленные доживают срок.
 Звёзды выводятся владельцем через Fragment, возврат делается из админки."""
 
 import logging
@@ -19,20 +18,16 @@ from bot.textutil import VIP_LOOK, esc
 log = logging.getLogger(__name__)
 
 # ключ, название, цена в звёздах, порядок (цены владелец меняет в админке)
-DEFAULT_ITEMS = [(key, f"🪙 {coins} монет", price, n) for n, (key, (coins, price)) in enumerate(catalog.COIN_PACKS.items())]
-DEFAULT_ITEMS += [(f"pet_{key}", f"{catalog.PETS[key]['emoji']} {catalog.PETS[key]['name']}", catalog.PETS[key]["stars"],
-                   5 + n) for n, key in enumerate(k for k in catalog.PET_ORDER if catalog.PETS[k]["stars"])]
+DEFAULT_ITEMS = [(key, f"🪙 {coins} монет", price, n) for n, (key, (coins, price, _)) in enumerate(catalog.COIN_PACKS.items())]
 DEFAULT_ITEMS += [
     ("don20", "💛 Поддержать: 20", 20, 7),
     ("don50", "💛 Поддержать: 50", 50, 8),
     ("don100", "💛 Поддержать: 100", 100, 9),
     ("don500", "💎 Поддержать: 500", 500, 10),
 ]
-CHAT_ITEMS = tuple(catalog.COIN_PACKS) + tuple(f"pet_{k}" for k in catalog.PET_ORDER if catalog.PETS[k]["stars"])
+CHAT_ITEMS = tuple(catalog.COIN_PACKS)
 
-DESCRIPTIONS = {key: f"{coins} монет на твой кошелёк в этом чате" for key, (coins, _) in catalog.COIN_PACKS.items()}
-DESCRIPTIONS.update({f"pet_{k}": f"Редкий питомец {catalog.PETS[k]['name']}, сила {catalog.PETS[k]['power']}. "
-                                 "За монеты не купить." for k in catalog.PET_ORDER if catalog.PETS[k]["stars"]})
+DESCRIPTIONS = {key: f"{pack[0]} монет на твой кошелёк в этом чате" for key, pack in catalog.COIN_PACKS.items()}
 
 
 def item_text(key: str) -> str:
@@ -110,14 +105,8 @@ def parse_payload(p: str) -> dict:
 async def check(bot: Bot, raw_payload: str, buyer_id: int) -> str | None:
     """Проверка перед оплатой. Строка: почему нельзя купить. None: можно."""
     p = parse_payload(raw_payload)
-    if p["item"].startswith("pet_") and p.get("chat_id"):
-        from bot.economy import store
-        species = p["item"][4:]
-        current = await store.pet(p["chat_id"], buyer_id)
-        if species not in catalog.PETS:
-            return "Такого питомца нет"
-        if current and catalog.PET_ORDER.index(current["species"]) >= catalog.PET_ORDER.index(species):
-            return "У тебя уже такой питомец или круче"
+    if p["item"] in catalog.COIN_PACKS and not p.get("chat_id"):
+        return "Пополнять монеты нужно из чата: напиши там магазин"
     return None
 
 
@@ -130,8 +119,6 @@ async def apply(bot: Bot, raw_payload: str, buyer_id: int, buyer_name: str) -> s
     from bot.economy import hooks
     if item in catalog.COIN_PACKS and p.get("chat_id"):
         return await hooks.paid_coins(bot, p["chat_id"], buyer_id, buyer_name, catalog.COIN_PACKS[item][0])
-    if item.startswith("pet_") and p.get("chat_id"):
-        return await hooks.paid_pet(bot, p["chat_id"], buyer_id, buyer_name, item[4:])
     return "Готово."
 
 

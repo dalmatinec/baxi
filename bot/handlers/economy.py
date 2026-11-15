@@ -10,13 +10,13 @@ import logging
 import re
 
 from aiogram import Bot, F, Router
-from aiogram.types import (BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice,
-                           Message, User)
+from aiogram.types import (BufferedInputFile, CallbackQuery, ForceReply, InlineKeyboardButton, InlineKeyboardMarkup,
+                           LabeledPrice, Message, User)
 
 from bot import db
 from bot.economy import cards, catalog, hooks, service, store
 from bot.middlewares import GROUPS
-from bot.services import stars
+from bot.services import adorders, stars, texts
 from bot.services.out import say
 from bot.textutil import esc, full_name, mention
 
@@ -39,6 +39,7 @@ COMMANDS = [
     ("rename", re.compile(r"^\s*(кличка|/petname)(@\w+)?\s+(.{1,30})$", re.I)),
 ]
 MEDALS = ["🥇", "🥈", "🥉"]
+PENDING_NAMES: dict[tuple[int, int], int] = {}   # (чат, id сообщения «как назовёшь?») → хозяин питомца
 DICE_DELAY = 3.5   # столько крутится кубик в Telegram, ждём, чтобы не спойлерить результат
 
 
@@ -104,55 +105,40 @@ WALLET_KB = _kb([[("🎁 Бонус", "eco:b", "success"), ("🛒 Магазин
 
 async def shop_text(chat_id: int, user: User) -> str:
     w = await store.wallet(chat_id, user.id, _name(user))
-    cheapest = min(p["price"] for p in catalog.PETS.values() if p["price"])
+    cheapest = min(p["price"] for p in catalog.PETS.values())
+    crypto = " или криптой (USDT)" if adorders.can_pay() else ""
     return ("🛒 <b>Магазин чата</b>\n"
             f"Баланс {mention(user.id, _name(user))}: <b>{w['coins']} 🪙</b>\n\n"
             f"✨ <b>Свой ник навсегда</b> · {catalog.NICK_PRICE} 🪙\n"
             "<i>Премиум-эмодзи и жирный ник у имени везде, где бот тебя упоминает: топы, итоги, игры. "
             "Любой шрифт, какой пришлёшь.</i>\n\n"
-            f"🐾 <b>Питомцы</b> от {cheapest} 🪙, тигр и лев только за ⭐\n"
-            "<i>У каждого своя еда. Кто сильнее, тот выше в топе питомцев.</i>\n\n"
-            "⭐ <b>Пополнить монеты</b> звёздами Telegram\n\n"
+            f"🐾 <b>Питомцы</b>: {len(catalog.PETS)} видов, от {cheapest} 🪙\n"
+            "<i>От улитки до дракона. У каждого своя еда, кто сильнее, тот выше в топе питомцев.</i>\n\n"
+            f"💳 <b>Пополнить монеты</b> звёздами Telegram{crypto}\n\n"
             "💡 Монеты дают за сообщения в чате (не чаще 2 раз в минуту), бонус дня и победы в костях.")
 
 
 SHOP_KB = _kb([[("✨ Ник навсегда", "eco:nick", "success"), ("🐾 Питомцы", "eco:ps", "primary")],
-               [("⭐ Пополнить", "eco:top", "success"), ("💰 Кошелёк", "eco:w")]])
+               [("💳 Пополнить", "eco:top", "success"), ("💰 Кошелёк", "eco:w")]])
 
 
-async def pet_shop(bot: Bot, chat_id: int) -> tuple[str, InlineKeyboardMarkup]:
-    items = await stars.items_map()
-    lines, buttons, row = ["🐾 <b>Питомцы</b>", "<i>Покупка заменяет текущего питомца на более крутого.</i>", ""], [], []
+def pet_shop() -> tuple[str, InlineKeyboardMarkup]:
+    """Все питомцы за монеты, по два в ряд."""
+    lines = ["🐾 <b>Питомцы</b>", "<i>Покупка заменяет текущего питомца на более крутого. Цена · сила · еда</i>", ""]
+    buttons = []
     for key in catalog.PET_ORDER:
         p = catalog.PETS[key]
         food = p["food"]
-        item = items.get(f"pet_{key}")
-        if p["stars"]:
-            if not item:
-                continue
-            price = f"{item['stars']} ⭐"
-            link = await bot.create_invoice_link(
-                title=item["title"][:32], description=stars.item_text(f"pet_{key}")[:255], currency="XTR",
-                payload=stars.payload(f"pet_{key}", chat_id),
-                prices=[LabeledPrice(label=item["title"][:32], amount=item["stars"])])
-            row.append((f"{p['emoji']} {p['name']} · {price}", link, "danger"))
-        else:
-            price = f"{p['price']} 🪙"
-            row.append((f"{p['emoji']} {p['name']} · {price}", f"eco:pb:{key}"))
-        lines.append(f"{p['emoji']} <b>{p['name']}</b> · {price} · сила {p['power']} · ест {food[0]} {food[1]} {food[2]} 🪙")
-        if len(row) == 2:
-            buttons.append(row)
-            row = []
-    if row:
-        buttons.append(row)
-    buttons.append([("⬅️ Магазин", "eco:shop")])
-    return "\n".join(lines), _kb(buttons)
+        lines.append(f"{p['emoji']} <b>{p['name']}</b> · {p['price']} 🪙 · 💪 {p['power']} · {food[1]} {food[2]} 🪙")
+        buttons.append((f"{p['emoji']} {p['name']} · {p['price']}", f"eco:pb:{key}"))
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    return "\n".join(lines), _kb(rows + [[("⬅️ Магазин", "eco:shop")]])
 
 
 async def topup(bot: Bot, chat_id: int) -> tuple[str, InlineKeyboardMarkup]:
     items = await stars.items_map()
     buttons, row = [], []
-    for key, (coins, _) in catalog.COIN_PACKS.items():
+    for key, (coins, *_) in catalog.COIN_PACKS.items():
         item = items.get(key)
         if not item:
             continue
@@ -165,9 +151,14 @@ async def topup(bot: Bot, chat_id: int) -> tuple[str, InlineKeyboardMarkup]:
             row = []
     if row:
         buttons.append(row)
+    crypto = ""
+    if adorders.can_pay():
+        me = await bot.me()
+        buttons.append([("💎 Оплатить криптой (USDT)", f"https://t.me/{me.username}?start=coins{chat_id}", "primary")])
+        crypto = "\n💎 Криптой: откроется личка бота, там выбор суммы и адрес для оплаты USDT (TON или TRC20)."
     buttons.append([("⬅️ Магазин", "eco:shop")])
-    return ("⭐ <b>Пополнить монеты</b>\n\nМонеты придут на твой кошелёк в этом чате сразу после оплаты. "
-            "Платит и получает тот, кто нажал."), _kb(buttons)
+    return ("💳 <b>Пополнить монеты</b>\n\n⭐ Звёздами: жми на сумму, монеты придут на твой кошелёк в этом чате "
+            f"сразу после оплаты. Платит и получает тот, кто нажал.{crypto}"), _kb(buttons)
 
 
 async def send_pet(bot: Bot, chat, user: User, reply_to: Message | None = None) -> None:
@@ -223,8 +214,7 @@ async def bonus_text(chat_id: int, user: User) -> str:
         return f"🎁 {mention(user.id, _name(user))}, бонус уже забран сегодня. Приходи завтра, серия растёт!"
     amount, streak = got
     nxt = min(catalog.BONUS_BASE + catalog.BONUS_STEP * streak, catalog.BONUS_MAX)
-    return (f"🎁 {mention(user.id, _name(user))} забрал бонус <b>+{amount} 🪙</b>\n"
-            f"🔥 Серия: {streak} дн. Завтра будет {nxt} 🪙, если не пропустишь.")
+    return await texts.render("eco_bonus", кто=mention(user.id, _name(user)), сколько=amount, серия=streak, завтра=nxt)
 
 
 # ---------- команды словами ----------
@@ -280,17 +270,46 @@ async def _with_target(bot: Bot, message: Message, name: str, amount: int) -> No
     a_name, b_name = _name(user), _name(target)
     if name == "gift":
         why = await service.gift(chat_id, user.id, a_name, target.id, b_name, amount)
-        await say(bot, chat_id, why or f"💸 {mention(user.id, a_name)} передал {mention(target.id, b_name)} "
-                                       f"<b>{amount} 🪙</b>", reply_to=message)
+        text = why or await texts.render("eco_gift", от=mention(user.id, a_name), кому=mention(target.id, b_name),
+                                         сколько=amount)
+        await say(bot, chat_id, text, reply_to=message)
         return
     why = await service.start_duel(chat_id, user.id, a_name, target.id, b_name, amount)
     if why:
         await say(bot, chat_id, why, reply_to=message)
         return
-    await say(bot, chat_id, f"🎲 {mention(user.id, a_name)} вызывает {mention(target.id, b_name)} в кости "
-                            f"на <b>{amount} 🪙</b>!\n\n{mention(target.id, b_name)}, принимаешь? У кого больше, "
-                            "тот забирает банк.", reply_to=message,
+    text = await texts.render("eco_dice_call", от=mention(user.id, a_name), кому=mention(target.id, b_name),
+                              ставка=amount)
+    await say(bot, chat_id, text, reply_to=message,
               markup=_kb([[("✅ Принять", "eco:da", "success"), ("🏳 Сдаться", "eco:dd", "danger")]]))
+
+
+# ---------- кличка нового питомца: ответом на вопрос бота ----------
+
+async def ask_name(bot: Bot, chat_id: int, user: User, species: str) -> None:
+    info = catalog.PETS[species]
+    text = await texts.render("eco_new_pet", кто=mention(user.id, _name(user)), вид=info["name"], эмодзи=info["emoji"])
+    sent = await say(bot, chat_id, text, markup=ForceReply(selective=True, input_field_placeholder="Кличка питомца"))
+    if sent:
+        PENDING_NAMES[(chat_id, sent.message_id)] = user.id
+        if len(PENDING_NAMES) > 2000:
+            PENDING_NAMES.pop(next(iter(PENDING_NAMES)))
+
+
+def naming_filter(message: Message) -> bool:
+    rt = message.reply_to_message
+    return bool(rt and message.from_user and PENDING_NAMES.get((message.chat.id, rt.message_id)) == message.from_user.id)
+
+
+@router.message(F.chat.type.in_(GROUPS), F.text, naming_filter)
+async def on_pet_name(message: Message, bot: Bot, chat_row) -> None:
+    chat_id, user = message.chat.id, message.from_user
+    why = await service.rename_pet(chat_id, user.id, message.text)
+    if why:
+        await say(bot, chat_id, f"{why}. Попробуй ещё раз ответом на мой вопрос", reply_to=message)
+        return
+    PENDING_NAMES.pop((chat_id, message.reply_to_message.message_id), None)
+    await send_pet(bot, chat_row, user, message)
 
 
 # ---------- кубики от участников ----------
@@ -314,8 +333,8 @@ async def on_dice(message: Message, bot: Bot) -> None:
     else:
         va, vb = d.rolls[d.a], d.rolls[d.b]
         win_id, win_name = (d.a, d.a_name) if va > vb else (d.b, d.b_name)
-        text = (f"🏆 {mention(win_id, win_name)} забирает <b>{d.bet * 2} 🪙</b>!\n"
-                f"{a} {va} : {vb} {b}")
+        text = await texts.render("eco_dice_win", победитель=mention(win_id, win_name), банк=d.bet * 2,
+                                  первый=a, очки1=va, второй=b, очки2=vb)
     await say(bot, chat_id, text, reply_to=message)
 
 
@@ -361,7 +380,7 @@ async def _button(bot: Bot, cb: CallbackQuery, chat, chat_id: int, user: User, a
             await cb.answer()
             await say(bot, chat_id, text, markup=SHOP_KB)
     elif action == "ps":
-        text, kb = await pet_shop(bot, chat_id)
+        text, kb = pet_shop()
         if cb.message.text:
             await _edit(cb, text, kb)
         else:
@@ -376,16 +395,36 @@ async def _button(bot: Bot, cb: CallbackQuery, chat, chat_id: int, user: User, a
     elif action == "rich":
         await cb.answer()
         await say(bot, chat_id, await top_text(chat_id, "rich"))
-    elif action == "pb":
+    elif action == "pb":   # выбрал питомца: спрашиваем подтверждение, чтобы случайно не потратить монеты
         species = parts[2]
+        info = catalog.PETS.get(species)
+        if not info:
+            return await cb.answer()
+        current = await store.pet(chat_id, user.id)
+        if current and catalog.PET_ORDER.index(current["species"]) >= catalog.PET_ORDER.index(species):
+            return await cb.answer("у тебя уже такой питомец или круче", show_alert=True)
+        coins = (await store.wallet(chat_id, user.id, _name(user)))["coins"]
+        if coins < info["price"]:
+            return await cb.answer(f"нужно {info['price']} 🪙, у тебя {coins}", show_alert=True)
+        await cb.answer()
+        swap = f"\nТвой {esc(current['name'])} уйдёт, новый начнёт с 1 уровня." if current else ""
+        await say(bot, chat_id, f"{info['emoji']} {mention(user.id, _name(user))}, взять <b>{info['name']}</b> за "
+                                f"<b>{info['price']} 🪙</b>?{swap}",
+                  markup=_kb([[("✅ Купить", f"eco:pk:{species}:{user.id}", "success"), ("Отмена", f"eco:nx:{user.id}")]]))
+    elif action == "pk":
+        species, owner = parts[2], int(parts[3])
+        if owner != user.id:
+            return await cb.answer("это не твоя покупка", show_alert=True)
         why = await service.buy_pet(chat_id, user.id, _name(user), species)
         if why:
             return await cb.answer(why, show_alert=True)
         info = catalog.PETS[species]
         await cb.answer(f"{info['emoji']} {info['name']} теперь твой!")
-        await say(bot, chat_id, f"{info['emoji']} {mention(user.id, _name(user))} завёл питомца: <b>{info['name']}</b>! "
-                                f"Кормить его: {info['food'][0]} {info['food'][1]}. Дать кличку: <b>кличка Пушок</b>")
-        await send_pet(bot, chat, user)
+        try:
+            await cb.message.delete()
+        except Exception:
+            pass
+        await ask_name(bot, chat_id, user, species)
     elif action == "f":
         owner_id, kind = int(parts[2]), parts[3]
         res = await service.feed(chat_id, owner_id, user.id, _name(user), kind)
@@ -393,10 +432,10 @@ async def _button(bot: Bot, cb: CallbackQuery, chat, chat_id: int, user: User, a
             return await cb.answer(res["error"], show_alert=True)
         food, pet = res["food"], res["pet"]
         await cb.answer(f"{food['emoji']} Ням! Сытость {res['satiety']}%")
-        owner = "своего" if owner_id == user.id else f"питомца {mention(owner_id, pet['owner'])}:"
-        await say(bot, chat_id, f"{food['emoji']} {mention(user.id, _name(user))} покормил {owner} "
-                                f"<b>{esc(pet['name'])}</b> ({food['name']}, {food['price']} 🪙). "
-                                f"Сытость {res['satiety']}%")
+        whose = "" if owner_id == user.id else f" (питомец {mention(owner_id, pet['owner'])})"
+        await say(bot, chat_id, await texts.render(
+            "eco_feed", кто=mention(user.id, _name(user)), питомец=f"<b>{esc(pet['name'])}</b>{whose}",
+            корм=food["name"], еда=food["emoji"], цена=food["price"], сытость=res["satiety"]))
     elif action == "nick":
         await cb.answer()
         await say(bot, chat_id, f"✨ {mention(user.id, _name(user))}, купить свой ник навсегда за "
@@ -428,8 +467,8 @@ async def _duel_button(bot: Bot, cb: CallbackQuery, chat_id: int, user: User, ac
         if why:
             return await cb.answer(why, show_alert=True)
         d = service.active_duel(chat_id)
-        await _edit(cb, f"🎲 Игра принята! Банк <b>{d.bet * 2} 🪙</b>\n\n{mention(d.a, d.a_name)} кидает первым: "
-                        f"отправь в чат кубик 🎲, потом {mention(d.b, d.b_name)}. Чужие кубики не считаются.",
+        await _edit(cb, await texts.render("eco_dice_go", банк=d.bet * 2, первый=mention(d.a, d.a_name),
+                                           второй=mention(d.b, d.b_name)),
                     _kb([[("🏳 Сдаться", "eco:dd", "danger")]]))
         return
     result, d = await service.give_up(chat_id, user.id)
@@ -441,3 +480,32 @@ async def _duel_button(bot: Bot, cb: CallbackQuery, chat_id: int, user: User, ac
     else:
         win_id, win_name = (d.b, d.b_name) if user.id == d.a else (d.a, d.a_name)
         await _edit(cb, f"🏳 {loser} сдался. {mention(win_id, win_name)} забирает <b>{d.bet * 2} 🪙</b>", None)
+
+
+# ---------- пополнение монет криптой (USDT) в личке, через те же счета, что и реклама ----------
+
+async def crypto_menu(message: Message, chat_id: int) -> None:
+    """Открыли личку по кнопке «Оплатить криптой» из чата: выбор пачки монет."""
+    chat = await db.get_chat(chat_id)
+    if not chat or not adorders.can_pay():
+        await message.answer("Оплата криптой сейчас недоступна. Пополнить можно звёздами прямо в чате: напиши там магазин.")
+        return
+    rows = [[(f"🪙 {coins} монет · {usd} USDT", f"ecc:{chat_id}:{key}", "success")]
+            for key, (coins, _, usd) in catalog.COIN_PACKS.items()]
+    await message.answer(f"💎 <b>Пополнить монеты криптой</b>\n\nЧат: <b>{esc(chat['title'] or '')}</b>\n"
+                         "Монеты придут на твой кошелёк в этом чате, как только оплата дойдёт. Выбери сумму:",
+                         parse_mode="HTML", reply_markup=_kb(rows))
+
+
+@router.callback_query(F.data.startswith("ecc:"))
+async def on_crypto_pack(cb: CallbackQuery, bot: Bot) -> None:
+    _, chat_id, key = cb.data.split(":")
+    pack = catalog.COIN_PACKS.get(key)
+    if not pack or not adorders.can_pay():
+        return await cb.answer("недоступно", show_alert=True)
+    user = cb.from_user
+    name = _name(user) + (f" @{user.username}" if user.username else "")
+    oid = await db.create_order(user.id, name, "coins", f"🪙 {pack[0]} монет", pack[2], pack[0], "", "", "", [],
+                                "awaiting", target=int(chat_id))
+    await cb.answer()
+    await adorders.start_payment(bot, oid)

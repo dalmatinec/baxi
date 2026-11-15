@@ -70,8 +70,6 @@ async def buy_pet(chat_id: int, user_id: int, owner: str, species: str) -> str:
     info = catalog.PETS.get(species)
     if not info:
         return "такого питомца нет"
-    if info["stars"]:
-        return "этого питомца можно купить только за звёзды"
     current = await store.pet(chat_id, user_id)
     if current and catalog.PET_ORDER.index(current["species"]) >= catalog.PET_ORDER.index(species):
         return "у тебя уже такой или круче"
@@ -79,11 +77,6 @@ async def buy_pet(chat_id: int, user_id: int, owner: str, species: str) -> str:
         return f"не хватает монет, нужно {info['price']} 🪙"
     await store.set_pet(chat_id, user_id, owner, species, info["name"])
     return ""
-
-
-async def give_pet(chat_id: int, user_id: int, owner: str, species: str) -> None:
-    """Питомец за звёзды (после оплаты)."""
-    await store.set_pet(chat_id, user_id, owner, species, catalog.PETS[species]["name"])
 
 
 async def feed(chat_id: int, owner_id: int, feeder_id: int, feeder: str, kind: str = "food") -> dict:
@@ -107,8 +100,12 @@ async def feed(chat_id: int, owner_id: int, feeder_id: int, feeder: str, kind: s
     return {"food": food, "satiety": int(new_sat), "pet": await store.pet(chat_id, owner_id)}
 
 
+def clean_pet_name(name: str) -> str:
+    return " ".join((name or "").split())[:20]
+
+
 async def rename_pet(chat_id: int, user_id: int, name: str) -> str:
-    name = " ".join((name or "").split())[:20]
+    name = clean_pet_name(name)
     if not name or "http" in name.lower() or "@" in name:
         return "кличка до 20 символов, без ссылок и @"
     if not await store.pet(chat_id, user_id):
