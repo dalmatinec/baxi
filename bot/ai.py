@@ -26,8 +26,21 @@ async def budget_left() -> bool:
     return enabled() and await db.spent_today() < config.DAILY_LIMIT_USD
 
 
-def cost(tok_in: int, tok_out: int) -> float:
-    return tok_in * config.PRICE_IN / 1e6 + tok_out * config.PRICE_OUT / 1e6
+def cost(tok_in: int, tok_out: int, tok_cached: int = 0) -> float:
+    """Цена запроса. tok_cached: часть входа, взятая из кэша (характер и правила не меняются), она дешевле."""
+    tok_cached = min(tok_cached, tok_in)
+    return ((tok_in - tok_cached) * config.PRICE_IN + tok_cached * config.PRICE_CACHE
+            + tok_out * config.PRICE_OUT) / 1e6
+
+
+def cached_tokens(usage: dict) -> int:
+    """Сколько входа пришло из кэша: у одних сервисов prompt_cache_hit_tokens, у других prompt_tokens_details."""
+    details = usage.get("prompt_tokens_details") or {}
+    return int(usage.get("prompt_cache_hit_tokens") or details.get("cached_tokens") or 0)
+
+
+# вызывается после каждого запроса с ценой и чатом (регистрирует services/plans: дневной лимит пробных чатов)
+on_spend = None
 
 
 def _http() -> httpx.AsyncClient:
@@ -82,7 +95,10 @@ async def chat(messages: list[dict], max_tokens: int | None = None,
     usage = data.get("usage") or {}
     tok_in = int(usage.get("prompt_tokens", 0))
     tok_out = int(usage.get("completion_tokens", 0))
-    await db.add_spend(cost(tok_in, tok_out), tok_in, tok_out)
+    usd = cost(tok_in, tok_out, cached_tokens(usage))
+    await db.add_spend(usd, tok_in, tok_out)
+    if row is not None and on_spend is not None:
+        await on_spend(row, usd)
     try:
         return data["choices"][0]["message"]["content"] or None
     except (KeyError, IndexError, TypeError):

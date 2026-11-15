@@ -51,6 +51,8 @@ AI_TEMPERATURE = _float("AI_TEMPERATURE", 1.1)
 # Цены модели в долларах за 1 млн токенов, нужны для подсчёта расхода
 PRICE_IN = _float("PRICE_IN", 0.30)
 PRICE_OUT = _float("PRICE_OUT", 1.20)
+# цена входа, который сервис взял из кэша (одинаковое начало запроса: характер, правила). Обычно в 10 раз дешевле
+PRICE_CACHE = _float("PRICE_CACHE", PRICE_IN / 10)
 # Сколько долларов в сутки можно потратить. Кончились, бот отвечает фразами из базы.
 DAILY_LIMIT_USD = _float("DAILY_LIMIT_USD", 0.30)
 

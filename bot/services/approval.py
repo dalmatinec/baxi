@@ -56,6 +56,23 @@ def until_text(ts: float) -> str:
     return datetime.fromtimestamp(ts, config.TZ).strftime("%d.%m.%Y")
 
 
+async def _trial_full(bot: Bot, chat_id: int) -> None:
+    """Мест на пробный нет: говорим в чате, что работаем бесплатно, и как получить полную версию."""
+    me = await bot.me()
+    contact = config.CREATOR_CONTACT.lstrip("@") if config.CREATOR_CONTACT else ""
+    url = f"https://t.me/{contact}" if contact else f"https://t.me/{me.username}?start=rent"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+        text="💬 Написать разработчику", url=url, style="success")]])
+    try:
+        await bot.send_message(
+            chat_id, "👋 Всем привет!\n\n🎁 Места на бесплатный пробный период с ИИ сейчас заняты, поэтому я работаю "
+                     "в бесплатном режиме: игры, итоги дня, монеты и питомцы есть, а вместо живых ответов "
+                     "нейросети отвечаю заготовками.\n\nХотите полную версию? Напишите разработчику 👇",
+            reply_markup=kb)
+    except Exception as exc:
+        log.info("Не смог написать в новый чат %s: %s", chat_id, exc)
+
+
 async def request(bot: Bot, chat_id: int, title: str, added_by: int = 0, added_name: str = "",
                   added_username: str = "") -> None:
     """Вызывается, когда бот оказался в новом чате. Повторно заявку не шлёт."""
@@ -80,6 +97,15 @@ async def request(bot: Bot, chat_id: int, title: str, added_by: int = 0, added_n
     from bot.services import plans
     chat = await db.get_chat(chat_id)
     why = await plans.trial_check(chat, added_by, int(members) if members.isdigit() else 0)
+    if why.startswith("сейчас уже"):   # места на пробный заняты: бесплатный режим и сообщение в чат
+        if not await approve(bot, chat_id, announce=False):
+            return
+        await db.update_chat(chat_id, free=1)
+        await _trial_full(bot, chat_id)
+        await notify.owners(bot, f"➕ Новый чат: <b>{esc(title)}</b>, {members} участн.\n"
+                                 f"Тариф: 🆓 бесплатный, места на пробный заняты ({esc(why)})\n"
+                                 f"Добавил: {adder_html(await db.get_chat(chat_id))}")
+        return
     if not why or why.startswith("в группе меньше"):
         trial = not why
         if not await approve(bot, chat_id, rent_days=config.TRIAL_DAYS if trial else 0, trial=trial):

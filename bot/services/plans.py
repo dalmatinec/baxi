@@ -25,14 +25,16 @@ log = logging.getLogger(__name__)
 
 # значения по умолчанию, владелец меняет их в админке
 DEFAULTS = {
-    "max_trials": 10,        # сколько чатов одновременно может быть на пробном
+    "max_trials": 4,         # сколько чатов одновременно на пробном (твои чаты не в счёт: они без срока)
     "min_members": 10,       # пробный только для групп от стольких участников, мелкие сразу на бесплатный
     "free_ai": 0,            # ответов нейросети в день для бесплатного чата (0: только фразы)
     "nudges": 1,             # напоминаний о платной версии в день в бесплатном чате
     "free_persona": "",      # общий характер для бесплатных чатов ('' значит характер чата как есть)
+    "trial_cents": 5,        # пробный чат тратит на нейросеть не больше стольких центов в день (0: без лимита)
 }
 SETTINGS: dict = dict(DEFAULTS)
 _used: dict[tuple[int, str], int] = {}     # (чат, день) → сколько ответов ИИ уже дали бесплатному чату
+_spent: dict[tuple[int, str], float] = {}  # (чат, день) → сколько $ потратил пробный чат
 
 NUDGES = [
     "💡 {who}, это бесплатная версия: без нейросети я отвечаю заготовками. С платной болтаю как живой, "
@@ -47,6 +49,7 @@ async def load() -> None:
     for key, default in DEFAULTS.items():
         raw = await db.kv_get(f"plan_{key}")
         SETTINGS[key] = (type(default)(raw) if raw != "" else default) if raw is not None else default
+    await load_spend()
 
 
 async def set_value(key: str, value) -> None:
@@ -66,8 +69,20 @@ def status(chat) -> str:
     return "♾ без срока"
 
 
+def _day() -> str:
+    return datetime.now(config.TZ).strftime("%Y-%m-%d")
+
+
+def is_trial(chat) -> bool:
+    return bool(chat and chat["trial"] and not chat["free"])
+
+
 def gate(chat) -> bool:
-    """Можно ли нейросети отвечать в этом чате прямо сейчас (для бесплатных: квота в день)."""
+    """Можно ли нейросети отвечать в этом чате прямо сейчас.
+    Пробный: пока не потратил trial_cents за сегодня. Бесплатный: квота ответов в день. Остальные: да."""
+    if is_trial(chat):
+        cap = int(SETTINGS["trial_cents"] or 0) / 100
+        return not cap or _spent.get((chat["chat_id"], _day()), 0.0) < cap
     if not is_free(chat):
         return True
     quota = int(SETTINGS["free_ai"] or 0)
@@ -82,7 +97,29 @@ def gate(chat) -> bool:
     return True
 
 
+async def record_spend(chat, usd: float) -> None:
+    """После каждого запроса к нейросети: считаем расход пробного чата за день (хранится и в kv на случай перезапуска)."""
+    if not is_trial(chat):
+        return
+    key = (chat["chat_id"], _day())
+    _spent[key] = _spent.get(key, 0.0) + usd
+    await db.kv_set(f"tspend_{chat['chat_id']}", f"{key[1]}:{_spent[key]:.6f}")
+    if len(_spent) > 5000:
+        _spent.clear()
+
+
+async def load_spend() -> None:
+    """После перезапуска вспоминаем сегодняшний расход пробных чатов."""
+    day = _day()
+    for chat in await db.list_chats():
+        if chat["trial"]:
+            raw = await db.kv_get(f"tspend_{chat['chat_id']}") or ""
+            if raw.startswith(day + ":"):
+                _spent[(chat["chat_id"], day)] = float(raw.split(":", 1)[1])
+
+
 ai.gate = gate  # ai.chat спрашивает разрешение для чата из ai.CURRENT_CHAT
+ai.on_spend = record_spend
 
 
 def persona(chat) -> str:
