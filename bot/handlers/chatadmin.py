@@ -315,25 +315,12 @@ async def section(target, chat_id: int, sec: str) -> None:
         text = (f"📊 <b>Статистика за 7 дней</b>\n\n💬 Сообщений: <b>{sum(totals.values())}</b>\n"
                 f"👥 Участников: <b>{c['members'] or '?'}</b> · знаю в лицо: <b>{await db.known_people(cid)}</b>\n\n"
                 + "\n".join(bars) + f"\n\n🗣 <b>Самые активные:</b>\n{talkers}")
-        rows = [[("👁 Итоги дня сейчас (только мне)", f"mc:rp:{cid}")], back]
+        rows = [back]
     await _show(target, text, _kb(rows))
 
 
 def _trig_kind(t) -> str:
     return {"photo": "фото", "video": "видео", "gif": "гифка", "sticker": "стикер"}.get(t["media_kind"], "текст")
-
-
-@router.callback_query(F.data.startswith("mc:rp:"))
-async def cb_results_preview(cb: CallbackQuery, bot: Bot) -> None:
-    """Итоги этого чата за сегодня картинками только тому, кто нажал. В чат ничего не уходит."""
-    cid = int(cb.data.split(":")[2])
-    if not await _guard(cb, bot, cid):
-        return
-    await cb.answer("Собираю итоги, пару секунд…")
-    from bot.services.daily import preview_results
-    why = await preview_results(bot, await db.get_chat(cid), cb.from_user.id)
-    if why:
-        await cb.message.answer(f"👁 {why}")
 
 
 @router.callback_query(F.data.startswith("mc:sup:"))

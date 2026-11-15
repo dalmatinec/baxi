@@ -183,15 +183,15 @@ async def build_results(bot: Bot, chat, manual: bool = False) -> dict | None:
     from bot.cards.results import Crew, DayData, Nomination
     noms = []
     if nom.talker:
-        noms.append(Nomination("compass", "Капитан болтовни", nom.talker.user_id, nom.talker.name,
+        noms.append(Nomination("talk", "Болтун дня", nom.talker.user_id, nom.talker.name,
                                f"{nom.talker.msgs} {plural(nom.talker.msgs, MSGS)}"))
     if nom.funny:
-        noms.append(Nomination("dolphin", "Весельчак дня", nom.funny.user_id, nom.funny.name, funny_line(nom.funny)))
+        noms.append(Nomination("laugh", "Самый смешной", nom.funny.user_id, nom.funny.name, funny_line(nom.funny)))
     if nom.swearer:
-        noms.append(Nomination("pirate", "Пират матов", nom.swearer.user_id, nom.swearer.name,
+        noms.append(Nomination("swear", "Матершинник", nom.swearer.user_id, nom.swearer.name,
                                f"{nom.swearer.mat_pct}% сообщений с матом"))
     if top_msg:
-        noms.append(Nomination("wave", "Волна дня", top_msg["user_id"], top_msg["name"],
+        noms.append(Nomination("fire", "Сообщение дня", top_msg["user_id"], top_msg["name"],
                                f"сообщение собрало {top_msg['total']} {plural(top_msg['total'], REACTS)}"))
     if couple_names:
         noms.append(Nomination("hearts", "Пара дня", couple["user1"], " + ".join(couple_names), "по версии чата и бота"))
@@ -204,7 +204,7 @@ async def build_results(bot: Bot, chat, manual: bool = False) -> dict | None:
     quiet = [p for p in people if 0 < p.msgs and p.user_id not in listed]
     if len(noms) < 4 and quiet:       # чтобы карточка не была пустой: тихоня дня
         q = min(quiet, key=lambda p: p.msgs)
-        noms.append(Nomination("anchor", "Тихоня дня", q.user_id, q.name,
+        noms.append(Nomination("shush", "Тихоня дня", q.user_id, q.name,
                                f"всего {q.msgs} {plural(q.msgs, MSGS)}, но мы видим"))
     hours: dict[int, int] = {}
     for r in rows:
@@ -218,8 +218,11 @@ async def build_results(bot: Bot, chat, manual: bool = False) -> dict | None:
     if star:
         star_text = f"{star.name} · {star.msgs} {plural(star.msgs, MSGS)}" + (
             f", {funny_line(star)}" if star.funny else "")
-    card = DayData(chat["title"] or "наш чат", date, nom.total, nom.people, peak, noms,
-                   [Crew(p.user_id, p.name, p.msgs) for p in crew], star_text, chat["bot_name"], config.SITE_URL)
+    from bot.cards.results import style_for
+    weekday = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"][now.weekday()]
+    card = DayData(chat["title"] or "наш чат", f"{date} · {weekday}", nom.total, nom.people, peak, noms,
+                   [Crew(p.user_id, p.name, p.msgs) for p in crew], star_text, chat["bot_name"], config.SITE_URL,
+                   style_for(chat["chat_id"], chat["card_style"]))
     return {"text": "\n".join(lines), "caption": caption, "card": card, "word": word}
 
 
@@ -268,12 +271,12 @@ async def render_cards(bot: Bot, card) -> list[bytes]:
     return [x for x in (first, second) if x]
 
 
-async def send_results(bot: Bot, chat_id: int, built: dict, reply_to=None, prefix: str = ""):
-    """Альбом из двух карточек с подписью; если не вышло, итоги обычным текстом. Возвращает первое сообщение."""
+async def send_results(bot: Bot, chat_id: int, built: dict, reply_to=None, prefix: str = "", cards: bool = True):
+    """Альбом из двух карточек с подписью; cards=False или не вышло: итоги обычным текстом."""
     from aiogram.types import BufferedInputFile, InputMediaPhoto
 
     from bot.services.out import reply_params
-    images = await render_cards(bot, built["card"])
+    images = await render_cards(bot, built["card"]) if cards else []
     if len(images) == 2:
         caption = (prefix + built["caption"])[:1024]
         media = [InputMediaPhoto(media=BufferedInputFile(images[0], "itogi.jpg"), caption=caption, parse_mode="HTML"),
@@ -287,11 +290,12 @@ async def send_results(bot: Bot, chat_id: int, built: dict, reply_to=None, prefi
 
 
 async def post_results(bot: Bot, chat, manual: bool = False, reply_to=None) -> bool:
-    """Итоги дня в чат: две карточки альбомом (или текст, если картинки недоступны)."""
+    """Итоги дня в чат. Вечером по расписанию (час итогов чата, по умолчанию 23:00): две карточки альбомом.
+    По команде посреди дня (manual): обычным текстом."""
     built = await build_results(bot, chat, manual)
     if not built:
         return False
-    sent = await send_results(bot, chat["chat_id"], built, reply_to=reply_to)
+    sent = await send_results(bot, chat["chat_id"], built, reply_to=reply_to, cards=not manual)
     if sent:
         await talk.remember_self(bot, chat, sent, f"[итоги дня] {built['word']}")
     return True

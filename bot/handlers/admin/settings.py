@@ -81,6 +81,11 @@ def _rss() -> int:
 
 @router.callback_query(F.data == "cfg:hl")
 async def cb_health(cb: CallbackQuery) -> None:
+    await cb.answer()
+    await show(cb, await health_text(), kb([[("🔄 Обновить", "cfg:hl")], [("⬅️ Настройки", "cfg:menu"), BACK_MENU]]))
+
+
+async def health_text() -> str:
     """Сколько ест бот, сколько свободно памяти и диска, жив ли пульс, когда был бэкап."""
     import shutil
     import time
@@ -119,8 +124,7 @@ async def cb_health(cb: CallbackQuery) -> None:
             "<b>Защита:</b> автозапуск после перезагрузки, перезапуск при падении, лимит памяти 300 МБ, "
             "сторож раз в 5 минут (перезапустит зависшего бота и напишет тебе, если мало места), "
             "логи не больше 300 МБ, ежедневный бэкап. Ставится командой <code>bash /opt/linkhub/deploy/harden.sh</code>")
-    await cb.answer()
-    await show(cb, text, kb([[("🔄 Обновить", "cfg:hl")], [("⬅️ Настройки", "cfg:menu"), BACK_MENU]]))
+    return text
 
 
 async def _emoji_screen(target) -> None:

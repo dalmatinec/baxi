@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 
 from bot import config, db
+from bot.cards.results import STYLES, style_for
 from bot.services import approval
 from bot.handlers.admin.common import BACK_MENU, kb, pct, show
 from bot.textutil import esc, plural, short
@@ -51,7 +52,8 @@ async def _card(target, chat_id: int) -> None:
         [("⚙️ Настроить бота в чате", f"mc:o:{cid}", "primary")] if not pending else [],
         [("📅 Доступ и аренда", f"ch:s:{cid}:rent"),
          (f"📣 Реклама: {'✅' if c['ads'] else '❌'}", f"ch:ads:{cid}")],
-        [("👁 Итоги дня картинками (только мне)", f"mc:rp:{cid}")] if not pending else [],
+        [("👁 Итоги картинками (только мне)", f"ch:rp:{cid}"),
+         (f"🎨 Цвет: {STYLES[style_for(cid, c['card_style'])][0]}", f"ch:cs:{cid}")] if not pending else [],
         [("🚫 Отказать", f"ap:no:{cid}", "danger")] if pending else [],
     ] + _contact(c) + [[("🚪 Выйти из чата", f"ch:bye:{cid}")] if not pending else [],
                        [("⬅️ Чаты", "ch:list"), BACK_MENU]]))
@@ -177,6 +179,28 @@ async def cb_bye(cb: CallbackQuery) -> None:
                    "• <b>Выйти и убрать из списка</b>: чат исчезнет из админки вместе с историей и статистикой.",
                kb([[("Нет, оставить", f"ch:o:{cid}", "success")],
                    [("🚪 Выйти", f"ap:no:{cid}"), ("🗑 Выйти и убрать из списка", f"ch:gone:{cid}", "danger")]]))
+
+
+@router.callback_query(F.data.startswith("ch:rp:"))
+async def cb_results_preview(cb: CallbackQuery, bot: Bot) -> None:
+    """Итоги этого чата за сегодня картинками только тебе в личку. В чат ничего не уходит."""
+    cid = int(cb.data.split(":")[2])
+    await cb.answer("Собираю итоги, пару секунд…")
+    from bot.services.daily import preview_results
+    why = await preview_results(bot, await db.get_chat(cid), cb.from_user.id)
+    if why:
+        await cb.message.answer(f"👁 {why}")
+
+
+@router.callback_query(F.data.startswith("ch:cs:"))
+async def cb_card_style(cb: CallbackQuery) -> None:
+    """Цвет карточек итогов: по кругу Море, Ночь, Закат, Изумруд, Графит, Вишня."""
+    cid = int(cb.data.split(":")[2])
+    chat = await db.get_chat(cid)
+    nxt = (style_for(cid, chat["card_style"]) + 1) % len(STYLES)
+    await db.update_chat(cid, card_style=nxt)
+    await cb.answer(f"🎨 {STYLES[nxt][0]}. Посмотреть: Итоги картинками")
+    await _card(cb, cid)
 
 
 @router.callback_query(F.data.startswith("ch:gone:"))

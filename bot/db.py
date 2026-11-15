@@ -312,6 +312,7 @@ NEW_COLUMNS = {
         "rep": "INTEGER NOT NULL DEFAULT 1",            # репутация
         "bday": "INTEGER NOT NULL DEFAULT 1",           # поздравления с ДР
         "results_hour": "INTEGER NOT NULL DEFAULT 23",
+        "card_style": "INTEGER NOT NULL DEFAULT -1",     # цвет карточек итогов (-1: свой по номеру чата)
         "last_results": "TEXT NOT NULL DEFAULT ''",
         "last_pairpoll": "TEXT NOT NULL DEFAULT ''",
         "results_manual": "REAL NOT NULL DEFAULT 0",      # когда последний раз звали «итоги»
