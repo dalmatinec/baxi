@@ -99,7 +99,7 @@ async def _admin_tools(bot: Bot, message: Message, chat, command: str, admin: bo
         return
     if command == "quiet":
         await db.update_chat(chat_id, quiet_until=time.time() + 3600)
-        await say(bot, chat_id, "ладно, ухожу в тень на час 🤐 позовёте по имени, отвечу", reply_to=message)
+        await say(bot, chat_id, "ладно, на час притихну 🤐 позовёте по имени, отвечу", reply_to=message)
     elif command == "talk":
         await db.update_chat(chat_id, quiet_until=0)
         await say(bot, chat_id, "всё, я снова с вами 😎", reply_to=message)

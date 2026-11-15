@@ -17,9 +17,9 @@ log = logging.getLogger(__name__)
 router = Router(name="group")
 spam_guard = brain.RateLimit(limit=5, window=60)
 
-QUIET_REPLIES = ["ладно, ухожу в тень на час 🤐 позовёте по имени, отвечу",
-                 "понял, молчу час. но если позовёте, я тут 👀",
-                 "окей, беру паузу на часик 😶"]
+QUIET_REPLIES = ["ладно, на час притихну 🤐 позовёте по имени, отвечу",
+                 "понял, час почти молчу. но если позовёте, я тут 👀",
+                 "окей, сбавляю обороты на часик 😶"]
 TALK_REPLIES = ["о, наконец-то, я соскучился 😎", "всё, я снова с вами, держитесь", "ну всё, понеслась 🔥"]
 
 
@@ -48,9 +48,11 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
     now = time.time()
     if not addressed:
         hour = datetime.now(config.TZ).hour
-        if chat_row["quiet_until"] > now or presets.in_quiet(hour, chat_row["quiet_from"], chat_row["quiet_to"]):
-            return  # «помолчи часок» или тихие часы: сам не влезает, но на обращения отвечает
+        if presets.in_quiet(hour, chat_row["quiet_from"], chat_row["quiet_to"]):
+            return  # тихие часы: сам не влезает, но на обращения отвечает
     chance = chat_row["chance"]
+    if not addressed and chat_row["quiet_until"] > now:
+        chance *= presets.QUIET_FACTOR  # «помолчи»: сам влезает в 10 раз реже, на обращения отвечает как обычно
     creator_hit = False
     if not addressed and config.CREATOR_IDS:
         if user_row["user_id"] in config.CREATOR_IDS:

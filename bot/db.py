@@ -342,7 +342,7 @@ NEW_COLUMNS = {
         "qday": "INTEGER NOT NULL DEFAULT 1",             # вопрос дня включён
         "last_qday": "TEXT NOT NULL DEFAULT ''",          # когда последний раз задавали
         "qday_queue": "TEXT NOT NULL DEFAULT ''",         # свои вопросы дня от админа, по строке
-        "revive": "INTEGER NOT NULL DEFAULT 0",           # оживлять чат, когда долго тихо
+        "revive": "INTEGER NOT NULL DEFAULT 0",           # через сколько минут тишины оживлять чат (0 выкл)
         "last_revive": "REAL NOT NULL DEFAULT 0",
     },
     "users": {

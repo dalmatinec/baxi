@@ -14,8 +14,6 @@ from bot.textutil import esc
 
 log = logging.getLogger(__name__)
 HOUR = int(os.getenv("QDAY_HOUR", "12") or 12)
-REVIVE_AFTER = 3 * 3600      # сколько тишины, чтобы бот попробовал оживить чат
-REVIVE_EVERY = 6 * 3600      # и не чаще раза в 6 часов
 
 
 def _task(topic: str):
@@ -67,22 +65,30 @@ async def tick(bot: Bot) -> None:
 
 
 async def revive_tick(bot: Bot) -> None:
-    """Оживить чат: днём, если 3 часа тишины после живого разговора, бот пишет фразу из «Оживить чат»."""
+    """Оживить чат: днём, если в чате тихо дольше заданного (10-60 минут), бот вкидывает что-то одно:
+    фразу из «Оживить чат», вопрос из базы или зовёт на викторину. Один раз на каждую тишину."""
+    import random
     import time
     now = datetime.now(config.TZ)
-    if not 11 <= now.hour < 22:
+    if not 10 <= now.hour < 23:
         return
     t = time.time()
     for chat in await db.list_chats():
-        if not chat["revive"] or t - chat["last_revive"] < REVIVE_EVERY or chat["quiet_until"] > t:
+        minutes = chat["revive"]
+        if not minutes or chat["quiet_until"] > t:
             continue
         last = await db.last_message_ts(chat["chat_id"])
-        if not last or not REVIVE_AFTER < t - last < 24 * 3600:
-            continue
+        if not last or not minutes * 60 < t - last < 12 * 3600 or chat["last_revive"] > last:
+            continue  # ещё не тихо, давно мёртвый чат или в эту тишину уже оживляли
         await db.update_chat(chat["chat_id"], last_revive=t)
-        phrase = await db.random_phrase("quiet")
-        if phrase:
-            try:
-                await say(bot, chat["chat_id"], esc(phrase))
-            except Exception as exc:
-                log.info("Оживить чат %s не вышло: %s", chat["chat_id"], exc)
+        roll = random.random()
+        if roll < 0.2 and chat["games"] and chat["quiz"]:
+            text = "скучно сидим... кто за викторину? пишите /quiz 🧠"
+        elif roll < 0.4:
+            text = "❓ " + (await db.random_phrase("qday") or "как у кого день?")
+        else:
+            text = await db.random_phrase("quiet") or "чего притихли? 👀"
+        try:
+            await say(bot, chat["chat_id"], esc(text))
+        except Exception as exc:
+            log.info("Оживить чат %s не вышло: %s", chat["chat_id"], exc)

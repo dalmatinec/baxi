@@ -73,10 +73,10 @@
         [["", "bot."], ["f", "launch"], ["", "()"], ["c", "        # поехали 🚀"]],
       ],
       chat: [
-        ["Аня", "#e8833a", "кто сегодня идёт гулять?"],
-        ["Олег", "#3b82f6", "я буду к 9, ждите"],
-        ["Бакси", "bot", "олег опять опоздает на час, ставлю на это 😏"],
-        ["Тимур", "#16a34a", "бакси, куда сходить вечером?"],
+        ["Colos", "#3b82f6", "кто сегодня идёт гулять?"],
+        ["Bad Habit", "#e8833a", "я буду к 9, ждите"],
+        ["Бакси", "bot", "bad habit опять опоздает на час, ставлю на это 😏"],
+        ["Kilka", "#16a34a", "бакси, куда сходить вечером?", "админ"],
         ["Бакси", "bot", "в кино на что-нибудь страшное, а потом пиццу. классика 🔥"],
       ],
     },
@@ -89,10 +89,10 @@
         [["", "bot."], ["f", "call"], ["", "(every="], ["n", "5"], ["", ", text="], ["s", '"🎮 игра!"'], ["", ")"]],
       ],
       chat: [
-        ["Дина", "#db2777", "/call"],
-        ["Бакси", "bot", "🎮 игра началась, заходите! Аня, Олег, Тимур, Саша, Дина"],
-        ["Саша", "#7c3aed", "бакси, кто сегодня самый болтливый?"],
-        ["Бакси", "bot", "олег, 214 сообщений. брат, ты вообще работаешь? 😂"],
+        ["Kilka", "#16a34a", "/call", "админ"],
+        ["Бакси", "bot", "🎮 игра началась, заходите! Colos, Bad Habit, Satpaev, Kilka"],
+        ["Satpaev", "#16a34a", "бакси, кто сегодня самый болтливый?", "создатель"],
+        ["Бакси", "bot", "colos, 214 сообщений. брат, ты вообще работаешь? 😂"],
       ],
     },
   ];
@@ -121,7 +121,7 @@
 
   async function playChat(scene) {
     feed.innerHTML = "";
-    for (const [who, color, text] of scene.chat) {
+    for (const [who, color, text, tag] of scene.chat) {
       if (color === "bot") {
         const t = document.createElement("div");
         t.className = "typing";
@@ -132,11 +132,16 @@
       } else {
         await sleep(650);
       }
-      const m = document.createElement("div");
-      m.className = "msg" + (color === "bot" ? " bot" : "");
+      // строка как в Telegram: аватарка, имя цветом, у админов подпись справа
+      const row = document.createElement("div");
+      row.className = "line" + (color === "bot" ? " bot" : "");
       const c = color === "bot" ? (document.body.classList.contains("baxi") ? "#7c3aed" : "#ff6b4a") : color;
-      m.innerHTML = `<span class="who" style="color:${c}">${esc(who)}</span>${esc(text)}`;
-      feed.appendChild(m);
+      const slug = color === "bot" ? "baxi" : who.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const src = color === "bot" ? "/img/baxi.jpg" : `/img/people/${slug}.jpg`;
+      const badge = tag ? `<em class="badge">${esc(tag)}</em>` : "";
+      row.innerHTML = `<i class="pa" style="background:${c}">${esc(who[0])}<img src="${src}" alt="" onerror="this.remove()"></i>` +
+        `<div class="msg${color === "bot" ? " bot" : ""}"><span class="who" style="color:${c}">${esc(who)}${badge}</span>${esc(text)}</div>`;
+      feed.appendChild(row);
       while (feed.children.length > 5) feed.firstElementChild.remove();
     }
   }

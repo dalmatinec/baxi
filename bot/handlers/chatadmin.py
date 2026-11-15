@@ -189,12 +189,15 @@ async def card(target, chat_id: int, viewer: int = 0) -> None:
 def _activity(c) -> tuple[str, list]:
     cid = c["chat_id"]
     results = f"в {c['results_hour']}:00" if c["results"] else "выкл"
+    revive = f"через {c['revive']} мин" if c["revive"] else "выкл"
     text = (f"💬 <b>Активность</b>\n\n"
             f"Сам влезаю в разговор: <b>{pct(c['chance'])}</b>\n<i>{every(c['chance'])}</i>\n\n"
             f"🤖 Из них через ИИ: <b>{pct(c['ai_share'])}</b>, остальное фразы и стикеры\n"
             f"⏱ Пауза между влезаниями: <b>{c['cooldown']} сек</b>\n"
             f"🌙 Тихие часы: <b>{quiet_text(c['quiet_from'], c['quiet_to'])}</b>\n"
             f"<i>ночью сам не пишу, но отвечаю, если позвать</i>\n"
+            f"🌙 Оживлять тишину: <b>{revive}</b>\n"
+            f"<i>днём, если в чате тихо, бот вкинет шутку, вопрос или позовёт на викторину</i>\n"
             f"😏 Юмор: <b>{presets.HUMOR.get(c['humor'], '')}</b>\n"
             f"🕚 Итоги дня: <b>{results}</b>\n\n"
             "<i>Если меня зовут по имени или отвечают мне, отвечаю всегда.</i>")
@@ -205,6 +208,8 @@ def _activity(c) -> tuple[str, list]:
                  (f"⏱ Пауза: {c['cooldown']}с", f"mc:c:{cid}:cooldown")])
     rows.append([_opt("🌙 выкл" if a < 0 else f"{a:02d}-{b:02d}", f"mc:v:{cid}:quiet:{i}",
                       (a, b) == (c["quiet_from"], c["quiet_to"])) for i, (a, b) in enumerate(presets.QUIET_OPTIONS)])
+    rows.append([_opt("🌙 выкл" if m == 0 else f"{m} мин", f"mc:v:{cid}:rv:{m}", c["revive"] == m)
+                 for m in presets.REVIVE_MINUTES])
     rows.append([_opt(label, f"mc:v:{cid}:humor:{k}", c["humor"] == k) for k, label in presets.HUMOR.items()])
     rows.append([_opt(f"{h}:00", f"mc:v:{cid}:rh:{h}", bool(c["results"]) and c["results_hour"] == h)
                  for h in (21, 22, 23)] + [_opt("Выкл", f"mc:v:{cid}:rh:0", not c["results"])])
@@ -374,6 +379,8 @@ async def cb_value(cb: CallbackQuery, bot: Bot) -> None:
         elif key == "quiet":
             a, b = presets.QUIET_OPTIONS[int(val)]
             await db.update_chat(cid, quiet_from=a, quiet_to=b)
+        elif key == "rv" and int(val) in presets.REVIVE_MINUTES:
+            await db.update_chat(cid, revive=int(val))
         elif key == "humor" and int(val) in presets.HUMOR:
             await db.update_chat(cid, humor=int(val))
         elif key == "rh":

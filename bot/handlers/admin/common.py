@@ -1,8 +1,9 @@
 """Общее для админки: главное меню, клавиатуры, показ экранов."""
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, Message
 
 from bot import ai, config, db
@@ -273,10 +274,36 @@ async def cb_spend(cb: CallbackQuery) -> None:
             "<b>Изменить лимит в сутки:</b>")
     steps = [0.3, 0.5, 0.75, 1, 1.5, 2, 3]
     row = [((f"✓ ${v:g}" if abs(v - config.DAILY_LIMIT_USD) < 1e-9 else f"${v:g}"), f"lim:{v}") for v in steps]
-    await show(cb, text, kb([row[:4], row[4:], [BACK_MENU]]))
+    await show(cb, text, kb([row[:4], row[4:], [("✏️ Своя сумма", "lim:own")], [BACK_MENU]]))
 
 
-@router.callback_query(lambda c: c.data and c.data.startswith("lim:"))
+class LimitEdit(StatesGroup):
+    value = State()
+
+
+@router.callback_query(lambda c: c.data == "lim:own")
+async def cb_limit_own(cb: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(LimitEdit.value)
+    await show(cb, "✏️ Пришли лимит в долларах в сутки, например <code>5</code> или <code>2.5</code>",
+               kb([[("Отмена", "spend")]]))
+
+
+@router.message(LimitEdit.value, F.text)
+async def on_limit_own(message: Message, state: FSMContext) -> None:
+    try:
+        value = round(float(message.text.replace(",", ".").replace("$", "").strip()), 2)
+        if not 0 < value <= 100:
+            raise ValueError
+    except ValueError:
+        return await message.answer("Нужно число от 0.01 до 100, например 5")
+    await state.clear()
+    config.DAILY_LIMIT_USD = value
+    await db.kv_set("daily_limit", str(value))
+    await message.answer(f"✅ Лимит ${value:g} в сутки, примерно ${value * 30:.0f} в месяц максимум",
+                         reply_markup=kb([[("🤖 ИИ и расход", "spend"), BACK_MENU]]))
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("lim:") and c.data != "lim:own")
 async def cb_limit(cb: CallbackQuery) -> None:
     value = float(cb.data[4:])
     config.DAILY_LIMIT_USD = value

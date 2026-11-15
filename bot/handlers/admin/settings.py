@@ -211,7 +211,8 @@ async def cb_backup_go(cb: CallbackQuery) -> None:
 
 def _texts() -> dict:
     from bot.handlers.fun import REP_MINUS, REP_PLUS
-    hint = "{кому} кто получил, {от} кто дал, {сколько} сколько стало, {место} место в чате"
+    hint = ("<code>{кому}</code> кто получил, <code>{от}</code> кто дал, <code>{сколько}</code> сколько стало, "
+            "<code>{место}</code> место в чате")
     return {"tpl_rep_plus": ("💜 Плюс к репутации", REP_PLUS, hint),
             "tpl_rep_minus": ("👎 Минус к репутации", REP_MINUS, hint)}
 
@@ -236,7 +237,7 @@ async def cb_text_item(cb: CallbackQuery, state: FSMContext) -> None:
     current = await db.kv_get(key) or default
     await state.set_state(TextEdit.value)
     await state.update_data(key=key)
-    await show(cb, f"✏️ <b>{title}</b>\n\nСейчас:\n{current}\n\n<b>Подстановки:</b> {esc(hint)}\n\n"
+    await show(cb, f"✏️ <b>{title}</b>\n\nСейчас:\n{current}\n\n<b>Подстановки</b> (нажми, чтобы скопировать): {hint}\n\n"
                    "Пришли новый текст сообщением.",
                kb([[("↩️ Вернуть стандартный", f"cfg:tx:reset:{key}")], [("⬅️ Тексты", "cfg:tx")]]))
 
