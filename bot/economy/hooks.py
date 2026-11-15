@@ -34,6 +34,8 @@ async def on_group_message(bot: Bot, chat, message: Message, name: str) -> None:
     await store.add_coins(message.from_user.id, coins)
     text = await texts.render("eco_level", кто=mention(message.from_user.id, name), уровень=level,
                               звание=catalog.title_for(level), монеты=coins)
+    if catalog.perks_for(level) != catalog.perks_for(up[0]):   # открылись новые плюшки ранга
+        text += f"\n🎖 Новые плюшки: {catalog.perks_text(catalog.perks_for(level))}"
     try:
         await say(bot, chat["chat_id"], text)
     except Exception as exc:
@@ -62,8 +64,40 @@ def feed_kb(owner_id: int, species: str, extra: list | None = None) -> InlineKey
 
 # ---------- по расписанию ----------
 
+MEDALS = ["🥇", "🥈", "🥉"]
+
+
+async def weekly(bot: Bot) -> None:
+    """Воскресенье вечером: в каждом чате топ-3 по сообщениям за неделю получают монеты."""
+    from datetime import timedelta
+
+    from bot import db
+    now = datetime.now(config.TZ)
+    if now.weekday() != catalog.WEEKLY_DAY or now.hour != catalog.WEEKLY_HOUR:
+        return
+    week = now.strftime("%G-%V")
+    days = [(now - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+    for chat in await db.list_chats():
+        if not enabled(chat) or await db.kv_get(f"weekly_{chat['chat_id']}") == week:
+            continue
+        await db.kv_set(f"weekly_{chat['chat_id']}", week)
+        top = [r for r in await db.top_talkers(chat["chat_id"], days, 3) if r["msgs"] >= catalog.WEEKLY_MIN_MSGS]
+        if not top:
+            continue
+        lines = []
+        for i, r in enumerate(top):
+            prize = catalog.WEEKLY_PRIZES[i]
+            await store.add_coins(r["user_id"], prize, r["name"])
+            lines.append(f"{MEDALS[i]} {mention(r['user_id'], r['name'])} · {r['msgs']} сообщ. · +{prize} 🪙")
+        try:
+            await say(bot, chat["chat_id"], await texts.render("eco_weekly", список="\n".join(lines)))
+        except Exception as exc:
+            log.info("Итоги недели в %s не ушли: %s", chat["chat_id"], exc)
+
+
 async def tick(bot: Bot) -> None:
-    """Раз в минуту: возврат ставок из брошенных костей, днём хозяевам голодных питомцев пишем в личку."""
+    """Раз в минуту: возврат ставок из брошенных костей, призы недели, днём хозяевам голодных питомцев пишем в личку."""
+    await weekly(bot)
     for d in await service.refund_expired():
         if d.accepted:
             try:

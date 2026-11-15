@@ -14,7 +14,7 @@ from aiogram.types import CallbackQuery, LabeledPrice, Message, User
 from bot import config, db
 from bot.economy import catalog, service, store
 from bot.handlers.economy.common import EARN_TEXT, kb, name_of, pet_title, profile_lines, send_pet
-from bot.services import adorders, menu, stars, texts
+from bot.services import adorders, stars, texts
 from bot.textutil import esc, mention
 
 log = logging.getLogger(__name__)
@@ -132,12 +132,7 @@ async def open_shop(message: Message) -> None:
     await show(message, *await shop_screen(message.from_user))
 
 
-# кнопка в главном меню лички: даже если меню сохранено в базе, профиль всегда виден
-async def _menu_rows(user: User):
-    return kb([[("👤 Профиль и магазин", "pf:home", "success")]]).inline_keyboard
-
-
-menu.EXTRA_ROWS["start"] = _menu_rows
+# кнопка «👤 Профиль и магазин» стоит в главном меню (bot/screens.py, действие pf:home)
 
 
 # ---------- команды ----------

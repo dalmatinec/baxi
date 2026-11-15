@@ -28,7 +28,7 @@ async def on_message(user_id: int, name: str, text: str) -> tuple[int, int] | No
     if now - w["last_award"] < catalog.AWARD_COOLDOWN:
         return None
     xp = w["xp"] + random.randint(*catalog.XP_PER_MSG)
-    got = random.randint(*catalog.COINS_PER_MSG)
+    got = random.randint(*catalog.COINS_PER_MSG) + catalog.perks_for(w["level"])["coins"]   # плюшка ранга
     level = catalog.level_for(xp)
     await store.update_wallet(user_id, xp=xp, coins=w["coins"] + got, earned=w["earned"] + got, level=level,
                               last_award=now)
@@ -52,13 +52,15 @@ async def claim_bonus(user_id: int, name: str) -> tuple[int, int] | None:
     yesterday = (datetime.now(config.TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
     streak = w["streak"] + 1 if w["bonus_day"] == yesterday else 1
     amount = min(catalog.BONUS_BASE + catalog.BONUS_STEP * (streak - 1), catalog.BONUS_MAX)
+    amount = round(amount * (100 + catalog.perks_for(w["level"])["bonus"]) / 100)   # плюшка ранга
     await store.update_wallet(user_id, coins=w["coins"] + amount, earned=w["earned"] + amount, bonus_day=today(),
                               streak=streak)
     return amount, streak
 
 
-def next_bonus(streak: int) -> int:
-    return min(catalog.BONUS_BASE + catalog.BONUS_STEP * streak, catalog.BONUS_MAX)
+def next_bonus(streak: int, level: int = 1) -> int:
+    base = min(catalog.BONUS_BASE + catalog.BONUS_STEP * streak, catalog.BONUS_MAX)
+    return round(base * (100 + catalog.perks_for(level)["bonus"]) / 100)
 
 
 # ---------- питомцы ----------
@@ -111,7 +113,9 @@ async def feed(owner_id: int, feeder_id: int, feeder: str, kind: str = "food") -
     now_sat = satiety(pet)
     if now_sat >= catalog.PET_FULL:
         return {"error": f"{pet['name']} сыт и отказывается есть 😼"}
-    await store.wallet(feeder_id, feeder)
+    w = await store.wallet(feeder_id, feeder)
+    discount = catalog.perks_for(w["level"])["food"]       # плюшка ранга: скидка на корм
+    food = dict(food, price=max(1, round(food["price"] * (100 - discount) / 100)), discount=discount)
     if not await store.spend(feeder_id, food["price"]):
         return {"error": f"не хватает монет: {food['name']} стоит {food['price']} 🪙"}
     new_sat = min(100.0, now_sat + food["plus"])

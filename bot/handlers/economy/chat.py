@@ -115,8 +115,9 @@ async def bonus_text(user: User) -> str:
     if not got:
         return f"🎁 {mention(user.id, name_of(user))}, бонус уже забран сегодня. Приходи завтра, серия растёт!"
     amount, streak = got
+    level = (await store.wallet(user.id))["level"]
     return await texts.render("eco_bonus", кто=mention(user.id, name_of(user)), сколько=amount, серия=streak,
-                              завтра=service.next_bonus(streak))
+                              завтра=service.next_bonus(streak, level))
 
 
 async def show_pet(bot: Bot, chat, user: User, reply_to: Message | None = None) -> None:
@@ -256,7 +257,8 @@ async def on_feed(cb: CallbackQuery, bot: Bot) -> None:
     if "error" in res:
         return await cb.answer(res["error"], show_alert=True)
     food, pet = res["food"], res["pet"]
-    await cb.answer(f"{food['emoji']} Ням! Сытость {res['satiety']}%")
+    sale = f" (скидка ранга {food['discount']}%)" if food.get("discount") else ""
+    await cb.answer(f"{food['emoji']} Ням! Сытость {res['satiety']}%{sale}")
     whose = "" if owner_id == user.id else f" · хозяин {mention(owner_id, pet['owner'])}"
     text = await texts.render("eco_feed", кто=mention(user.id, name_of(user)),
                               питомец=f"<b>{esc(pet['name'])}</b>{whose}", корм=food["name"], еда=food["emoji"],

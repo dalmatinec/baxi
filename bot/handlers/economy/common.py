@@ -47,13 +47,15 @@ async def profile_lines(user: User) -> list[str]:
     lo, hi = catalog.xp_for(lvl), catalog.xp_for(lvl + 1)
     pet = await store.pet(user.id)
     pet_line = (f"{pet_title(pet)} · сытость {int(service.satiety(pet))}%" if pet else "пока нет")
-    bonus = (f"можно забрать 🎁 (+{service.next_bonus(w['streak'] if w['bonus_day'] else 0)} 🪙)"
+    bonus = (f"можно забрать 🎁 (+{service.next_bonus(w['streak'] if w['bonus_day'] else 0, lvl)} 🪙)"
              if service.bonus_ready(w) else f"забран ✅, серия {w['streak']} дн.")
     return [f"🪙 Монеты: <b>{w['coins']}</b>",
             f"⭐ Уровень <b>{lvl}</b> · {catalog.title_for(lvl)}",
             f"📈 {bar(w['xp'] - lo, hi - lo)} {w['xp'] - lo}/{hi - lo} опыта до {lvl + 1} уровня",
             f"🎁 Бонус дня: {bonus}",
-            f"🐾 Питомец: {pet_line}"]
+            f"🐾 Питомец: {pet_line}",
+            f"🎖 Плюшки ранга: {catalog.perks_text(catalog.perks_for(lvl))}"
+            + (f"\n   на {nxt[0]} уровне: {catalog.perks_text(nxt[1])}" if (nxt := catalog.next_perks(lvl)) else "")]
 
 
 async def short_wallet(user: User) -> str:
@@ -131,6 +133,11 @@ EARN_TEXT = (
     "🎲 <b>Кости</b>: ответь в чате на сообщение соперника <b>кости 100</b>. У кого на кубике больше, тот забирает банк.\n"
     "💸 <b>Подарки</b>: друзья могут передать монеты: ответом <b>передать 100</b>.\n"
     "💳 <b>Пополнить</b>: звёздами Telegram или криптой (USDT), если не хочется ждать.\n\n"
+    "🏅 <b>Самые активные недели</b>: в воскресенье вечером топ-3 по сообщениям в каждом чате получают "
+    f"{catalog.WEEKLY_PRIZES[0]}, {catalog.WEEKLY_PRIZES[1]} и {catalog.WEEKLY_PRIZES[2]} 🪙.\n\n"
+    "🎖 <b>Плюшки ранга</b>: чем выше уровень, тем выгоднее.\n"
+    + "\n".join(f"• {lvl} ур. {catalog.title_for(lvl)}: {catalog.perks_text(catalog.perks_for(lvl))}"
+                for lvl, *_ in catalog.RANK_PERKS[1:]) + "\n\n"
     "🐾 <b>На что тратить</b>: питомец (от улитки до дракона), корм для него, свой ник навсегда.\n"
     "Монеты и питомец общие: один кошелёк во всех чатах."
 )

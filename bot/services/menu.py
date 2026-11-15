@@ -22,6 +22,20 @@ EXTRA_ROWS: dict[str, Callable[[User], Awaitable[list[list[InlineKeyboardButton]
 SHOW_IF: dict[str, Callable[[User], Awaitable[bool]]] = {}
 
 
+START_LAYOUT = 2   # поменял порядок кнопок главного меню: сохранённое в базе меню получает новые кнопки один раз
+
+
+async def upgrade_start() -> None:
+    """Если главное меню сохранено в базе (менял текст в админке), ставим новые кнопки, текст и картинку не трогаем."""
+    if await db.kv_get("start_layout") == str(START_LAYOUT):
+        return
+    row = await db.get_screen("start")
+    if row:
+        await db.save_screen("start", row["text_html"], row["photo"],
+                             [dict(b) for b in screens.defaults()["start"]["buttons"]])
+    await db.kv_set("start_layout", str(START_LAYOUT))
+
+
 async def load(key: str) -> dict:
     row = await db.get_screen(key)
     if row:

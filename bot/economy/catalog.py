@@ -35,6 +35,45 @@ def title_for(level: int) -> str:
     return name
 
 
+# ---------- плюшки ранга: чем выше уровень, тем выгоднее ----------
+# с какого уровня: (лишних монет за сообщение, бонус дня больше на %, скидка на корм %)
+RANK_PERKS = [(1, 0, 0, 0), (3, 0, 10, 0), (5, 1, 10, 0), (8, 1, 20, 10), (12, 2, 30, 15), (16, 2, 40, 20),
+              (20, 3, 50, 30)]
+
+
+def perks_for(level: int) -> dict:
+    coins, bonus, food = 0, 0, 0
+    for lvl, c, b, f in RANK_PERKS:
+        if level >= lvl:
+            coins, bonus, food = c, b, f
+    return {"coins": coins, "bonus": bonus, "food": food}
+
+
+def perks_text(p: dict) -> str:
+    parts = []
+    if p["coins"]:
+        parts.append(f"+{p['coins']} 🪙 за сообщение")
+    if p["bonus"]:
+        parts.append(f"бонус дня +{p['bonus']}%")
+    if p["food"]:
+        parts.append(f"корм -{p['food']}%")
+    return ", ".join(parts) or "пока нет"
+
+
+def next_perks(level: int) -> tuple[int, dict] | None:
+    """Ближайший уровень, где плюшки станут лучше."""
+    for lvl, *_ in RANK_PERKS:
+        if lvl > level:
+            return lvl, perks_for(lvl)
+    return None
+
+
+# самые активные за неделю в каждом чате (воскресенье вечером): призы за 1, 2, 3 место
+WEEKLY_PRIZES = (500, 300, 150)
+WEEKLY_MIN_MSGS = 20         # меньше сообщений за неделю: в призёры не попадает
+WEEKLY_DAY, WEEKLY_HOUR = 6, 20   # воскресенье, 20:00 по времени бота
+
+
 # ---------- магазин за монеты ----------
 NICK_PRICE = 5000            # свой ник с премиум-эмодзи навсегда, жирным везде, где бот упоминает человека
 GIFT_MIN = 10
