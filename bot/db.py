@@ -339,6 +339,8 @@ NEW_COLUMNS = {
         "call_style": "TEXT NOT NULL DEFAULT 'names'",    # names: имена, emoji: отметки спрятаны в эмодзи
         "call_max": "INTEGER NOT NULL DEFAULT 50",
         "trial": "INTEGER NOT NULL DEFAULT 0",            # сейчас идёт пробный период
+        "qday": "INTEGER NOT NULL DEFAULT 1",             # вопрос дня включён
+        "last_qday": "TEXT NOT NULL DEFAULT ''",          # когда последний раз задавали
     },
     "users": {
         "birthday": "TEXT NOT NULL DEFAULT ''",         # 'MM-DD'
@@ -364,7 +366,7 @@ CHAT_FIELDS = {"bot_name", "aliases", "persona", "topic", "chance", "ai_share",
                "results_manual", "approved", "pending_since", "added_by", "rent_until", "rent_warned", "members",
                "shop", "added_name", "added_username", "quiz", "quiz_count", "quiet_from", "quiet_to",
                "quiet_until", "humor", "mat", "banned", "protect_admins", "call_text", "call_who", "call_style",
-               "call_max", "trial"}
+               "call_max", "trial", "qday", "last_qday"}
 AD_FIELDS = {"title", "media_kind", "file_id", "text_html", "buttons", "interval",
              "enabled", "delete_prev"}
 
@@ -423,15 +425,22 @@ def conn() -> aiosqlite.Connection:
     return _db
 
 
+def phrase_kind(cat: str) -> str:
+    """Категория фраз → значение kind в базе. Обычные фразы исторически лежат как 'text'."""
+    return "text" if cat == "any" else cat
+
+
 async def _seed_phrases() -> None:
-    from bot.phrases_seed import PHRASES
-    async with conn().execute("SELECT COUNT(*) FROM phrases") as cur:
-        if (await cur.fetchone())[0]:
-            return
+    """Добавляет стартовые фразы новой версии (повторы пропускаются)."""
+    from bot.phrases_seed import PHRASES, SEED_VERSION
+    async with conn().execute("SELECT value FROM kv WHERE key = 'seed_version'") as cur:
+        row = await cur.fetchone()
+    if row and int(row[0] or 0) >= SEED_VERSION:
+        return
     now = time.time()
-    await conn().executemany(
-        "INSERT OR IGNORE INTO phrases (kind, content, created_at) VALUES ('text', ?, ?)",
-        [(p, now) for p in PHRASES])
+    await conn().executemany("INSERT OR IGNORE INTO phrases (kind, content, created_at) VALUES (?, ?, ?)",
+                             [(phrase_kind(cat), p, now) for cat, items in PHRASES.items() for p in items])
+    await conn().execute("INSERT OR REPLACE INTO kv (key, value) VALUES ('seed_version', ?)", (str(SEED_VERSION),))
     await conn().commit()
 
 
@@ -1483,7 +1492,7 @@ async def kv_set(key: str, value: str) -> None:
 # ---------- перенос чата и экспорт настроек ----------
 
 # что из настроек чата переносится и попадает в экспорт (без названия, id, статуса и служебных отметок)
-SETTING_FIELDS = ["bot_name", "aliases", "persona", "topic", "chance", "ai_share", "cooldown", "greet", "games",
+SETTING_FIELDS = ["bot_name", "aliases", "persona", "topic", "chance", "ai_share", "cooldown", "greet", "games", "qday",
                   "pairpoll", "results", "results_hour", "rep", "bday", "shop", "quiz", "quiz_count", "quiet_from",
                   "quiet_to", "humor", "mat", "banned", "protect_admins", "call_text", "call_who", "call_style",
                   "call_max"]

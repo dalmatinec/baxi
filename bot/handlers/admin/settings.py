@@ -96,15 +96,10 @@ async def _backup_screen(target) -> None:
             f"Последний: <b>{when}</b>\n"
             f"Копий на сервере: <b>{len(local)}</b> (7 дней и 4 недели)\n"
             f"Закрытый канал: <b>{'подключён' if channel else 'не указан'}</b>\n"
-            f"Шифрование: <b>{'включено' if backup.PASSWORD else 'выключено'}</b>\n"
             f"Время: каждый день в {backup.HOUR}:00\n\n"
             "Тебе в личку пишу, только если бэкап не получился.\n\n"
             "<b>Восстановить:</b> перешли сюда файл бэкапа из канала, я проверю его и предложу перезапуститься "
             "с этой копией. Текущая база сохранится рядом.")
-    if not backup.PASSWORD:
-        text += ("\n\n<i>Чтобы шифровать файлы, на сервере:</i>\n<code>echo \"BACKUP_PASSWORD=$(openssl rand -hex 16)\" "
-                 ">> /opt/linkhub/.env && grep BACKUP_PASSWORD /opt/linkhub/.env</code>\n"
-                 "<i>Сохрани пароль себе в Избранное и перезапусти бота. Без пароля файлы из канала не открыть.</i>")
     await show(target, text, kb([[("💾 Сделать сейчас", "cfg:bk:now", "success")],
                                  [("📢 Указать канал", "cfg:bk:ch"), ("♻️ Восстановить", "cfg:bk:rs")],
                                  [("⬅️ Настройки", "cfg:menu"), BACK_MENU]]))
@@ -162,7 +157,7 @@ async def on_backup_channel(message: Message, bot: Bot, state: FSMContext) -> No
 @router.callback_query(F.data == "cfg:bk:rs")
 async def cb_backup_restore(cb: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(BackupSet.file)
-    await show(cb, "♻️ <b>Восстановление</b>\n\nПерешли сюда файл бэкапа из канала (baxi-....db.gz или .enc). "
+    await show(cb, "♻️ <b>Восстановление</b>\n\nПерешли сюда файл бэкапа из канала (baxi-....db.gz). "
                    "Я проверю его, и ты решишь, перезапускаться с ним или нет.", kb([[("Отмена", "cfg:bk")]]))
 
 
@@ -171,7 +166,7 @@ async def on_backup_file(message: Message, bot: Bot, state: FSMContext) -> None:
     from bot.services import backup
     doc = message.document
     if not (doc.file_name or "").startswith("baxi-"):
-        return await message.answer("Это не похоже на файл бэкапа Бакси. Нужен файл baxi-....db.gz или .enc.")
+        return await message.answer("Это не похоже на файл бэкапа Бакси. Нужен файл baxi-....db.gz.")
     if doc.file_size and doc.file_size > 20 * 1024 * 1024:
         return await message.answer("Файл больше 20 МБ, через бота его не скачать. Восстанови на сервере: "
                                     "bash /opt/linkhub/deploy/restore.sh путь_к_файлу")

@@ -12,7 +12,7 @@ from aiogram.types import Message
 from bot import ai, brain, config, db, prompts
 from bot.services.out import reply_params as _reply
 from bot.services.out import say, thread_of  # noqa: F401  (thread_of нужен другим модулям)
-from bot.textutil import esc, humanize, mention
+from bot.textutil import esc, humanize, is_laugh, is_mat, mention
 
 log = logging.getLogger(__name__)
 
@@ -109,7 +109,8 @@ async def ai_answer(bot: Bot, chat, message: Message, author: str, text: str, ju
         if jump:
             return  # создателю фразами из базы не отвечаем: там бывают подколы
         reply = (random.choice(CREATOR_FALLBACK) if creator
-                 else await db.random_phrase("text") or random.choice(FALLBACK_REPLIES))
+                 else await db.random_phrase("reply") or await db.random_phrase("text")
+                 or random.choice(FALLBACK_REPLIES))
     await send_text(bot, chat, esc(reply), reply, reply_to=message, reply_name=author)
 
 
@@ -130,10 +131,13 @@ async def phrase_answer(bot: Bot, chat, message: Message, author: str) -> None:
                 return
             except Exception as exc:
                 log.warning("Не отправился %s %s: %s", kind, file_id[:20], exc)
-    phrase = await db.random_phrase("text")
+    # по ситуации: смеются, матерятся или обычный разговор
+    text = message.text or message.caption or ""
+    cat = "laugh" if is_laugh(text) else "mat" if is_mat(text) else "text"
+    phrase = await db.random_phrase(cat) or await db.random_phrase("text")
     if not phrase:
         return
-    if random.random() < 0.5:
+    if cat != "text" or random.random() < 0.5:
         await send_text(bot, chat, esc(phrase), phrase, reply_to=message, reply_name=author)
         return
     # тегнуть кого-нибудь из недавно писавших, как живой участник
@@ -143,6 +147,10 @@ async def phrase_answer(bot: Bot, chat, message: Message, author: str) -> None:
         await send_text(bot, chat, esc(phrase), phrase, reply_to=message, reply_name=author)
         return
     who = random.choice(people)
+    tagged = await db.random_phrase("tag")
+    if tagged and "{name}" in tagged:
+        html_text = esc(tagged).replace("{name}", mention(who["user_id"], who["name"]), 1)
+        return await send_text(bot, chat, html_text, tagged.replace("{name}", who["name"]), thread=thread_of(message))
     await send_text(bot, chat, f"{mention(who['user_id'], who['name'])}, {esc(phrase)}",
                     f"{who['name']}, {phrase}", thread=thread_of(message))
 
@@ -157,7 +165,8 @@ async def greet(bot: Bot, chat, user_id: int, name: str, thread: int | None = No
         html_text = f"{mention(user_id, name)}, {esc(text)}"
         text = f"{name}, {text}"
     else:
-        text = random.choice(GREETINGS).format(name=name)
+        tpl = await db.random_phrase("greet") or random.choice(GREETINGS)
+        text = tpl.replace("{name}", name) if "{name}" in tpl else tpl.format(name=name)
         html_text = esc(text).replace(esc(name), mention(user_id, name), 1)
     await send_text(bot, chat, html_text, text, thread=thread)
 

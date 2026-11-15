@@ -216,6 +216,11 @@ async def tick(bot: Bot) -> None:
         await backup.tick(bot)
     except Exception:
         log.exception("Бэкап: ошибка в расписании")
+    from bot.services import qday
+    try:
+        await qday.tick(bot)
+    except Exception:
+        log.exception("Вопрос дня: ошибка в расписании")
     await stars.expire_titles(bot)
     await stars.refresh_looks()
     await approval.tick(bot)
