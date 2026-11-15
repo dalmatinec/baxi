@@ -1,7 +1,7 @@
 """Админка → Чаты: список, заявки, доступ и аренда, реклама в чате. Сами настройки бота (характер, частота,
 фишки, правила, триггеры) открываются кнопкой «⚙️ Настроить бота» в том же меню, что у админов чатов."""
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 
@@ -52,7 +52,8 @@ async def _card(target, chat_id: int) -> None:
         [("📅 Доступ и аренда", f"ch:s:{cid}:rent"),
          (f"📣 Реклама: {'✅' if c['ads'] else '❌'}", f"ch:ads:{cid}")],
         [("🚫 Отказать", f"ap:no:{cid}", "danger")] if pending else [],
-    ] + _contact(c) + [[("⬅️ Чаты", "ch:list"), BACK_MENU]]))
+    ] + _contact(c) + [[("🚪 Выйти из чата", f"ch:bye:{cid}")] if not pending else [],
+                       [("⬅️ Чаты", "ch:list"), BACK_MENU]]))
 
 
 def _contact(c) -> list[list[tuple]]:
@@ -169,11 +170,22 @@ async def cb_bye(cb: CallbackQuery) -> None:
     chat = await db.get_chat(cid)
     if not chat:
         return await cb.answer("чат не найден")
-    await show(cb, f"⚠️ <b>Вывести бота из чата {esc(chat['title'] or str(cid))}?</b>\n\n"
-                   "Бот попрощается и выйдет. Вернуть его сможет только админ чата, добавив заново, "
-                   "и чат снова придётся одобрить. Настройки и история сохранятся.",
+    await show(cb, f"⚠️ <b>Выйти из чата {esc(chat['title'] or str(cid))}?</b>\n\n"
+                   "Бот попрощается и выйдет. Вернуть его сможет только админ чата, добавив заново.\n\n"
+                   "• <b>Выйти</b>: настройки и история сохранятся, чат будет в «Удалённых чатах».\n"
+                   "• <b>Выйти и убрать из списка</b>: чат исчезнет из админки вместе с историей и статистикой.",
                kb([[("Нет, оставить", f"ch:o:{cid}", "success")],
-                   [("Да, вывести бота", f"ap:no:{cid}", "danger")]]))
+                   [("🚪 Выйти", f"ap:no:{cid}"), ("🗑 Выйти и убрать из списка", f"ch:gone:{cid}", "danger")]]))
+
+
+@router.callback_query(F.data.startswith("ch:gone:"))
+async def cb_leave_delete(cb: CallbackQuery, bot: Bot) -> None:
+    """Выйти из чата и сразу стереть его из базы: для тестовых и ненужных чатов."""
+    cid = int(cb.data.split(":")[2])
+    await approval.leave(bot, cid, "Тебе нужно уйти из этого чата.")
+    await db.delete_chat(cid)
+    await cb.answer("🗑 Вышел и убрал из списка", show_alert=True)
+    await _list(cb)
 
 
 @router.callback_query(F.data.startswith("ch:ads:"))
