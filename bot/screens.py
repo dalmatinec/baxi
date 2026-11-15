@@ -32,20 +32,17 @@ TITLES = {
 
 
 def defaults() -> dict[str, dict]:
-    # /start: общее меню. Профиль, монеты и магазин сюда не входят, они в команде /profile.
-    # Добавить в чат (единственная цветная) / Мои чаты (видят только админы чатов с ботом) / Свой бот и реклама /
-    # что я умею и сайт / поддержка
-    start_buttons = [
-        btn("➕ Добавить в чат", "screen:add", 0, "success"),
-        btn("⚙️ Мои чаты", "act:mychats", 1),
-    ]
+    # /start: общее меню. Профиль, монеты и магазин сюда не входят: это команда /profile.
+    # Мои чаты тоже не здесь: команда /mychats, кнопка в «Добавить в чат» и /settings в самом чате.
+    # Добавить в чат (единственная цветная) / Свой бот, Реклама / Что я умею / Сайт и команды, Поддержка
+    start_buttons = [btn("➕ Добавить в чат", "screen:add", 0, "success")]
     if config.IS_MAIN:
-        start_buttons.append(btn("💼 Свой бот", "screen:wl", 2))
-    start_buttons.append(btn("📣 Реклама", "screen:ads", 2))
-    start_buttons.append(btn("🤖 Что я умею", "screen:help", 3))
+        start_buttons.append(btn("💼 Свой бот", "screen:wl", 1))
+    start_buttons.append(btn("📣 Реклама", "screen:ads", 1))
+    start_buttons.append(btn("🤖 Что я умею", "screen:help", 2))
     if config.SITE_URL:
         start_buttons.append(btn("🌐 Сайт и команды", f"url:{config.SITE_URL}/baxi", 3))
-    start_buttons.append(btn("💬 Поддержка", "act:support", 4))
+    start_buttons.append(btn("💬 Поддержка", "act:support", 3))
     return {
         "start": {
             "text": "👋 <b>Привет, {name}!</b>\n\n"
@@ -89,7 +86,7 @@ def defaults() -> dict[str, dict]:
                     "📅 Аренда: <b>{rent_price}$ в месяц</b>. Своё имя и характер под тему чата, игры, итоги дня, "
                     "викторины, триггеры, зазывала. Оплата криптой (USDT).",
             "buttons": [btn("➕ Выбрать группу", "act:add_group", 0, "success"),
-                        btn("💳 Оплатить аренду", "act:rent", 1),
+                        btn("⚙️ Мои чаты", "act:mychats", 1), btn("💳 Оплатить аренду", "act:rent", 1),
                         btn("🆘 Вопрос по аренде", "act:support:аренда", 2), BACK],
         },
         "ads": {
