@@ -32,19 +32,16 @@ TITLES = {
 
 
 def defaults() -> dict[str, dict]:
-    # порядок главного меню: добавить в чат (зелёная) / профиль и мои чаты / свой бот и реклама /
-    # что я умею и сайт / поддержка внизу. «Мои чаты» видят только те, кто админ в чате с ботом.
+    # главное меню коротко: добавить в чат (единственная цветная) / профиль и магазин / что я умею и сайт /
+    # поддержка. Мои чаты, реклама и свой бот: в профиле (кнопка Ещё) и командами /mychats /ads /mybot.
     start_buttons = [
         btn("➕ Добавить в чат", "screen:add", 0, "success"),
-        btn("👤 Профиль и магазин", "pf:home", 1, "primary"), btn("⚙️ Мои чаты", "act:mychats", 1),
+        btn("👤 Профиль", "pf:home", 1), btn("🛒 Магазин", "pf:shop", 1),
+        btn("🤖 Что я умею", "screen:help", 2),
     ]
-    if config.IS_MAIN:
-        start_buttons.append(btn("💼 Свой бот", "screen:wl", 2))
-    start_buttons.append(btn("📣 Реклама", "screen:ads", 2))
-    start_buttons.append(btn("🤖 Что я умею", "screen:help", 3))
     if config.SITE_URL:
-        start_buttons.append(btn("🌐 Сайт и команды", f"url:{config.SITE_URL}/baxi", 3))
-    start_buttons.append(btn("💬 Поддержка", "act:support", 4))
+        start_buttons.append(btn("🌐 Сайт", f"url:{config.SITE_URL}/baxi", 2))
+    start_buttons.append(btn("💬 Поддержка", "act:support", 3))
     return {
         "start": {
             "text": "👋 <b>Привет, {name}!</b>\n\n"
@@ -88,7 +85,7 @@ def defaults() -> dict[str, dict]:
                     "📅 Аренда: <b>{rent_price}$ в месяц</b>. Своё имя и характер под тему чата, игры, итоги дня, "
                     "викторины, триггеры, зазывала. Оплата криптой (USDT).",
             "buttons": [btn("➕ Выбрать группу", "act:add_group", 0, "success"),
-                        btn("💳 Оплатить аренду", "act:rent", 1, "primary"),
+                        btn("💳 Оплатить аренду", "act:rent", 1),
                         btn("🆘 Вопрос по аренде", "act:support:аренда", 2), BACK],
         },
         "ads": {

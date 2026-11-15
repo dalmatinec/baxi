@@ -80,10 +80,12 @@ async def cmd_shop(message: Message, bot: Bot, state: FSMContext) -> None:
     await open_shop(message)
 
 
-@router.message(Command("terms"))
-async def cmd_terms(message: Message, bot: Bot, state: FSMContext) -> None:
+@router.message(Command("terms", "ads", "mybot"))
+async def cmd_screens(message: Message, bot: Bot, state: FSMContext) -> None:
+    """/terms правила, /ads реклама, /mybot свой бот: экраны, которых нет в главном меню."""
     await state.clear()
-    await menu.show(bot, message, "terms")
+    cmd = (message.text or "").split()[0].lstrip("/").split("@")[0]
+    await menu.show(bot, message, {"terms": "terms", "ads": "ads", "mybot": "wl"}[cmd])
 
 
 @router.message(Command("paysupport", "support"))

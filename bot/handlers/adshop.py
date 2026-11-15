@@ -27,8 +27,7 @@ def _kb(rows: list[list[tuple]]) -> InlineKeyboardMarkup:
 
 
 async def product_rows(user: User) -> list[list[InlineKeyboardButton]]:
-    return [[InlineKeyboardButton(text=f"{p['title']} · ${p['price']:g}", callback_data=f"ao:p:{p['id']}",
-                                  style="primary")]
+    return [[InlineKeyboardButton(text=f"{p['title']} · ${p['price']:g}", callback_data=f"ao:p:{p['id']}")]
             for p in await db.products()
             if p["kind"] not in adorders.SERVICE_KINDS and (p["kind"] != "pin_channel" or config.AD_CHANNEL_ID)]
 
@@ -202,7 +201,7 @@ async def cb_rent(cb: CallbackQuery, bot: Bot) -> None:
                 [InlineKeyboardButton(text="➕ Выбрать чат", url=f"https://t.me/{me.username}?startgroup=true",
                                       style="success")],
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="sc:add")]]))
-    rows = [[(f"💬 {c['title'][:40] or c['chat_id']}", f"rt:{c['chat_id']}", "primary")] for c in chats]
+    rows = [[(f"💬 {c['title'][:40] or c['chat_id']}", f"rt:{c['chat_id']}")] for c in chats]
     await cb.message.answer(f"📅 <b>Аренда на 30 дней · {price}</b>\n\nЗа какой чат платишь?", parse_mode="HTML",
                             reply_markup=_kb(rows + [[("⬅️ Назад", "sc:add")]]))
 

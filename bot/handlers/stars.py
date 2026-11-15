@@ -65,7 +65,7 @@ async def cb_buy(cb: CallbackQuery, bot: Bot) -> None:
 @router.callback_query(F.data == "st:don")
 async def cb_donate(cb: CallbackQuery) -> None:
     items = await stars.items_map()
-    rows = [[(f"{i['title']} ⭐", f"st:b:{k}", "success")] for k, i in items.items() if k.startswith("don")]
+    rows = [[(f"{i['title']} ⭐", f"st:b:{k}")] for k, i in items.items() if k.startswith("don")]
     await cb.answer()
     await cb.message.edit_text("💛 <b>Поддержать бота</b>\n\nВсе донатеры попадают в топ, а самые щедрые "
                                "красуются там на первых местах.", parse_mode="HTML",
@@ -142,7 +142,7 @@ async def look_screen(target: Message | CallbackQuery, user: User) -> None:
                 f"Так тебя видят в чатах:\n{mention(user.id, full_name(user.first_name, user.last_name))}\n\n"
                 "Это везде, где бот тебя упоминает: топы, репутация, итоги, игры, пары.\n"
                 f"Действует <b>{until}</b>.")
-        kb = _kb([[("✨ Свой эмодзи", "st:ve", "primary"), ("✏️ Ник", "st:vn", "primary")],
+        kb = _kb([[("✨ Свой эмодзи", "st:ve"), ("✏️ Ник", "st:vn")],
                   [("↩️ Сбросить вид", "st:vr")], [("⬅️ Профиль", "pf:home")]])
     if isinstance(target, CallbackQuery):
         await target.answer()

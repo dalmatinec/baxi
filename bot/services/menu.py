@@ -22,7 +22,7 @@ EXTRA_ROWS: dict[str, Callable[[User], Awaitable[list[list[InlineKeyboardButton]
 SHOW_IF: dict[str, Callable[[User], Awaitable[bool]]] = {}
 
 
-START_LAYOUT = 3   # 2: новый порядок кнопок, 3: аватарка на приветствии. Сохранённое в базе меню обновляется один раз
+START_LAYOUT = 4   # 2,4: новые кнопки, 3: аватарка на приветствии. Сохранённое в базе меню обновляется один раз
 
 
 async def upgrade_start() -> None:
@@ -34,7 +34,7 @@ async def upgrade_start() -> None:
     row = await db.get_screen("start")
     if row:
         base = screens.defaults()["start"]
-        buttons = json.loads(row["buttons"]) if done == "2" else [dict(b) for b in base["buttons"]]
+        buttons = [dict(b) for b in base["buttons"]]
         await db.save_screen("start", row["text_html"], row["photo"] or base["photo"], buttons)
     await db.kv_set("start_layout", str(START_LAYOUT))
 

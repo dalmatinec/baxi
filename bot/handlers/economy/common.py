@@ -51,17 +51,16 @@ async def profile_lines(user: User) -> list[str]:
              if service.bonus_ready(w) else f"забран ✅, серия {w['streak']} дн.")
     return [f"🪙 Монеты: <b>{w['coins']}</b>",
             f"🌍 Общий уровень <b>{lvl}</b> · {catalog.title_for(lvl)} (#{await store.global_place(user.id)} среди всех)",
-            f"📈 {bar(w['xp'] - lo, hi - lo)} {w['xp'] - lo}/{hi - lo} опыта до {lvl + 1} уровня",
+            f"📈 {bar(w['xp'] - lo, hi - lo, 8)} {w['xp'] - lo}/{hi - lo}",
             f"🎁 Бонус дня: {bonus}",
             f"🐾 Питомец: {pet_line}",
-            f"🎖 Плюшки ранга: {catalog.perks_text(catalog.perks_for(lvl))}"
-            + (f"\n   на {nxt[0]} уровне: {catalog.perks_text(nxt[1])}" if (nxt := catalog.next_perks(lvl)) else ""),
+            f"🎖 Плюшки: {catalog.perks_text(catalog.perks_for(lvl))}",
             *await chat_ranks_lines(user.id)]
 
 
 async def chat_ranks_lines(user_id: int) -> list[str]:
     """Ранги человека в чатах, где он пишет: для профиля."""
-    rows = await store.my_chat_ranks(user_id)
+    rows = await store.my_chat_ranks(user_id, limit=3)
     if not rows:
         return ["🏅 Ранги в чатах: пока нет, пиши в чатах с ботом"]
     return ["🏅 <b>Ранги в чатах:</b>"] + [f"   • {esc(r['title'] or 'чат')[:30]}: {r['level']} · "

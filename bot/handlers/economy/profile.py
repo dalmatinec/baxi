@@ -38,19 +38,26 @@ def PET_EXTRA() -> list:  # noqa: N802  кнопки под карточкой �
 async def profile_screen(user: User) -> tuple[str, object]:
     w = await store.wallet(user.id, name_of(user))
     perks = await db.get_perks(user.id)
-    nick = "✨ Свой ник: есть навсегда" if perks and perks["look_forever"] else "✨ Свой ник: нет, можно купить"
-    text = "\n".join([f"👤 <b>Профиль</b> {mention(user.id, name_of(user))}", "", *await profile_lines(user), nick, "",
-                      "<i>Монеты и питомец общие во всех чатах.</i>"])
+    nick = ["✨ Свой ник: навсегда ✅"] if perks and perks["look_forever"] else []
+    text = "\n".join([f"👤 <b>Профиль</b> {mention(user.id, name_of(user))}", "", *await profile_lines(user), *nick])
+    # мало кнопок и один цвет: зелёная только «Забрать бонус», остальное в «Ещё»
     rows = [[("🎁 Забрать бонус", "pf:bonus", "success")] if service.bonus_ready(w) else [],
-            [("🐾 Мой питомец", "pf:pet", "primary"), ("🛒 Магазин", "pf:shop", "primary")],
-            [("💳 Пополнить", "pf:top", "success"), ("💡 Как заработать", "pf:earn")],
-            [("🤖 О боте и команды", "pf:about"), ("💼 Свой бот", "sc:wl")] if config.IS_MAIN else
-            [("🤖 О боте и команды", "pf:about")],
-            [("📜 Правила", "sc:terms")],
-            [("🌐 Сайт", config.SITE_URL)] if config.SITE_URL else [],
-            [("🧪 Тесты (видишь только ты)", "eca:menu", "danger")] if user.id in config.OWNER_IDS else [],
-            [("⬅️ Меню", "sc:start")]]
+            [("🐾 Питомец", "pf:pet"), ("🛒 Магазин", "pf:shop")],
+            [("💳 Пополнить", "pf:top"), ("💡 Как заработать", "pf:earn")],
+            [("☰ Ещё", "pf:more"), ("⬅️ Меню", "sc:start")]]
     return text, kb(rows)
+
+
+def more_screen(user: User) -> tuple[str, object]:
+    """Всё остальное из лички: мои чаты, реклама, свой бот, о боте, правила."""
+    rows = [[("⚙️ Мои чаты", "act:mychats"), ("📣 Реклама", "sc:ads")],
+            [("💼 Свой бот", "sc:wl"), ("🤖 О боте", "pf:about")] if config.IS_MAIN else [("🤖 О боте", "pf:about")],
+            [("📜 Правила", "sc:terms"), ("💬 Поддержка", "act:support")],
+            [("🧪 Тесты (видишь только ты)", "eca:menu")] if user.id in config.OWNER_IDS else [],
+            [BACK]]
+    return ("☰ <b>Ещё</b>\n\n⚙️ Мои чаты: настроить бота в своём чате\n📣 Реклама в чатах сети\n"
+            + ("💼 Свой бот: такой же, но твой\n" if config.IS_MAIN else "")
+            + "🤖 О боте, 📜 правила и поддержка"), kb(rows)
 
 
 async def shop_screen(user: User) -> tuple[str, object]:
@@ -65,9 +72,9 @@ async def shop_screen(user: User) -> tuple[str, object]:
             f"🐾 <b>Питомцы</b> · {len(catalog.PETS)} видов от {catalog.PETS[catalog.PET_ORDER[0]]['price']} 🪙\n"
             "<i>От улитки до дракона. У каждого своя еда. Кто сильнее, тот выше в топе питомцев чата.</i>\n\n"
             "💳 <b>Пополнить монеты</b> звёздами или криптой")
-    rows = [[("✏️ Настроить мой ник", "st:vip", "success")] if has_nick else
-            [(f"✨ Ник навсегда · {catalog.NICK_PRICE} 🪙", "pf:nick", "success")],
-            [("🐾 Питомцы", "pf:pets", "primary"), ("💳 Пополнить", "pf:top", "success")],
+    rows = [[("✏️ Настроить мой ник", "st:vip")] if has_nick else
+            [(f"✨ Ник навсегда · {catalog.NICK_PRICE} 🪙", "pf:nick")],
+            [("🐾 Питомцы", "pf:pets", "success"), ("💳 Пополнить", "pf:top")],
             [BACK]]
     return text, kb(rows)
 
@@ -86,13 +93,13 @@ def pets_screen() -> tuple[str, object]:
 
 async def topup_screen() -> tuple[str, object]:
     items = await stars.items_map()
-    star_rows = [(f"⭐ {coins} монет · {items[key]['stars']} ⭐", f"pf:st:{key}", "success")
+    star_rows = [(f"{coins} 🪙 · {items[key]['stars']} ⭐", f"pf:st:{key}")
                  for key, (coins, *_) in catalog.COIN_PACKS.items() if key in items]
     rows = [star_rows[i:i + 2] for i in range(0, len(star_rows), 2)]
     text = ("💳 <b>Пополнить монеты</b>\n\n"
             "⭐ <b>Звёздами Telegram</b>: жми на сумму, монеты придут сразу после оплаты.")
     if adorders.can_pay():
-        rows.append([("💎 Криптой (USDT)", "pf:cr", "primary")])
+        rows.append([("💎 Криптой (USDT)", "pf:cr")])
         prices = ", ".join(f"{c} за {usd} USDT" for c, _, usd in catalog.COIN_PACKS.values())
         text += f"\n💎 <b>Криптой</b>: USDT в сети TON или TRC20. {prices}."
     text += ("\n\n⚠️ Монеты игровые: их нельзя вывести или обменять на деньги, возврата после начисления нет. "
@@ -173,6 +180,8 @@ async def _button(cb: CallbackQuery, bot: Bot, state: FSMContext, user: User, ac
         await show(cb, *await profile_screen(user))
     elif action == "shop":
         await show(cb, *await shop_screen(user))
+    elif action == "more":
+        await show(cb, *more_screen(user))
     elif action == "pets":
         await show(cb, *pets_screen())
     elif action == "pet":
@@ -209,7 +218,7 @@ async def _button(cb: CallbackQuery, bot: Bot, state: FSMContext, user: User, ac
                                payload=parts[2], currency="XTR",
                                prices=[LabeledPrice(label=item["title"][:32], amount=item["stars"])])
     elif action == "cr":
-        rows = [[(f"🪙 {coins} монет · {usd} USDT", f"pf:cx:{key}", "success")]
+        rows = [[(f"{coins} 🪙 · {usd} USDT", f"pf:cx:{key}")]
                 for key, (coins, _, usd) in catalog.COIN_PACKS.items()]
         await show(cb, "💎 <b>Пополнить криптой</b>\n\nВыбери сумму. Потом пришлю адрес и точную сумму в USDT, "
                        "монеты придут сами, как только оплата дойдёт.", kb(rows + [[("⬅️ Назад", "pf:top")]]))
@@ -224,7 +233,7 @@ async def _button(cb: CallbackQuery, bot: Bot, state: FSMContext, user: User, ac
         await adorders.start_payment(bot, oid)
     elif action == "earn":
         await show(cb, EARN_TEXT.replace("{bot}", esc(config.DEFAULT_NAME or "бот")),
-                   kb([[("🛒 Магазин", "pf:shop", "primary")], [BACK]]))
+                   kb([[("🛒 Магазин", "pf:shop")], [BACK]]))
     elif action == "about":
         await show(cb, *await about_screen(bot))
     elif action == "nick":

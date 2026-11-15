@@ -157,7 +157,7 @@ async def _with_target(bot: Bot, message: Message, name: str, amount: int) -> No
     text = await texts.render("eco_dice_call", от=mention(user.id, a_name), кому=mention(target.id, b_name),
                               ставка=amount)
     await say(bot, chat_id, text, reply_to=message,
-              markup=kb([[("✅ Принять", "eco:da", "success"), ("🏳 Сдаться", "eco:dd", "danger")]]))
+              markup=kb([[("✅ Принять", "eco:da", "success"), ("🏳 Сдаться", "eco:dd")]]))
 
 
 # ---------- кубики от участников ----------
@@ -243,7 +243,7 @@ async def _duel_button(cb: CallbackQuery, chat_id: int, user: User, action: str)
         d = service.active_duel(chat_id)
         await _edit(cb, await texts.render("eco_dice_go", банк=d.bet * 2, первый=mention(d.a, d.a_name),
                                            второй=mention(d.b, d.b_name)),
-                    kb([[("🏳 Сдаться", "eco:dd", "danger")]]))
+                    kb([[("🏳 Сдаться", "eco:dd")]]))
         return
     result, d = await service.give_up(chat_id, user.id)
     if not result:
