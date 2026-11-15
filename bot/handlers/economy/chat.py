@@ -14,8 +14,8 @@ from aiogram.types import CallbackQuery, Message, User
 
 from bot import db
 from bot.economy import hooks, service, store
-from bot.handlers.economy.common import (card_allowed, kb, name_of, pets_top_text, send_pet, short_wallet,
-                                         top_text)
+from bot.handlers.economy.common import (TOPS_KB_ROWS, card_allowed, kb, name_of, pets_top_text, rank_card,
+                                         send_pet, top_text)
 from bot.middlewares import GROUPS
 from bot.services import texts
 from bot.services.out import say
@@ -26,14 +26,16 @@ router = Router(name="economy_chat")
 
 _TAIL = r"(@\w+)?\s*[!?.]*\s*$"
 COMMANDS = [
-    ("wallet", re.compile(r"^\s*(кошел[её]к|баланс|мой уровень|/wallet|/me)" + _TAIL, re.I)),
+    ("wallet", re.compile(r"^\s*(кошел[её]к|баланс|ранг|мой ранг|мой уровень|/wallet|/me|/rank)" + _TAIL, re.I)),
+    ("tops", re.compile(r"^\s*(топы|/top)" + _TAIL, re.I)),
     ("profile", re.compile(r"^\s*(профиль|мой профиль|магазин|/shop|/profile)" + _TAIL, re.I)),
     ("bonus", re.compile(r"^\s*(бонус|/bonus)" + _TAIL, re.I)),
     ("pet", re.compile(r"^\s*(питомец|мой питомец|/pet)" + _TAIL, re.I)),
     ("feed", re.compile(r"^\s*(покормить|покорми|/feed)" + _TAIL, re.I)),
     ("pets", re.compile(r"^\s*(топ питомцев|питомцы|/pets)" + _TAIL, re.I)),
     ("rich", re.compile(r"^\s*(богачи|топ богачей|топ монет|/rich)" + _TAIL, re.I)),
-    ("levels", re.compile(r"^\s*(топ уровней|/levels)" + _TAIL, re.I)),
+    ("ranks", re.compile(r"^\s*(топ рангов|топ уровней|ранги|/ranks|/levels)" + _TAIL, re.I)),
+    ("global", re.compile(r"^\s*(общий топ|топ везде|/global)" + _TAIL, re.I)),
     ("dice", re.compile(r"^\s*(кости|кубик|/dice)(@\w+)?\s+(\d{1,6})\s*$", re.I)),
     ("dicehelp", re.compile(r"^\s*(/dice|/give)" + _TAIL, re.I)),
     ("gift", re.compile(r"^\s*(передать|перевести|подарить|/give)(@\w+)?\s+(\d{1,6})\s*$", re.I)),
@@ -78,7 +80,9 @@ async def on_eco(message: Message, bot: Bot, eco: tuple[str, str], chat_row) -> 
     chat_id, user = message.chat.id, message.from_user
     try:
         if name == "wallet":
-            await say(bot, chat_id, await short_wallet(user), reply_to=message, markup=await profile_kb(bot))
+            await say(bot, chat_id, await rank_card(chat_id, user), reply_to=message, markup=await profile_kb(bot))
+        elif name == "tops":
+            await say(bot, chat_id, "🏆 <b>Топы</b>: выбирай 👇", reply_to=message, markup=kb(TOPS_KB_ROWS))
         elif name == "profile":
             await say(bot, chat_id, SHOP_HINT, reply_to=message, markup=await profile_kb(bot, "🛒 Открыть в личке"))
         elif name == "bonus":
@@ -95,7 +99,7 @@ async def on_eco(message: Message, bot: Bot, eco: tuple[str, str], chat_row) -> 
                           reply_to=message, markup=hooks.feed_kb(user.id, pet["species"]))
         elif name == "pets":
             await say(bot, chat_id, await pets_top_text(chat_id), reply_to=message)
-        elif name in ("rich", "levels"):
+        elif name in ("rich", "ranks", "global"):
             await say(bot, chat_id, await top_text(chat_id, name), reply_to=message)
         elif name == "rename":
             why = await service.rename_pet(user.id, arg)
@@ -195,7 +199,7 @@ async def on_button(cb: CallbackQuery, bot: Bot) -> None:
     try:
         if action == "w":
             await cb.answer()
-            await say(bot, chat_id, await short_wallet(user), markup=await profile_kb(bot))
+            await say(bot, chat_id, await rank_card(chat_id, user), markup=await profile_kb(bot))
         elif action == "b":
             await cb.answer()
             await say(bot, chat_id, await bonus_text(user))
@@ -205,9 +209,15 @@ async def on_button(cb: CallbackQuery, bot: Bot) -> None:
         elif action == "pet":
             await cb.answer()
             await show_pet(bot, chat, user)
-        elif action == "rich":
+        elif action in ("rich", "ranks", "global"):
             await cb.answer()
-            await say(bot, chat_id, await top_text(chat_id, "rich"))
+            await say(bot, chat_id, await top_text(chat_id, action))
+        elif action == "pets":
+            await cb.answer()
+            await say(bot, chat_id, await pets_top_text(chat_id))
+        elif action == "tops":
+            await cb.answer()
+            await say(bot, chat_id, "🏆 <b>Топы</b>: выбирай 👇", markup=kb(TOPS_KB_ROWS))
         elif action in ("da", "dd"):
             await _duel_button(cb, chat_id, user, action)
         else:

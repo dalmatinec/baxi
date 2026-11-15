@@ -295,7 +295,7 @@ def _texts() -> dict:
             for key, (_, title, default, subs) in texts.TEXTS.items()}
 
 
-GROUP_ICONS = {"Репутация": "💜", "Монеты": "🪙", "Кости": "🎲", "Питомцы": "🐾"}
+GROUP_ICONS = {"Репутация": "💜", "Монеты": "🪙", "Ранги": "🏅", "Кости": "🎲", "Питомцы": "🐾"}
 
 
 @router.callback_query(F.data == "cfg:tx")

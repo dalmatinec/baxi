@@ -23,23 +23,33 @@ def enabled(chat) -> bool:
 
 
 async def on_group_message(bot: Bot, chat, message: Message, name: str) -> None:
-    """Каждое сообщение в чате: опыт и монеты (не чаще 2 раз в минуту), поздравление с уровнем."""
+    """Каждое сообщение в чате: ранг в чате, общий уровень и монеты (не чаще 2 раз в минуту).
+    Новый ранг в чате поздравляем в чате, новый общий уровень в личке (там же новые плюшки)."""
     if not enabled(chat) or message.content_type != "text":
         return
-    up = await service.on_message(message.from_user.id, name, message.text or "")
-    if not up or up[1] < catalog.ANNOUNCE_FROM:
-        return
-    level = up[1]
-    coins = catalog.LEVEL_REWARD * level
-    await store.add_coins(message.from_user.id, coins)
-    text = await texts.render("eco_level", кто=mention(message.from_user.id, name), уровень=level,
-                              звание=catalog.title_for(level), монеты=coins)
-    if catalog.perks_for(level) != catalog.perks_for(up[0]):   # открылись новые плюшки ранга
-        text += f"\n🎖 Новые плюшки: {catalog.perks_text(catalog.perks_for(level))}"
-    try:
-        await say(bot, chat["chat_id"], text)
-    except Exception as exc:
-        log.info("Поздравление с уровнем не ушло: %s", exc)
+    uid = message.from_user.id
+    up = await service.on_message(chat["chat_id"], uid, name, message.text or "")
+    if up["chat"] and up["chat"][1] >= catalog.ANNOUNCE_FROM:
+        level = up["chat"][1]
+        coins = catalog.CHAT_RANK_REWARD * level
+        await store.add_coins(uid, coins)
+        try:
+            await say(bot, chat["chat_id"], await texts.render(
+                "eco_level", кто=mention(uid, name), уровень=level, звание=catalog.title_for(level), монеты=coins))
+        except Exception as exc:
+            log.info("Поздравление с рангом не ушло: %s", exc)
+    if up["global"] and up["global"][1] >= catalog.ANNOUNCE_FROM:
+        level = up["global"][1]
+        coins = catalog.LEVEL_REWARD * level
+        await store.add_coins(uid, coins)
+        perks = catalog.perks_text(catalog.perks_for(level))
+        if catalog.perks_for(level) != catalog.perks_for(up["global"][0]):
+            perks = "🆕 " + perks
+        try:
+            await say(bot, uid, await texts.render("eco_level_global", кто=esc(name), уровень=level,
+                                                   звание=catalog.title_for(level), монеты=coins, плюшки=perks))
+        except Exception:
+            pass   # человек не запускал бота в личке: монеты всё равно начислены
 
 
 # ---------- после оплаты ----------

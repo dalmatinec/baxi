@@ -23,6 +23,18 @@ CREATE TABLE IF NOT EXISTS eco_users (
 );
 CREATE INDEX IF NOT EXISTS eco_users_coins ON eco_users (coins DESC);
 
+-- ранг в каждом чате отдельно: опыт за сообщения именно в этом чате
+CREATE TABLE IF NOT EXISTS eco_chat (
+    chat_id     INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    name        TEXT    NOT NULL DEFAULT '',
+    xp          INTEGER NOT NULL DEFAULT 0,
+    level       INTEGER NOT NULL DEFAULT 1,
+    last_award  REAL    NOT NULL DEFAULT 0,
+    PRIMARY KEY (chat_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS eco_chat_xp ON eco_chat (chat_id, xp DESC);
+
 CREATE TABLE IF NOT EXISTS eco_pets (
     user_id     INTEGER PRIMARY KEY,
     owner       TEXT    NOT NULL DEFAULT '',
@@ -78,6 +90,62 @@ async def spend(user_id: int, amount: int) -> bool:
                                (amount, user_id, amount))
     await conn().commit()
     return cur.rowcount > 0
+
+
+# ---------- ранг в чате ----------
+
+async def chat_rank(chat_id: int, user_id: int, name: str = "") -> aiosqlite.Row:
+    await conn().execute("INSERT OR IGNORE INTO eco_chat (chat_id, user_id, name) VALUES (?, ?, ?)",
+                         (chat_id, user_id, name))
+    if name:
+        await conn().execute("UPDATE eco_chat SET name = ? WHERE chat_id = ? AND user_id = ? AND name != ?",
+                             (name, chat_id, user_id, name))
+    await conn().commit()
+    async with conn().execute("SELECT * FROM eco_chat WHERE chat_id = ? AND user_id = ?", (chat_id, user_id)) as cur:
+        return await cur.fetchone()
+
+
+async def update_chat_rank(chat_id: int, user_id: int, **fields) -> None:
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    await conn().execute(f"UPDATE eco_chat SET {sets} WHERE chat_id = ? AND user_id = ?",
+                         (*fields.values(), chat_id, user_id))
+    await conn().commit()
+
+
+async def chat_rank_top(chat_id: int, limit: int = 10) -> list[aiosqlite.Row]:
+    async with conn().execute("SELECT * FROM eco_chat WHERE chat_id = ? AND xp > 0 ORDER BY xp DESC LIMIT ?",
+                              (chat_id, limit)) as cur:
+        return list(await cur.fetchall())
+
+
+async def chat_rank_place(chat_id: int, user_id: int) -> tuple[int, int]:
+    """(место в чате, сколько всего с рангом)."""
+    async with conn().execute(
+            "SELECT (SELECT COUNT(*) FROM eco_chat o WHERE o.chat_id = e.chat_id AND o.xp > e.xp) + 1, "
+            "(SELECT COUNT(*) FROM eco_chat o WHERE o.chat_id = e.chat_id AND o.xp > 0) "
+            "FROM eco_chat e WHERE e.chat_id = ? AND e.user_id = ?", (chat_id, user_id)) as cur:
+        row = await cur.fetchone()
+    return (row[0], row[1]) if row else (0, 0)
+
+
+async def my_chat_ranks(user_id: int, limit: int = 8) -> list[aiosqlite.Row]:
+    """Ранги человека во всех чатах (для профиля в личке)."""
+    async with conn().execute(
+            "SELECT e.chat_id, e.xp, e.level, COALESCE(c.title, '') AS title FROM eco_chat e "
+            "LEFT JOIN chats c ON c.chat_id = e.chat_id WHERE e.user_id = ? AND e.xp > 0 "
+            "ORDER BY e.xp DESC LIMIT ?", (user_id, limit)) as cur:
+        return list(await cur.fetchall())
+
+
+async def global_top(limit: int = 10) -> list[aiosqlite.Row]:
+    async with conn().execute("SELECT * FROM eco_users WHERE xp > 0 ORDER BY xp DESC LIMIT ?", (limit,)) as cur:
+        return list(await cur.fetchall())
+
+
+async def global_place(user_id: int) -> int:
+    async with conn().execute("SELECT COUNT(*) + 1 FROM eco_users WHERE xp > (SELECT xp FROM eco_users "
+                              "WHERE user_id = ?)", (user_id,)) as cur:
+        return (await cur.fetchone())[0]
 
 
 async def rich_top(chat_id: int, limit: int = 10) -> list[aiosqlite.Row]:

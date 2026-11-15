@@ -19,10 +19,10 @@ HELP_KB = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="🎯 Викторина", callback_data="gm:quiz"),
      InlineKeyboardButton(text="💘 Пара дня", callback_data="gm:couple")],
     [InlineKeyboardButton(text="📊 Итоги", callback_data="gm:results"),
-     InlineKeyboardButton(text="🏆 Топ репы", callback_data="gm:rep_top")],
-    [InlineKeyboardButton(text="🔮 Предсказание", callback_data="gm:predict"),
-     InlineKeyboardButton(text="💰 Кошелёк", callback_data="eco:w")],
-    [InlineKeyboardButton(text="🐾 Мой питомец", callback_data="eco:pet"),
+     InlineKeyboardButton(text="🏆 Топы", callback_data="gm:tops")],
+    [InlineKeyboardButton(text="👤 Мой ранг", callback_data="eco:w"),
+     InlineKeyboardButton(text="🎁 Бонус", callback_data="eco:b")],
+    [InlineKeyboardButton(text="🐾 Питомец", callback_data="eco:pet"),
      InlineKeyboardButton(text="🛒 Магазин", callback_data="eco:shop")],
 ] + ([[InlineKeyboardButton(text="📖 Всё о Бакси и команды", url=f"{config.SITE_URL}/baxi#commands")]]
      if config.SITE_URL else []))
@@ -155,6 +155,10 @@ async def on_game_button(cb: CallbackQuery, bot: Bot) -> None:
     if not chat or not chat["approved"] or not chat["games"]:
         return await cb.answer("игры в этом чате выключены", show_alert=True)
     action, chat_id = cb.data[3:], chat["chat_id"]
+    if action == "tops":
+        from bot.handlers.economy.common import TOPS_KB_ROWS, kb
+        await cb.answer()
+        return await say(bot, chat_id, "🏆 <b>Топы</b>: выбирай 👇", markup=kb(TOPS_KB_ROWS))
     if action == "quiz":
         if not chat["quiz"]:
             return await cb.answer("викторины в этом чате выключены", show_alert=True)
@@ -175,8 +179,8 @@ async def on_game_button(cb: CallbackQuery, bot: Bot) -> None:
     await cb.answer()
     if action == "couple":
         html = await couple_html(bot, chat_id)
-    elif action == "rep_top":
-        html = await top_html(chat_id, "rep_top")
+    elif action in ("rep_top", "quiz_top"):
+        html = await top_html(chat_id, action)
     elif action == "predict":
         html = predict_html(cb.from_user)
     else:

@@ -17,14 +17,29 @@ def today() -> str:
 
 # ---------- опыт и монеты за сообщения ----------
 
-async def on_message(user_id: int, name: str, text: str) -> tuple[int, int] | None:
-    """Начисляет опыт и монеты не чаще раза в 30 секунд (во всех чатах вместе).
-    Если уровень вырос, возвращает (старый, новый)."""
+async def on_message(chat_id: int, user_id: int, name: str, text: str) -> dict:
+    """Сообщение в чате. Два счёта опыта:
+      ранг в этом чате: не чаще раза в 30 секунд в этом чате;
+      общий уровень и монеты: не чаще раза в 30 секунд во всех чатах вместе (плюшки зависят от него).
+    Возвращает {'chat': (старый, новый) или None, 'global': (старый, новый) или None}."""
+    out = {"chat": None, "global": None}
     text = (text or "").strip()
     if len(text) < catalog.MIN_TEXT or text.startswith("/"):
-        return None
-    w = await store.wallet(user_id, name)
+        return out
     now = time.time()
+    r = await store.chat_rank(chat_id, user_id, name)
+    if now - r["last_award"] >= catalog.AWARD_COOLDOWN:
+        cxp = r["xp"] + random.randint(*catalog.XP_PER_MSG)
+        clevel = catalog.level_for(cxp)
+        await store.update_chat_rank(chat_id, user_id, xp=cxp, level=clevel, last_award=now)
+        if clevel > r["level"]:
+            out["chat"] = (r["level"], clevel)
+    out["global"] = await _global_award(user_id, name, now)
+    return out
+
+
+async def _global_award(user_id: int, name: str, now: float) -> tuple[int, int] | None:
+    w = await store.wallet(user_id, name)
     if now - w["last_award"] < catalog.AWARD_COOLDOWN:
         return None
     xp = w["xp"] + random.randint(*catalog.XP_PER_MSG)

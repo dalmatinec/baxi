@@ -50,19 +50,43 @@ async def profile_lines(user: User) -> list[str]:
     bonus = (f"можно забрать 🎁 (+{service.next_bonus(w['streak'] if w['bonus_day'] else 0, lvl)} 🪙)"
              if service.bonus_ready(w) else f"забран ✅, серия {w['streak']} дн.")
     return [f"🪙 Монеты: <b>{w['coins']}</b>",
-            f"⭐ Уровень <b>{lvl}</b> · {catalog.title_for(lvl)}",
+            f"🌍 Общий уровень <b>{lvl}</b> · {catalog.title_for(lvl)} (#{await store.global_place(user.id)} среди всех)",
             f"📈 {bar(w['xp'] - lo, hi - lo)} {w['xp'] - lo}/{hi - lo} опыта до {lvl + 1} уровня",
             f"🎁 Бонус дня: {bonus}",
             f"🐾 Питомец: {pet_line}",
             f"🎖 Плюшки ранга: {catalog.perks_text(catalog.perks_for(lvl))}"
-            + (f"\n   на {nxt[0]} уровне: {catalog.perks_text(nxt[1])}" if (nxt := catalog.next_perks(lvl)) else "")]
+            + (f"\n   на {nxt[0]} уровне: {catalog.perks_text(nxt[1])}" if (nxt := catalog.next_perks(lvl)) else ""),
+            *await chat_ranks_lines(user.id)]
 
 
-async def short_wallet(user: User) -> str:
-    """Одна строка про кошелёк для чата."""
-    w = await store.wallet(user.id, name_of(user))
-    return (f"💰 {mention(user.id, name_of(user))}: <b>{w['coins']} 🪙</b> · {w['level']} ур. · "
-            f"{catalog.title_for(w['level'])}")
+async def chat_ranks_lines(user_id: int) -> list[str]:
+    """Ранги человека в чатах, где он пишет: для профиля."""
+    rows = await store.my_chat_ranks(user_id)
+    if not rows:
+        return ["🏅 Ранги в чатах: пока нет, пиши в чатах с ботом"]
+    return ["🏅 <b>Ранги в чатах:</b>"] + [f"   • {esc(r['title'] or 'чат')[:30]}: {r['level']} · "
+                                          f"{catalog.title_for(r['level'])}" for r in rows]
+
+
+async def rank_card(chat_id: int, user: User) -> str:
+    """Для чата: ранг в этом чате, общий уровень, монеты и питомец."""
+    name = name_of(user)
+    r = await store.chat_rank(chat_id, user.id, name)
+    w = await store.wallet(user.id, name)
+    place, total = await store.chat_rank_place(chat_id, user.id)
+    lo, hi = catalog.xp_for(r["level"]), catalog.xp_for(r["level"] + 1)
+    pet = await store.pet(user.id)
+    return (f"👤 {mention(user.id, name)}\n\n"
+            f"🏅 Ранг в этом чате: <b>{r['level']}</b> · {catalog.title_for(r['level'])}"
+            + (f" · {place} место из {total}" if r["xp"] else "") + "\n"
+            f"📈 {bar(r['xp'] - lo, hi - lo)} {r['xp'] - lo}/{hi - lo}\n"
+            f"🌍 Общий уровень: <b>{w['level']}</b> · {catalog.title_for(w['level'])} "
+            f"(во всех чатах, #{await store.global_place(user.id)})\n"
+            f"🪙 Монеты: <b>{w['coins']}</b>\n"
+            f"🐾 Питомец: {pet_title(pet) if pet else 'нет'}")
+
+
+
 
 
 async def send_pet(bot: Bot, chat_id: int, user: User, bot_name: str, reply_to: Message | None = None,
@@ -110,17 +134,28 @@ async def pets_top_text(chat_id: int) -> str:
     return "\n".join(lines)
 
 
+TOPS = {"rich": "🪙 <b>Богачи чата</b>", "ranks": "🏅 <b>Ранги этого чата</b>",
+        "global": "🌍 <b>Общий топ: все чаты с ботом</b>"}
+
+
 async def top_text(chat_id: int, kind: str) -> str:
-    rows = await (store.rich_top(chat_id) if kind == "rich" else store.level_top(chat_id))
-    title = "🏆 <b>Богачи чата</b>" if kind == "rich" else "⭐ <b>Топ уровней</b>"
+    """rich: монеты среди людей чата; ranks: ранг в этом чате; global: общий уровень во всех чатах."""
+    rows = await {"rich": store.rich_top, "ranks": store.chat_rank_top}[kind](chat_id) if kind != "global" \
+        else await store.global_top()
+    title = TOPS[kind]
     if not rows:
         return f"{title}\n\nПока пусто. Пишите в чат, монеты и опыт капают сами."
     lines = [title, ""]
     for i, r in enumerate(rows):
         place = MEDALS[i] if i < 3 else f"{i + 1}."
-        value = f"{r['coins']} 🪙" if kind == "rich" else f"{r['level']} ур. · {catalog.title_for(r['level'])}"
+        value = f"{r['coins']} 🪙" if kind == "rich" else f"{r['level']} · {catalog.title_for(r['level'])}"
         lines.append(f"{place} {mention(r['user_id'], r['name'])}: <b>{value}</b>")
     return "\n".join(lines)
+
+
+TOPS_KB_ROWS = [[("🏅 Ранги чата", "eco:ranks"), ("🌍 Общий топ", "eco:global")],
+                [("🪙 Богачи", "eco:rich"), ("🐾 Питомцы", "eco:pets")],
+                [("💜 Репутация", "gm:rep_top"), ("🧠 Викторина", "gm:quiz_top")]]
 
 
 EARN_TEXT = (
