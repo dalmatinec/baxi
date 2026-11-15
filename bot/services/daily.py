@@ -146,7 +146,7 @@ async def build_results(bot: Bot, chat, manual: bool = False) -> dict | None:
                       sorted(people, key=lambda p: -p.msgs)[:15])
     rows = await db.history_since(chat_id, since, limit=600)
     system, _ = await talk.context(chat)
-    data = await ai.chat_json([{"role": "system", "content": system},
+    data = await ai.chat_json_as("results", [{"role": "system", "content": system},
                                {"role": "user", "content": prompts.day_task(prompts.transcript(rows, 250, 120),
                                                                             stats)}], max_tokens=400)
 
@@ -318,7 +318,7 @@ async def greet_birthdays(bot: Bot, chat) -> None:
     for user in await db.birthdays_today(chat["chat_id"], now.strftime("%m-%d"), now.year):
         await db.mark_bday(chat["chat_id"], user["user_id"], now.year)
         system, _ = await talk.context(chat)
-        text = prompts.clean_reply(await ai.chat([{"role": "system", "content": system},
+        text = prompts.clean_reply(await ai.chat_as("event", [{"role": "system", "content": system},
                                                   {"role": "user", "content": prompts.bday_task(user["name"],
                                                                                                  user["notes"])}],
                                                  max_tokens=250) or "", chat["bot_name"], limit=700)
@@ -335,6 +335,8 @@ async def tick(bot: Bot) -> None:
         return
     now = datetime.now(config.TZ)
     day = db.today()
+    if now.hour == 4 and now.minute == 30:
+        await db.prune_ai_log()   # разбивку расхода держим 40 дней
     for chat in await db.list_chats():
         ai.CURRENT_CHAT.set(chat)
         try:

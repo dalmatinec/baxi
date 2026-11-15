@@ -45,6 +45,7 @@ async def cb_menu(cb: CallbackQuery, state: FSMContext) -> None:
             "<i>Строки в .env меняются на сервере: nano /opt/linkhub/.env, потом systemctl restart linkhub</i>")
     await show(cb, text, kb([[("💾 Бэкап", "cfg:bk", "primary"), ("😎 Премиум-эмодзи", "cfg:emoji")],
                              [("🎁 Пробный и бесплатный", "cfg:pl"), ("✏️ Тексты бота", "cfg:tx")],
+                             [("🎚 Активность для всех чатов", "cfg:cap")],
                              [("🩺 Состояние сервера", "cfg:hl", "success"), ("🔄 Меню команд", "cfg:cmds")],
                              [BACK_MENU]]))
 
@@ -427,6 +428,46 @@ async def _plans_screen(target) -> None:
                                    f"cfg:pl:trial_cents:{v}") for v in PLAN_STEPS["trial_cents"]],
                                  [("🎭 Общий характер для бесплатных", "cfg:pl:persona")],
                                  [("⬅️ Настройки", "cfg:menu"), BACK_MENU]]))
+
+
+# ---------- потолки активности для всех чатов ----------
+
+CAP_CHANCE = [5, 10, 15, 20, 30, 40, 50]
+CAP_AI = [30, 50, 70, 100]
+
+
+async def _caps(cb: CallbackQuery) -> None:
+    from bot.services import plans
+    st = plans.SETTINGS
+    await show(cb, "🎚 <b>Активность для всех чатов</b>\n\n"
+                   f"📈 <b>Потолок частоты: {st['max_chance']}%</b>\n"
+                   "<i>Как часто бот сам встревает в разговор, из всех сообщений. Админы чатов выбирают у себя "
+                   "1, 5, 10, 15, 20... но не выше потолка. На обращения по имени бот отвечает всегда.</i>\n\n"
+                   f"🤖 <b>Потолок доли ИИ: {st['max_ai_share']}%</b>\n"
+                   "<i>Из реплик, которые бот пишет сам, какую часть пишет нейросеть, остальное фразами из базы. "
+                   "Меньше доля: меньше расход, но бот чуть шаблоннее.</i>\n\n"
+                   "Потолок действует на все чаты, даже если там раньше стояло больше. Ты в своих настройках "
+                   "чатов видишь все шаги, но потолок всё равно режет.",
+               kb([[("Потолок частоты:", "noop")],
+                   [(("✓ " if st["max_chance"] == v else "") + f"{v}%", f"cfg:cap:max_chance:{v}") for v in CAP_CHANCE[:4]],
+                   [(("✓ " if st["max_chance"] == v else "") + f"{v}%", f"cfg:cap:max_chance:{v}") for v in CAP_CHANCE[4:]],
+                   [("Потолок доли ИИ:", "noop")],
+                   [(("✓ " if st["max_ai_share"] == v else "") + f"{v}%", f"cfg:cap:max_ai_share:{v}") for v in CAP_AI],
+                   [("⬅️ Настройки", "cfg:menu"), BACK_MENU]]))
+
+
+@router.callback_query(F.data == "cfg:cap")
+async def cb_caps(cb: CallbackQuery) -> None:
+    await _caps(cb)
+
+
+@router.callback_query(F.data.startswith("cfg:cap:"))
+async def cb_cap_set(cb: CallbackQuery) -> None:
+    from bot.services import plans
+    _, _, key, value = cb.data.split(":")
+    if key in ("max_chance", "max_ai_share"):
+        await plans.set_value(key, int(value))
+    await _caps(cb)
 
 
 @router.callback_query(F.data == "cfg:pl")

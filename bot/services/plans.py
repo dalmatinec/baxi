@@ -31,6 +31,8 @@ DEFAULTS = {
     "nudges": 1,             # напоминаний о платной версии в день в бесплатном чате
     "free_persona": "",      # общий характер для бесплатных чатов ('' значит характер чата как есть)
     "trial_cents": 5,        # пробный чат тратит на нейросеть не больше стольких центов в день (0: без лимита)
+    "max_chance": 20,        # потолок частоты для всех чатов, %: админы чатов выше поставить не могут
+    "max_ai_share": 70,      # потолок доли ИИ в репликах, которые бот пишет сам, %
 }
 SETTINGS: dict = dict(DEFAULTS)
 _used: dict[tuple[int, str], int] = {}     # (чат, день) → сколько ответов ИИ уже дали бесплатному чату
@@ -120,6 +122,19 @@ async def load_spend() -> None:
 
 ai.gate = gate  # ai.chat спрашивает разрешение для чата из ai.CURRENT_CHAT
 ai.on_spend = record_spend
+
+
+def chance_cap() -> float:
+    return int(SETTINGS["max_chance"] or 0) / 100
+
+
+def ai_share_cap() -> float:
+    return int(SETTINGS["max_ai_share"] or 0) / 100
+
+
+def effective(chat) -> tuple[float, float]:
+    """Частота и доля ИИ чата с учётом потолков владельца."""
+    return min(chat["chance"], chance_cap()), min(chat["ai_share"], ai_share_cap())
 
 
 def persona(chat) -> str:

@@ -7,7 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, Message
 
 from bot import ai, config, db
-from bot.textutil import esc
+from bot.textutil import esc, short
 
 router = Router(name="admin-common")
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)
@@ -266,16 +266,49 @@ async def cb_spend(cb: CallbackQuery) -> None:
     rows = await db.spend_report(30)
     lines = [f"{r['day']}: ${r['usd']:.3f} · {r['requests']} запр." for r in rows[:7]]
     month = sum(r["usd"] for r in rows)
+    today = rows[0] if rows and rows[0]["day"] == db.today() else None
+    left = config.DAILY_LIMIT_USD - (today["usd"] if today else 0)
+    peak = "сейчас час пика, всё ×2" if ai.is_peak() else "сейчас обычные цены"
     text = ("🤖 <b>ИИ и расход</b>\n\n"
             + (f"Модель: <code>{config.AI_MODEL}</code>\n" if config.IS_MAIN else "")
-            + f"Лимит в сутки: <b>${config.DAILY_LIMIT_USD:.2f}</b>, примерно ${config.DAILY_LIMIT_USD * 30:.0f} в месяц максимум\n"
+            + f"Лимит в сутки на все чаты: <b>${config.DAILY_LIMIT_USD:.2f}</b>, "
+              f"до ${config.DAILY_LIMIT_USD * 30:.0f} в месяц\n"
+            f"Сегодня осталось: <b>${max(0, left):.3f}</b>\n"
             f"За 30 дней: <b>${month:.3f}</b>\n\n"
             + ("\n".join(lines) if lines else "Пока ни одного запроса.")
-            + "\n\nКогда лимит на сегодня кончается, бот до полуночи отвечает фразами из базы.\n\n"
+            + f"\n\n💡 Считаю как в счёте сервиса: вход ${config.PRICE_IN:g}, из кэша ${config.PRICE_CACHE:g}, "
+              f"ответ ${config.PRICE_OUT:g} за 1 млн токенов, в часы пика ×{config.PRICE_PEAK_X:g} ({peak}). "
+              "Дни до обновления посчитаны по старым ценам, они завышены. Точная сумма: platform.deepseek.com → Usage.\n\n"
+            "Когда лимит на сегодня кончается, бот до полуночи отвечает фразами из базы.\n\n"
             "<b>Изменить лимит в сутки:</b>")
-    steps = [0.3, 0.5, 0.75, 1, 1.5, 2, 3]
+    steps = [0.1, 0.15, 0.2, 0.3, 0.5, 1]
     row = [((f"✓ ${v:g}" if abs(v - config.DAILY_LIMIT_USD) < 1e-9 else f"${v:g}"), f"lim:{v}") for v in steps]
-    await show(cb, text, kb([row[:4], row[4:], [("✏️ Своя сумма", "lim:own")], [BACK_MENU]]))
+    await show(cb, text, kb([[("⏰ По часам", "spend:hour"), ("💬 По чатам", "spend:chat_id"), ("🧩 На что", "spend:kind")],
+                             row[:3], row[3:], [("✏️ Своя сумма", "lim:own")], [BACK_MENU]]))
+
+
+@router.callback_query(lambda c: c.data.startswith("spend:"))
+async def cb_spend_split(cb: CallbackQuery) -> None:
+    """Расход за сегодня: по часам, по чатам или по видам запросов."""
+    by = cb.data.split(":", 1)[1]
+    rows = await db.ai_breakdown(db.today(), by)
+    total = sum(r["usd"] for r in rows) or 1e-9
+    titles = {"hour": "⏰ По часам", "chat_id": "💬 По чатам", "kind": "🧩 На что уходит"}
+    lines = []
+    chats = {c["chat_id"]: c["title"] for c in await db.list_chats(active_only=False)} if by == "chat_id" else {}
+    for r in rows:
+        if by == "hour":
+            name = f"{r['k']:02d}:00"
+        elif by == "chat_id":
+            name = esc(short(chats.get(r["k"]) or ("без чата" if not r["k"] else str(r["k"])), 28))
+        else:
+            name = ai.KINDS.get(r["k"], r["k"])
+        bar = "▰" * max(1, round(8 * r["usd"] / total)) if r["usd"] else "▱"
+        lines.append(f"{name}: <b>${r['usd']:.4f}</b> · {r['requests']} запр. {bar}")
+    text = (f"🤖 <b>{titles.get(by, by)}, сегодня</b>\n\n" + ("\n".join(lines) if lines else "Сегодня запросов пока нет.")
+            + f"\n\nВсего: <b>${sum(r['usd'] for r in rows):.4f}</b> · {sum(r['requests'] for r in rows)} запр.")
+    await show(cb, text, kb([[("⏰ По часам", "spend:hour"), ("💬 По чатам", "spend:chat_id"), ("🧩 На что", "spend:kind")],
+                             [("⬅️ Расход", "spend"), BACK_MENU]]))
 
 
 class LimitEdit(StatesGroup):

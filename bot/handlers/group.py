@@ -50,7 +50,8 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
         hour = datetime.now(config.TZ).hour
         if presets.in_quiet(hour, chat_row["quiet_from"], chat_row["quiet_to"]):
             return  # тихие часы: сам не влезает, но на обращения отвечает
-    chance = chat_row["chance"]
+    from bot.services import plans
+    chance, ai_share = plans.effective(chat_row)   # потолки владельца: админ чата выше не поставит
     if not addressed and chat_row["quiet_until"] > now:
         chance *= presets.QUIET_FACTOR  # «помолчи»: сам влезает в 10 раз реже, на обращения отвечает как обычно
     creator_hit = False
@@ -59,7 +60,7 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
             chance, creator_hit = max(chance, 0.12), True
         elif await _mentions_creator(message):
             chance, creator_hit = max(chance, 0.3), True
-    act = brain.decide(addressed, now, chat_row["last_jump"], chat_row["cooldown"], chance, chat_row["ai_share"])
+    act = brain.decide(addressed, now, chat_row["last_jump"], chat_row["cooldown"], chance, ai_share)
     if act is brain.Act.PHRASE and (creator_hit or user_row["user_id"] in config.CREATOR_IDS):
         act = brain.Act.AI_JUMP  # про создателя говорит сам, а не фразой из базы
     if act is brain.Act.NONE:

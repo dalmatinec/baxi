@@ -74,7 +74,7 @@ async def summary(bot: Bot, chat, message: Message, text: str) -> None:
     people = nominations.people_from_history(rows, await db.reacts_by_user(chat_id, since), await _names(chat_id, rows))
     nom = nominations.nominate(people)
     system, _ = await talk.context(chat)
-    data = await ai.chat_json([{"role": "system", "content": system},
+    data = await ai.chat_json_as("summary", [{"role": "system", "content": system},
                                {"role": "user", "content": prompts.summary_task(prompts.transcript(rows), label)}],
                               max_tokens=500)
     lines = [f"📋 <b>Что было {label}</b> · {nom.total} {plural(nom.total, MSGS)}", ""]
@@ -91,7 +91,7 @@ async def summary(bot: Bot, chat, message: Message, text: str) -> None:
 
 async def joke(bot: Bot, chat, message: Message, author: str) -> None:
     system, _ = await talk.context(chat)
-    answer = await ai.chat([{"role": "system", "content": system},
+    answer = await ai.chat_as("joke", [{"role": "system", "content": system},
                             {"role": "user", "content": prompts.joke_task(author)}],
                            max_tokens=220, temperature=1.2)
     text = prompts.clean_reply(answer or "", chat["bot_name"]) or random.choice(FALLBACK_JOKES)
@@ -155,7 +155,7 @@ async def roast(bot: Bot, chat, message: Message, author_row) -> None:
                  f"мат в {round(s['mat'] * 100 / s['msgs'])}% из них.")
     messages = await db.user_messages(chat_id, target["user_id"], 30)
     system, _ = await talk.context(chat)
-    answer = await ai.chat([{"role": "system", "content": system},
+    answer = await ai.chat_as("roast", [{"role": "system", "content": system},
                             {"role": "user", "content": prompts.roast_task(target["name"], target["notes"],
                                                                            messages, stats)}],
                            max_tokens=320, temperature=1.1)

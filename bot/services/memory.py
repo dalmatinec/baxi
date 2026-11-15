@@ -14,7 +14,11 @@ _tasks: set[asyncio.Task] = set()  # держим ссылки, иначе фо�
 
 
 def due(user) -> bool:
-    return bool(config.MEMORY_EVERY) and user["msg_count"] - user["notes_at"] >= config.MEMORY_EVERY
+    if not config.MEMORY_EVERY:
+        return False
+    if not user["notes"]:   # новичок: первая заметка после MEMORY_FIRST сообщений
+        return user["msg_count"] - user["notes_at"] >= config.MEMORY_FIRST
+    return user["msg_count"] - user["notes_at"] >= config.MEMORY_EVERY
 
 
 async def _update(chat_id: int, user_id: int) -> None:
@@ -29,7 +33,7 @@ async def _update(chat_id: int, user_id: int) -> None:
         messages = await db.user_messages(chat_id, user_id, 30)
         if len(messages) < 5:
             return
-        notes = await ai.chat(prompts.memory_messages(user["name"], user["notes"], messages),
+        notes = await ai.chat_as("memory", prompts.memory_messages(user["name"], user["notes"], messages),
                               max_tokens=200, temperature=0.3)
         if notes:
             await db.set_notes(chat_id, user_id, " ".join(notes.split())[:300], user["msg_count"])

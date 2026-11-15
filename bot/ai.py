@@ -26,11 +26,26 @@ async def budget_left() -> bool:
     return enabled() and await db.spent_today() < config.DAILY_LIMIT_USD
 
 
-def cost(tok_in: int, tok_out: int, tok_cached: int = 0) -> float:
-    """Цена запроса. tok_cached: часть входа, взятая из кэша (характер и правила не меняются), она дешевле."""
+def is_peak(now=None) -> bool:
+    """Часы пика у сервиса (по UTC, пн-пт): в это время всё дороже в PRICE_PEAK_X раз."""
+    from datetime import datetime, timezone
+    now = now or datetime.now(timezone.utc)
+    if now.weekday() >= 5:
+        return False
+    for part in config.PEAK_HOURS_UTC.replace(" ", "").split(","):
+        if "-" in part:
+            start, end = (int(x) for x in part.split("-", 1))
+            if start <= now.hour < end:
+                return True
+    return False
+
+
+def cost(tok_in: int, tok_out: int, tok_cached: int = 0, now=None) -> float:
+    """Цена запроса как в счёте сервиса: вход вне кэша, вход из кэша (характер и правила), ответ, плюс часы пика."""
     tok_cached = min(tok_cached, tok_in)
-    return ((tok_in - tok_cached) * config.PRICE_IN + tok_cached * config.PRICE_CACHE
-            + tok_out * config.PRICE_OUT) / 1e6
+    usd = ((tok_in - tok_cached) * config.PRICE_IN + tok_cached * config.PRICE_CACHE
+           + tok_out * config.PRICE_OUT) / 1e6
+    return usd * (config.PRICE_PEAK_X if is_peak(now) else 1)
 
 
 def cached_tokens(usage: dict) -> int:
@@ -63,10 +78,23 @@ async def close() -> None:
 # (её регистрирует services/plans): у бесплатных чатов нейросеть выключена или ограничена.
 CURRENT_CHAT: ContextVar = ContextVar("current_chat", default=None)
 gate = None
+# вид запроса для разбивки расхода в админке: reply ответы, memory заметки, results итоги и т.д.
+KINDS = {"reply": "💬 ответы в чате", "memory": "🧠 заметки о людях", "results": "📊 итоги дня",
+         "event": "🎉 приветствия, вопрос дня, оживление", "quiz": "🎯 викторины", "joke": "😂 шутки",
+         "roast": "🔥 прожарки", "summary": "📝 что тут было"}
+
+
+async def chat_as(kind: str, messages: list[dict], **kw) -> str | None:
+    """То же, что chat, но с пометкой, на что запрос (для разбивки расхода)."""
+    return await chat(messages, kind=kind, **kw)
+
+
+async def chat_json_as(kind: str, messages: list[dict], **kw) -> dict | None:
+    return await chat_json(messages, kind=kind, **kw)
 
 
 async def chat(messages: list[dict], max_tokens: int | None = None,
-               temperature: float | None = None, json_mode: bool = False) -> str | None:
+               temperature: float | None = None, json_mode: bool = False, kind: str = "reply") -> str | None:
     """Один запрос к модели. None, если ИИ выключен, лимит исчерпан, тариф чата не позволяет или ошибка."""
     if not await budget_left():
         return None
@@ -97,6 +125,7 @@ async def chat(messages: list[dict], max_tokens: int | None = None,
     tok_out = int(usage.get("completion_tokens", 0))
     usd = cost(tok_in, tok_out, cached_tokens(usage))
     await db.add_spend(usd, tok_in, tok_out)
+    await db.add_ai_log(row["chat_id"] if row is not None else 0, kind, usd)
     if row is not None and on_spend is not None:
         await on_spend(row, usd)
     try:
@@ -123,5 +152,6 @@ def parse_json(text: str | None) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-async def chat_json(messages: list[dict], max_tokens: int = 600, temperature: float = 0.9) -> dict | None:
-    return parse_json(await chat(messages, max_tokens=max_tokens, temperature=temperature, json_mode=True))
+async def chat_json(messages: list[dict], max_tokens: int = 600, temperature: float = 0.9,
+                    kind: str = "reply") -> dict | None:
+    return parse_json(await chat(messages, max_tokens=max_tokens, temperature=temperature, json_mode=True, kind=kind))

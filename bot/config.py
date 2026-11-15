@@ -48,20 +48,26 @@ AI_TIMEOUT = _float("AI_TIMEOUT", 40)
 AI_MAX_TOKENS = _int("AI_MAX_TOKENS", 160)
 AI_TEMPERATURE = _float("AI_TEMPERATURE", 1.1)
 
-# Цены модели в долларах за 1 млн токенов, нужны для подсчёта расхода
-PRICE_IN = _float("PRICE_IN", 0.30)
-PRICE_OUT = _float("PRICE_OUT", 1.20)
-# цена входа, который сервис взял из кэша (одинаковое начало запроса: характер, правила). Обычно в 10 раз дешевле
-PRICE_CACHE = _float("PRICE_CACHE", PRICE_IN / 10)
+# Цены модели в долларах за 1 млн токенов, нужны только для подсчёта расхода (платишь ты по тарифу сервиса).
+# По умолчанию тариф DeepSeek Flash в обычные часы; в часы пик всё умножается на PRICE_PEAK_X.
+PRICE_IN = _float("PRICE_IN", 0.15)        # вход, которого нет в кэше
+PRICE_OUT = _float("PRICE_OUT", 0.60)      # ответ нейросети
+PRICE_CACHE = _float("PRICE_CACHE", 0.003)  # вход из кэша: характер и правила, которые не меняются
+if (PRICE_IN, PRICE_OUT) == (0.30, 1.20):  # старые цифры из прежнего .env.example: это цены пика, считаем по новым
+    PRICE_IN, PRICE_OUT = 0.15, 0.60
+PRICE_PEAK_X = _float("PRICE_PEAK_X", 2.0)
+# часы пика по UTC (пн-пт), у DeepSeek 01:00-04:00 и 06:00-10:00, это 06-09 и 11-15 по Алматы
+PEAK_HOURS_UTC = os.getenv("PEAK_HOURS_UTC", "1-4,6-10")
 # Сколько долларов в сутки можно потратить. Кончились, бот отвечает фразами из базы.
-DAILY_LIMIT_USD = _float("DAILY_LIMIT_USD", 0.30)
+DAILY_LIMIT_USD = _float("DAILY_LIMIT_USD", 0.20)
 
 # Сколько последних сообщений чата видит нейросеть
 CONTEXT_MESSAGES = _int("CONTEXT_MESSAGES", 20)
 # Сколько сообщений чата хранить в базе (для памяти о юзерах нужно больше, чем контекст)
 HISTORY_KEEP = _int("HISTORY_KEEP", 2000)
 # Через сколько сообщений юзера обновлять заметки о нём (0 = не обновлять)
-MEMORY_EVERY = _int("MEMORY_EVERY", 25)
+MEMORY_EVERY = _int("MEMORY_EVERY", 50)   # заметку о человеке обновляем раз в столько его сообщений
+MEMORY_FIRST = _int("MEMORY_FIRST", 20)   # первую заметку о новичке пишем пораньше, чтобы бот быстрее его узнал
 
 TZ = ZoneInfo(os.getenv("TZ_NAME", "Asia/Almaty"))
 DATA_DIR = ROOT / os.getenv("DATA_DIR", "data")

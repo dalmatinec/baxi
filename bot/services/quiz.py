@@ -77,7 +77,7 @@ async def start(bot: Bot, chat, message: Message) -> None:
         await talk.typing(bot, chat_id, "...")
         rows = await db.recent_history(chat_id, 80)
         system, _ = await talk.context(chat)
-        data = await ai.chat_json([{"role": "system", "content": system},
+        data = await ai.chat_json_as("quiz", [{"role": "system", "content": system},
                                    {"role": "user", "content": prompts.quiz_task(chat["topic"],
                                                                                   prompts.transcript(rows, 80, 120),
                                                                                   count)}],

@@ -189,8 +189,12 @@ async def card(target, chat_id: int, viewer: int = 0) -> None:
     await _show(target, "\n".join(lines), _kb(rows))
 
 
-def _activity(c) -> tuple[str, list]:
+def _activity(c, owner: bool = False) -> tuple[str, list]:
+    """owner: владелец видит все шаги, админы чатов только до потолков из админки владельца."""
+    from bot.services import plans
     cid = c["chat_id"]
+    cap_chance = 1.0 if owner else plans.chance_cap()
+    cap_ai = 1.0 if owner else plans.ai_share_cap()
     results = f"в {c['results_hour']}:00" if c["results"] else "выкл"
     revive = f"через {c['revive']} мин" if c["revive"] else "выкл"
     text = (f"💬 <b>Активность</b>\n\n"
@@ -204,10 +208,10 @@ def _activity(c) -> tuple[str, list]:
             f"😏 Юмор: <b>{presets.HUMOR.get(c['humor'], '')}</b>\n"
             f"🕚 Итоги дня: <b>{results}</b>\n\n"
             "<i>Если меня зовут по имени или отвечают мне, отвечаю всегда.</i>")
-    steps = list(enumerate(presets.CHANCE_STEPS))
-    rows = [[_opt("выкл" if v == 0 else pct(v), f"mc:v:{cid}:chance:{i}", abs(c["chance"] - v) < 1e-6)
-             for i, v in part] for part in (steps[:5], steps[5:])]
-    rows.append([(f"🤖 ИИ: {pct(c['ai_share'])}", f"mc:c:{cid}:ai_share"),
+    steps = [(i, v) for i, v in enumerate(presets.CHANCE_STEPS) if v <= cap_chance + 1e-9]
+    rows = [[_opt("выкл" if v == 0 else pct(v), f"mc:v:{cid}:chance:{i}", abs(min(c["chance"], cap_chance) - v) < 1e-6)
+             for i, v in steps[k:k + 5]] for k in range(0, len(steps), 5)]
+    rows.append([(f"🤖 ИИ: {pct(min(c['ai_share'], cap_ai))}", f"mc:c:{cid}:ai_share"),
                  (f"⏱ Пауза: {c['cooldown']}с", f"mc:c:{cid}:cooldown")])
     rows.append([_opt("🌙 выкл" if a < 0 else f"{a:02d}-{b:02d}", f"mc:v:{cid}:quiet:{i}",
                       (a, b) == (c["quiet_from"], c["quiet_to"])) for i, (a, b) in enumerate(presets.QUIET_OPTIONS)])
@@ -234,7 +238,8 @@ async def section(target, chat_id: int, sec: str) -> None:
                 [("🎭 Характер", f"mc:e:{cid}:persona"), ("📌 Тема", f"mc:e:{cid}:topic")],
                 [("✨ Готовые характеры", f"wz:s:{cid}")], back]
     elif sec == "act":
-        text, rows = _activity(c)
+        owner = getattr(getattr(target, "from_user", None), "id", 0) in config.OWNER_IDS
+        text, rows = _activity(c, owner)
         rows.append(back)
     elif sec == "fx":
         text = (f"🎲 <b>Фишки в {esc(c['title'] or '')}</b>\n\nНажми, чтобы включить или выключить.\n\n"
@@ -361,7 +366,11 @@ async def cb_change(cb: CallbackQuery, bot: Bot) -> None:
         return
     chat = await db.get_chat(cid)
     if op == "c" and field in CYCLES:
-        await db.update_chat(cid, **{field: presets.next_value(CYCLES[field], chat[field])})
+        steps = CYCLES[field]
+        if field == "ai_share" and cb.from_user.id not in config.OWNER_IDS:
+            from bot.services import plans
+            steps = [v for v in steps if v <= plans.ai_share_cap() + 1e-9]
+        await db.update_chat(cid, **{field: presets.next_value(steps, chat[field])})
         return await section(cb, cid, "act")
     if op == "t" and field in TOGGLE_FIELDS:
         await db.update_chat(cid, **{field: 0 if chat[field] else 1})
@@ -378,7 +387,11 @@ async def cb_value(cb: CallbackQuery, bot: Bot) -> None:
     sec = {"mat": "rules", "qc": "fx", "cw": "call", "cs": "call", "cm": "call"}.get(key, "act")
     try:
         if key == "chance":
-            await db.update_chat(cid, chance=presets.CHANCE_STEPS[int(val)])
+            from bot.services import plans
+            value = presets.CHANCE_STEPS[int(val)]
+            if cb.from_user.id not in config.OWNER_IDS and value > plans.chance_cap() + 1e-9:
+                return await cb.answer(f"максимум {int(plans.chance_cap() * 100)}%", show_alert=True)
+            await db.update_chat(cid, chance=value)
         elif key == "quiet":
             a, b = presets.QUIET_OPTIONS[int(val)]
             await db.update_chat(cid, quiet_from=a, quiet_to=b)

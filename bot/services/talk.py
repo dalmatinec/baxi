@@ -182,7 +182,7 @@ async def in_character(bot: Bot, chat_id: int, situation: str, fallbacks: list[s
     if chat:
         system = prompts.system_prompt(chat["bot_name"], chat["persona"], chat["topic"], chat["title"] or "", [],
                                        await rules(chat))
-        answer = await ai.chat([{"role": "system", "content": system}, {"role": "user", "content": situation}],
+        answer = await ai.chat_as("event", [{"role": "system", "content": system}, {"role": "user", "content": situation}],
                                max_tokens=160)
         text = prompts.clean_reply(answer or "", chat["bot_name"])
     text = text or random.choice(fallbacks)

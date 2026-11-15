@@ -2,7 +2,7 @@
 
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import aiosqlite
 
@@ -89,6 +89,17 @@ CREATE TABLE IF NOT EXISTS spend (
     requests    INTEGER NOT NULL DEFAULT 0,
     tok_in      INTEGER NOT NULL DEFAULT 0,
     tok_out     INTEGER NOT NULL DEFAULT 0
+);
+
+-- разбивка расхода нейросети: по часам (время бота), чатам и видам запросов
+CREATE TABLE IF NOT EXISTS ai_log (
+    day         TEXT    NOT NULL,
+    hour        INTEGER NOT NULL,
+    chat_id     INTEGER NOT NULL,
+    kind        TEXT    NOT NULL,
+    requests    INTEGER NOT NULL DEFAULT 0,
+    usd         REAL    NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, hour, chat_id, kind)
 );
 
 CREATE TABLE IF NOT EXISTS couples (
@@ -748,6 +759,30 @@ async def add_spend(usd: float, tok_in: int, tok_out: int) -> None:
         "ON CONFLICT(day) DO UPDATE SET usd = usd + excluded.usd, requests = requests + 1, "
         "tok_in = tok_in + excluded.tok_in, tok_out = tok_out + excluded.tok_out",
         (today(), usd, tok_in, tok_out))
+    await conn().commit()
+
+
+async def add_ai_log(chat_id: int, kind: str, usd: float) -> None:
+    hour = datetime.now(config.TZ).hour
+    await conn().execute(
+        "INSERT INTO ai_log (day, hour, chat_id, kind, requests, usd) VALUES (?, ?, ?, ?, 1, ?) "
+        "ON CONFLICT(day, hour, chat_id, kind) DO UPDATE SET requests = requests + 1, usd = usd + excluded.usd",
+        (today(), hour, chat_id, kind, usd))
+    await conn().commit()
+
+
+async def ai_breakdown(day: str, by: str) -> list[aiosqlite.Row]:
+    """Расход за день, сгруппированный по hour, chat_id или kind."""
+    assert by in ("hour", "chat_id", "kind")
+    async with conn().execute(f"SELECT {by} AS k, SUM(requests) AS requests, SUM(usd) AS usd FROM ai_log "
+                              f"WHERE day = ? GROUP BY {by} ORDER BY {'k' if by == 'hour' else 'usd DESC'}",
+                              (day,)) as cur:
+        return list(await cur.fetchall())
+
+
+async def prune_ai_log(keep_days: int = 40) -> None:
+    cutoff = (datetime.now(config.TZ) - timedelta(days=keep_days)).strftime("%Y-%m-%d")
+    await conn().execute("DELETE FROM ai_log WHERE day < ?", (cutoff,))
     await conn().commit()
 
 
