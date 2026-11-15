@@ -34,6 +34,7 @@ cp deploy/linkhub.service /etc/systemd/system/linkhub.service
 systemctl daemon-reload
 systemctl enable linkhub >/dev/null
 systemctl restart linkhub
+bash "$DIR/deploy/harden.sh" --quiet || true
 sleep 3
 systemctl --no-pager --lines=8 status linkhub || true
 echo

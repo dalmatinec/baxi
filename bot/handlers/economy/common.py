@@ -1,0 +1,136 @@
+"""Общее для экономики в чате и в личке: тексты профиля и топов, карточка питомца, кнопки."""
+
+import asyncio
+import time
+
+from aiogram import Bot
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message, User
+
+from bot.economy import cards, catalog, hooks, service, store
+from bot.services.out import reply_params, say
+from bot.textutil import esc, full_name, mention
+
+MEDALS = ["🥇", "🥈", "🥉"]
+_render = asyncio.Semaphore(2)            # не больше 2 картинок одновременно: память сервера не скачет
+_card_seen: dict[tuple[int, int], float] = {}
+CARD_COOLDOWN = 15                        # одну и ту же карточку в чате не чаще раза в 15 секунд
+
+
+def name_of(user: User) -> str:
+    return full_name(user.first_name, user.last_name, user.username)
+
+
+def kb(rows: list[list[tuple]]) -> InlineKeyboardMarkup:
+    """Ряды кнопок: (текст, callback или https-ссылка, стиль). Пустые ряды пропускаются."""
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=t, url=d, style=s[0] if s else None) if d.startswith("http") else
+        InlineKeyboardButton(text=t, callback_data=d, style=s[0] if s else None) for t, d, *s in row]
+        for row in rows if row])
+
+
+def bar(part: float, total: float, width: int = 10) -> str:
+    full = max(0, min(width, round(width * part / total))) if total else 0
+    return "▰" * full + "▱" * (width - full)
+
+
+def pet_title(pet) -> str:
+    """Пушок · Кошка, 3 ур. Если клички нет, просто Кошка, 3 ур."""
+    info = catalog.PETS[pet["species"]]
+    name = f"<b>{esc(pet['name'])}</b> · {info['name']}" if pet["name"] != info["name"] else f"<b>{info['name']}</b>"
+    return f"{info['emoji']} {name}, {service.pet_level(pet)} ур."
+
+
+async def profile_lines(user: User) -> list[str]:
+    """Монеты, уровень, опыт, бонус и питомец: для профиля в личке."""
+    w = await store.wallet(user.id, name_of(user))
+    lvl = w["level"]
+    lo, hi = catalog.xp_for(lvl), catalog.xp_for(lvl + 1)
+    pet = await store.pet(user.id)
+    pet_line = (f"{pet_title(pet)} · сытость {int(service.satiety(pet))}%" if pet else "пока нет")
+    bonus = (f"можно забрать 🎁 (+{service.next_bonus(w['streak'] if w['bonus_day'] else 0)} 🪙)"
+             if service.bonus_ready(w) else f"забран ✅, серия {w['streak']} дн.")
+    return [f"🪙 Монеты: <b>{w['coins']}</b>",
+            f"⭐ Уровень <b>{lvl}</b> · {catalog.title_for(lvl)}",
+            f"📈 {bar(w['xp'] - lo, hi - lo)} {w['xp'] - lo}/{hi - lo} опыта до {lvl + 1} уровня",
+            f"🎁 Бонус дня: {bonus}",
+            f"🐾 Питомец: {pet_line}"]
+
+
+async def short_wallet(user: User) -> str:
+    """Одна строка про кошелёк для чата."""
+    w = await store.wallet(user.id, name_of(user))
+    return (f"💰 {mention(user.id, name_of(user))}: <b>{w['coins']} 🪙</b> · {w['level']} ур. · "
+            f"{catalog.title_for(w['level'])}")
+
+
+async def send_pet(bot: Bot, chat_id: int, user: User, bot_name: str, reply_to: Message | None = None,
+                   extra: list | None = None) -> bool:
+    """Карточка питомца картинкой (или текстом без Pillow). False, если питомца нет."""
+    pet = await store.pet(user.id)
+    if not pet:
+        return False
+    sat, lvl, power = service.satiety(pet), service.pet_level(pet), service.pet_power(pet)
+    caption = (f"{pet_title(pet)}\n"
+               f"Хозяин: {mention(user.id, name_of(user))}\n"
+               f"🍖 Сытость {int(sat)}% · 💪 сила {power}"
+               + (f"\n🕓 Последний раз кормил: {esc(pet['fed_by'])}" if pet["fed_by"] else "")
+               + ("\n😿 Голодный питомец не растёт, покорми его" if sat < catalog.PET_XP_HUNGRY else ""))
+    markup = hooks.feed_kb(user.id, pet["species"], extra)
+    async with _render:
+        image = await asyncio.to_thread(cards.pet_card, pet, sat, lvl, power, name_of(user), bot_name)
+    if image is None:
+        await say(bot, chat_id, caption, reply_to=reply_to, markup=markup)
+    else:
+        await bot.send_photo(chat_id, BufferedInputFile(image, "pet.jpg"), caption=caption, parse_mode="HTML",
+                             reply_markup=markup, reply_parameters=reply_params(reply_to))
+    return True
+
+
+def card_allowed(chat_id: int, user_id: int) -> bool:
+    """Защита от спама карточками в чате."""
+    now = time.time()
+    if now - _card_seen.get((chat_id, user_id), 0) < CARD_COOLDOWN:
+        return False
+    _card_seen[(chat_id, user_id)] = now
+    if len(_card_seen) > 5000:
+        _card_seen.clear()
+    return True
+
+
+async def pets_top_text(chat_id: int) -> str:
+    rows = await service.pet_top(chat_id)
+    if not rows:
+        return "🐾 <b>Топ питомцев</b>\n\nПока ни у кого нет питомца. Завести можно в личке бота: магазин → питомцы"
+    lines = ["🐾 <b>Топ питомцев</b>", ""]
+    for i, p in enumerate(rows):
+        place = MEDALS[i] if i < 3 else f"{i + 1}."
+        lines.append(f"{place} {pet_title(p)} · {mention(p['user_id'], p['owner'])} · 💪 {service.pet_power(p)}")
+    return "\n".join(lines)
+
+
+async def top_text(chat_id: int, kind: str) -> str:
+    rows = await (store.rich_top(chat_id) if kind == "rich" else store.level_top(chat_id))
+    title = "🏆 <b>Богачи чата</b>" if kind == "rich" else "⭐ <b>Топ уровней</b>"
+    if not rows:
+        return f"{title}\n\nПока пусто. Пишите в чат, монеты и опыт капают сами."
+    lines = [title, ""]
+    for i, r in enumerate(rows):
+        place = MEDALS[i] if i < 3 else f"{i + 1}."
+        value = f"{r['coins']} 🪙" if kind == "rich" else f"{r['level']} ур. · {catalog.title_for(r['level'])}"
+        lines.append(f"{place} {mention(r['user_id'], r['name'])}: <b>{value}</b>")
+    return "\n".join(lines)
+
+
+EARN_TEXT = (
+    "💡 <b>Как заработать монеты</b>\n\n"
+    "💬 <b>Общайся в чатах</b>, где есть {bot}: за сообщения капают монеты и опыт (не чаще 2 раз в минуту, "
+    "короткие ок и + не считаются).\n"
+    "🎁 <b>Бонус дня</b>: напиши в чате <b>бонус</b> или нажми кнопку в профиле. Каждый день подряд бонус больше, "
+    f"от {catalog.BONUS_BASE} до {catalog.BONUS_MAX} 🪙.\n"
+    "🆙 <b>Новый уровень</b>: за каждый уровень награда, чем выше уровень, тем больше.\n"
+    "🎲 <b>Кости</b>: ответь в чате на сообщение соперника <b>кости 100</b>. У кого на кубике больше, тот забирает банк.\n"
+    "💸 <b>Подарки</b>: друзья могут передать монеты: ответом <b>передать 100</b>.\n"
+    "💳 <b>Пополнить</b>: звёздами Telegram или криптой (USDT), если не хочется ждать.\n\n"
+    "🐾 <b>На что тратить</b>: питомец (от улитки до дракона), корм для него, свой ник навсегда.\n"
+    "Монеты и питомец общие: один кошелёк во всех чатах."
+)

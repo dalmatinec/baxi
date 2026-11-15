@@ -1505,7 +1505,7 @@ SETTING_FIELDS = ["bot_name", "aliases", "persona", "topic", "chance", "ai_share
                   "pairpoll", "results", "results_hour", "rep", "bday", "shop", "quiz", "quiz_count", "quiet_from",
                   "quiet_to", "humor", "mat", "banned", "protect_admins", "call_text", "call_who", "call_style",
                   "call_max"]
-MOVE_TABLES = ["rep_points", "quiz_scores", "call_list", "wallet", "pets"]   # переносятся целиком, с заменой chat_id
+MOVE_TABLES = ["rep_points", "quiz_scores", "call_list"]   # переносятся целиком, с заменой chat_id
 
 
 async def chat_settings(chat_id: int) -> dict:

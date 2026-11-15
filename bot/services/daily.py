@@ -251,6 +251,8 @@ async def write_public_stats() -> None:
 async def run_scheduler(bot: Bot) -> None:
     while True:
         try:
+            # пульс для deploy/health.sh: если файл давно не обновлялся, бот завис, его перезапустят
+            (config.DATA_DIR / "heartbeat").write_text(str(int(time.time())))
             await write_public_stats()
             await tick(bot)
         except asyncio.CancelledError:

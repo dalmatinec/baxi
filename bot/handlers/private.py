@@ -33,12 +33,9 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext, command: Comm
         return await message.answer("💼 <b>Заказать проект</b>\n\nОпиши одним сообщением, что хочешь: бот, сайт, "
                                     "мини-приложение или автоматизацию. Можно с примерами и сроками. "
                                     "Отвечу сюда же.", parse_mode="HTML")
-    if args.startswith("coins") and args[5:].lstrip("-").isdigit():  # пополнение монет криптой из чата
-        from bot.handlers.economy import crypto_menu
-        return await crypto_menu(message, int(args[5:]))
-    if args == "shop":
-        from bot.handlers.stars import dm_shop
-        return await dm_shop(message)
+    if args in ("profile", "shop") or args.startswith("coins"):  # ссылки из чатов: профиль и магазин в личке
+        from bot.handlers.economy.profile import open_profile, open_shop
+        return await (open_shop(message) if args == "shop" else open_profile(message))
     if args == "nick":  # купил ник в чате: сразу экран настройки
         from bot.handlers.stars import look_screen
         return await look_screen(message, message.from_user)
@@ -79,8 +76,8 @@ async def cmd_mychats(message: Message, bot: Bot, state: FSMContext) -> None:
 @router.message(Command("shop"))
 async def cmd_shop(message: Message, bot: Bot, state: FSMContext) -> None:
     await state.clear()
-    from bot.handlers.stars import dm_shop
-    await dm_shop(message)
+    from bot.handlers.economy.profile import open_shop
+    await open_shop(message)
 
 
 @router.message(Command("paysupport", "support"))

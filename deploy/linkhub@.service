@@ -5,6 +5,8 @@
 Description=linkhub client bot %i
 After=network-online.target
 Wants=network-online.target
+# никогда не сдаваться: даже после серии падений systemd снова поднимет бота
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple

@@ -38,22 +38,14 @@ async def shop_rows(user: User) -> list[list[InlineKeyboardButton]]:
 
 
 menu.EXTRA_ROWS["shop"] = shop_rows
-SHOP_IN_DM = False   # магазин в личке пока скрыт: всё покупается в чате (команда «магазин»)
+# старый экран «Магазин» в личке спрятан: его заменил профиль (handlers/economy/profile.py)
 
 
 async def _shop_visible(user: User) -> bool:
-    return SHOP_IN_DM
+    return False
 
 
 menu.SHOW_IF["screen:shop"] = _shop_visible   # прячет кнопку, даже если меню сохранено в базе
-
-
-async def dm_shop(message: Message) -> None:
-    """/shop в личке: магазин скрыт, подсказываем, где покупать, и даём настроить ник, если он куплен."""
-    rows = [[("✨ Мой ник и эмодзи", "st:vip", "success")]] if await stars.has_look(message.from_user.id) else []
-    await message.answer("🛒 Магазин работает прямо в чатах: напиши там <b>магазин</b>. Там ник навсегда, питомцы "
-                         "и пополнение монет звёздами или криптой.", parse_mode="HTML",
-                         reply_markup=_kb(rows) if rows else None)
 
 
 async def _invoice(bot: Bot, chat_id: int, key: str) -> None:
@@ -141,8 +133,8 @@ async def look_screen(target: Message | CallbackQuery, user: User) -> None:
     perks = await db.get_perks(user.id)
     if not await stars.has_look(user.id):
         text = ("✨ <b>Свой ник</b>\n\nПремиум-эмодзи и жирный ник у имени везде, где бот тебя упоминает. "
-                "Покупается навсегда за монеты: напиши в своём чате <b>магазин</b>.")
-        kb = _kb([[("⬅️ В меню", "sc:start")]])
+                "Покупается навсегда за монеты: Профиль → Магазин.")
+        kb = _kb([[("⬅️ Профиль", "pf:home")]])
     else:
         until = "навсегда" if perks["look_forever"] else \
             "до " + datetime.fromtimestamp(perks["vip_until"], config.TZ).strftime("%d.%m.%Y")
@@ -151,7 +143,7 @@ async def look_screen(target: Message | CallbackQuery, user: User) -> None:
                 "Это везде, где бот тебя упоминает: топы, репутация, итоги, игры, пары.\n"
                 f"Действует <b>{until}</b>.")
         kb = _kb([[("✨ Свой эмодзи", "st:ve", "primary"), ("✏️ Ник", "st:vn", "primary")],
-                  [("↩️ Сбросить вид", "st:vr")], [("⬅️ В меню", "sc:start")]])
+                  [("↩️ Сбросить вид", "st:vr")], [("⬅️ Профиль", "pf:home")]])
     if isinstance(target, CallbackQuery):
         await target.answer()
         try:

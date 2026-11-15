@@ -1,0 +1,10 @@
+# Раз в 5 минут проверяет, что бот жив и на сервере хватает места и памяти
+[Unit]
+Description=linkhub health check every 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

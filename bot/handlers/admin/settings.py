@@ -45,7 +45,82 @@ async def cb_menu(cb: CallbackQuery, state: FSMContext) -> None:
             "<i>Строки в .env меняются на сервере: nano /opt/linkhub/.env, потом systemctl restart linkhub</i>")
     await show(cb, text, kb([[("💾 Бэкап", "cfg:bk", "primary"), ("😎 Премиум-эмодзи", "cfg:emoji")],
                              [("🎁 Пробный и бесплатный", "cfg:pl"), ("✏️ Тексты бота", "cfg:tx")],
-                             [("🔄 Обновить меню команд", "cfg:cmds")], [BACK_MENU]]))
+                             [("🩺 Состояние сервера", "cfg:hl", "success"), ("🔄 Меню команд", "cfg:cmds")],
+                             [BACK_MENU]]))
+
+
+# ---------- состояние сервера ----------
+
+STARTED = __import__("time").time()
+
+
+def _mb(n: float) -> str:
+    return f"{n / 1024 / 1024:,.0f} МБ".replace(",", " ")
+
+
+def _meminfo() -> dict:
+    out = {}
+    try:
+        for line in open("/proc/meminfo"):
+            k, v = line.split(":", 1)
+            out[k] = int(v.split()[0]) * 1024
+    except OSError:
+        pass
+    return out
+
+
+def _rss() -> int:
+    try:
+        for line in open("/proc/self/status"):
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1]) * 1024
+    except OSError:
+        pass
+    return 0
+
+
+@router.callback_query(F.data == "cfg:hl")
+async def cb_health(cb: CallbackQuery) -> None:
+    """Сколько ест бот, сколько свободно памяти и диска, жив ли пульс, когда был бэкап."""
+    import shutil
+    import time
+    now = time.time()
+    mem = _meminfo()
+    disk = shutil.disk_usage(config.DATA_DIR)
+    db_size = sum(p.stat().st_size for p in config.DATA_DIR.glob("bot.db*") if p.is_file())
+    backups = sum(p.stat().st_size for p in (config.DATA_DIR / "backups").glob("*") if p.is_file()) \
+        if (config.DATA_DIR / "backups").exists() else 0
+    beat_file = config.DATA_DIR / "heartbeat"
+    beat = now - beat_file.stat().st_mtime if beat_file.exists() else None
+    last_backup = int(await db.kv_get("backup_last") or 0)
+    up = int(now - STARTED)
+    rss, avail, total = _rss(), mem.get("MemAvailable", 0), mem.get("MemTotal", 0)
+    swap_used = mem.get("SwapTotal", 0) - mem.get("SwapFree", 0)
+    warn = []
+    if avail and avail < 200 * 1024 * 1024:
+        warn.append("мало свободной памяти")
+    if disk.free < 1024 ** 3:
+        warn.append("меньше 1 ГБ на диске")
+    if rss > 250 * 1024 * 1024:
+        warn.append("бот ест много памяти, скоро systemd его перезапустит")
+    if beat is None or beat > 300:
+        warn.append("пульс давно не обновлялся")
+    status = "🟢 Всё в порядке" if not warn else "🟠 Внимание: " + ", ".join(warn)
+    text = (f"🩺 <b>Состояние сервера</b>\n\n{status}\n\n"
+            f"🤖 Бот ест: <b>{_mb(rss)}</b> из 300 МБ лимита\n"
+            f"🧠 Память сервера: свободно <b>{_mb(avail)}</b> из {_mb(total)}"
+            + (f", в подкачке {_mb(swap_used)}" if swap_used > 0 else "") + "\n"
+            f"💽 Диск: свободно <b>{disk.free / 1024 ** 3:.1f} ГБ</b> из {disk.total / 1024 ** 3:.0f} ГБ\n"
+            f"🗄 База: {_mb(db_size)}, бэкапы: {_mb(backups)}\n"
+            f"⏱ Работает без перезапуска: {up // 86400} дн. {up % 86400 // 3600} ч. {up % 3600 // 60} мин.\n"
+            f"💓 Пульс: {'нет' if beat is None else f'{int(beat)} с назад'}\n"
+            f"💾 Последний бэкап: {'не было' if not last_backup else f'{int((now - last_backup) / 3600)} ч. назад'}\n"
+            f"💬 Чатов: {len(await db.list_chats())}\n\n"
+            "<b>Защита:</b> автозапуск после перезагрузки, перезапуск при падении, лимит памяти 300 МБ, "
+            "сторож раз в 5 минут (перезапустит зависшего бота и напишет тебе, если мало места), "
+            "логи не больше 300 МБ, ежедневный бэкап. Ставится командой <code>bash /opt/linkhub/deploy/harden.sh</code>")
+    await cb.answer()
+    await show(cb, text, kb([[("🔄 Обновить", "cfg:hl")], [("⬅️ Настройки", "cfg:menu"), BACK_MENU]]))
 
 
 async def _emoji_screen(target) -> None:
@@ -220,22 +295,63 @@ def _texts() -> dict:
             for key, (_, title, default, subs) in texts.TEXTS.items()}
 
 
+GROUP_ICONS = {"Репутация": "💜", "Монеты": "🪙", "Кости": "🎲", "Питомцы": "🐾"}
+
+
 @router.callback_query(F.data == "cfg:tx")
 async def cb_texts(cb: CallbackQuery, state: FSMContext) -> None:
+    """Тексты по разделам: сколько в разделе и сколько уже своих."""
     from bot.services import texts
     await state.clear()
     rows = []
-    for group in texts.groups():
-        items = [(title, f"cfg:tx:{key}") for key, (g, title, _, _) in texts.TEXTS.items() if g == group]
-        rows += [items[i:i + 2] for i in range(0, len(items), 2)]
-    await show(cb, "✏️ <b>Тексты бота в чатах</b>\n\nВыбери, что поменять. Можно с премиум-эмодзи, жирным, "
-                   "курсивом: как пришлёшь, так и будет. Действует во всех чатах.\n\n"
-                   "💡 Обычные эмодзи в текстах бот сам меняет на премиум из эмодзи-пака (Настройки → Эмодзи).",
+    for n, group in enumerate(texts.groups()):
+        keys = [k for k, v in texts.TEXTS.items() if v[0] == group]
+        custom = len([k for k in keys if await db.kv_get(k)])
+        mark = f" · ✏️ {custom} своих" if custom else ""
+        rows.append([(f"{GROUP_ICONS.get(group, '📝')} {group} · {len(keys)}{mark}", f"cfg:txg:{n}")])
+    await show(cb, "✏️ <b>Тексты бота в чатах</b>\n\nСообщения, которые бот пишет сам: репутация, монеты, кости, "
+                   "питомцы. Выбери раздел, внутри можно посмотреть, как всё выглядит, и поменять любой текст.\n\n"
+                   "Можно с премиум-эмодзи, жирным, курсивом: как пришлёшь, так и будет во всех чатах. "
+                   "Обычные эмодзи бот сам меняет на премиум из эмодзи-пака (Настройки → Эмодзи).",
                kb(rows + [[("⬅️ Настройки", "cfg:menu"), BACK_MENU]]))
+
+
+async def _group_screen(cb: CallbackQuery, n: int) -> None:
+    from bot.services import texts
+    group = texts.groups()[n]
+    rows = []
+    for key, (g, title, _, _) in texts.TEXTS.items():
+        if g == group:
+            rows.append([(("✏️ " if await db.kv_get(key) else "") + title, f"cfg:tx:{key}")])
+    await show(cb, f"{GROUP_ICONS.get(group, '📝')} <b>{group}</b>\n\n✏️ значит текст уже свой. "
+                   "Нажми на текст, чтобы посмотреть и поменять.",
+               kb(rows + [[("👁 Показать все, как в чате", f"cfg:txp:{n}", "primary")], [("⬅️ Разделы", "cfg:tx")]]))
+
+
+@router.callback_query(F.data.startswith("cfg:txg:"))
+async def cb_text_group(cb: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await cb.answer()
+    await _group_screen(cb, int(cb.data[8:]))
+
+
+@router.callback_query(F.data.startswith("cfg:txp:"))
+async def cb_text_preview(cb: CallbackQuery) -> None:
+    """Все тексты раздела с примерами имён и чисел, как их увидят в чате."""
+    from bot.services import texts
+    group = texts.groups()[int(cb.data[8:])]
+    parts = [f"👁 <b>{group}: как это выглядит в чате</b>"]
+    for key, (g, title, default, _) in texts.TEXTS.items():
+        if g == group:
+            parts.append(f"<b>{title}</b>\n{texts.sample(key, await db.kv_get(key) or default)}")
+    await cb.answer()
+    await cb.message.answer("\n\n➖➖➖\n\n".join(parts), parse_mode="HTML",
+                            reply_markup=kb([[("⬅️ К разделу", cb.data.replace("txp", "txg"))]]))
 
 
 @router.callback_query(F.data.startswith("cfg:tx:"))
 async def cb_text_item(cb: CallbackQuery, state: FSMContext) -> None:
+    from bot.services import texts
     key = cb.data[7:]
     reset = key.startswith("reset:")
     key = key[6:] if reset else key
@@ -243,12 +359,17 @@ async def cb_text_item(cb: CallbackQuery, state: FSMContext) -> None:
     if reset:
         await db.kv_set(key, "")
         await cb.answer("Вернул стандартный")
-    current = await db.kv_get(key) or default
+    own = await db.kv_get(key)
+    current = own or default
+    group_n = texts.groups().index(texts.TEXTS[key][0])
     await state.set_state(TextEdit.value)
     await state.update_data(key=key)
-    await show(cb, f"✏️ <b>{title}</b>\n\nСейчас:\n{current}\n\n<b>Подстановки</b> (нажми, чтобы скопировать): {hint}\n\n"
-                   "Пришли новый текст сообщением.",
-               kb([[("↩️ Вернуть стандартный", f"cfg:tx:reset:{key}")], [("⬅️ Тексты", "cfg:tx")]]))
+    await show(cb, f"✏️ <b>{title}</b> ({'свой' if own else 'стандартный'})\n\n"
+                   f"<b>Так увидят в чате:</b>\n{texts.sample(key, current)}\n\n"
+                   f"<b>Подстановки</b> (нажми, чтобы скопировать): {hint}\n\n"
+                   "Пришли новый текст сообщением. Подстановки бот сам заменит на имена и числа.",
+               kb([[("↩️ Вернуть стандартный", f"cfg:tx:reset:{key}")] if own else [],
+                   [("⬅️ К разделу", f"cfg:txg:{group_n}")]]))
 
 
 @router.message(TextEdit.value, F.text)
@@ -260,7 +381,7 @@ async def on_text_value(message: Message, state: FSMContext) -> None:
     from bot.services import texts
     await message.answer(f"✅ {title}: сохранил. Так это будет выглядеть:\n\n"
                          + texts.sample(key, message.html_text[:1500]),
-                         parse_mode="HTML", reply_markup=kb([[("⬅️ Тексты", "cfg:tx")]]))
+                         parse_mode="HTML", reply_markup=kb([[("⬅️ К разделу", f"cfg:txg:{texts.groups().index(texts.TEXTS[key][0])}")]]))
 
 
 # ---------- пробный и бесплатный тарифы ----------

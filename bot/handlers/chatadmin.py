@@ -705,7 +705,7 @@ async def cb_move_to(cb: CallbackQuery, bot: Bot) -> None:
         rent = f"\n📅 Аренда до {until_text(a['rent_until'])} перейдёт в новый чат." if a["rent_until"] else ""
         return await _show(cb, f"📦 Перенести всё из <b>{esc(a['title'] or '')}</b> в <b>{esc(b['title'] or '')}</b>?\n\n"
                                "Настройки нового чата заменятся настройками старого, память о людях, репутация, "
-                               f"топ викторины, монеты, питомцы и триггеры добавятся.{rent}\n\nСтарый чат после переноса выключится.",
+                               f"топ викторины и триггеры добавятся (монеты и питомцы у людей общие, их переносить не нужно).{rent}\n\nСтарый чат после переноса выключится.",
                            _kb([[("✅ Да, перенести", f"mc:MT:{src}:{dst}", "success")], [("Отмена", f"mc:mv:{src}")]]))
     counts = await db.move_chat(src, dst)
     triggers.forget(dst)
@@ -715,7 +715,7 @@ async def cb_move_to(cb: CallbackQuery, bot: Bot) -> None:
     await cb.answer("✅ Перенесено", show_alert=True)
     try:
         await cb.message.answer(f"✅ Готово! Перенёс в <b>{esc(b['title'] or '')}</b>: настройки, людей "
-                                f"({counts.get('users', 0)}), репутацию, викторину, монеты, питомцев и триггеры "
+                                f"({counts.get('users', 0)}), репутацию, викторину и триггеры "
                                 f"({counts.get('triggers', 0)}).", parse_mode="HTML")
     except Exception:
         pass

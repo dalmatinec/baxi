@@ -30,11 +30,11 @@ DEFAULT_PRODUCTS = [
 ]
 # не реклама, а оплата аренды и своего бота: продаются через те же заказы и ту же оплату USDT
 SERVICE_PRODUCTS = [("rent", "📅 Аренда бота на 30 дней", 50, 30, 20), ("wl", "💼 Свой бот", 100, 1, 21)]
-SERVICE_KINDS = {"rent", "wl", "coins"}   # coins: монеты в чат, days = сколько монет, target = чат
+SERVICE_KINDS = {"rent", "wl", "coins"}   # coins: монеты на кошелёк, days = сколько монет
 KIND_TEXT = {
     "rent": "бот в твоём чате на 30 дней, со своим характером и всеми фишками",
     "wl": "свой бот: исходный код, любые настройки, установка на твой сервер",
-    "coins": "монеты на кошелёк в чате",
+    "coins": "монеты на кошелёк (общий во всех чатах)",
     "groups": "пост выходит во всех чатах сети, где включена реклама",
     "pin_groups": "пост выходит во всех чатах сети и висит в закрепе сутки",
     "pin_channel": "пост в канале с закрепом на сутки",
@@ -316,8 +316,8 @@ async def run_service(bot: Bot, order) -> None:
     if order["kind"] == "coins":
         from bot.economy import hooks
         name = order["user_name"].split(" @")[0]
-        result = await hooks.paid_coins(bot, order["target"], order["user_id"], name, int(order["days"]))
-        await db.update_order(oid, status="done", result=f"{order['days']} монет в чат {order['target']}")
+        result = await hooks.paid_coins(bot, order["user_id"], name, int(order["days"]))
+        await db.update_order(oid, status="done", result=f"{order['days']} монет начислено")
         await _tell(bot, order["user_id"], result)
         return
     if order["kind"] == "rent":

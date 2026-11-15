@@ -34,7 +34,22 @@ async def sanitize_requests(make_request, bot, method):
             updates["reply_markup"] = InlineKeyboardMarkup(inline_keyboard=new_rows)
     if updates:
         method = method.model_copy(update=updates)
-    return await make_request(bot, method)
+    return await _with_flood_retry(make_request, bot, method)
+
+
+async def _with_flood_retry(make_request, bot, method):
+    """Telegram просит подождать (слишком много сообщений): ждём и пробуем ещё раз, а не теряем сообщение.
+    Долгие паузы не ждём, чтобы бот не завис."""
+    import asyncio
+
+    from aiogram.exceptions import TelegramRetryAfter
+    try:
+        return await make_request(bot, method)
+    except TelegramRetryAfter as exc:
+        if exc.retry_after > 30:
+            raise
+        await asyncio.sleep(exc.retry_after + 0.5)
+        return await make_request(bot, method)
 
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)
 

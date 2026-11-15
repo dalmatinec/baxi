@@ -1,8 +1,7 @@
 """Магазин за Telegram Stars. Звёзды только пополняют монеты, остальное покупается за монеты.
 
-В чате (команда «магазин», bot/handlers/economy.py):
-  c1500 … c25000   пачки монет для этого чата (то же самое можно оплатить USDT, см. handlers/economy.py)
-Магазин в личке пока скрыт. VIP, щит и прожарку за звёзды больше не продаём: уже купленные доживают срок.
+Магазин в личке бота (bot/handlers/economy/profile.py):
+  c1500 … c25000   пачки монет на общий кошелёк человека (то же самое можно оплатить USDT) VIP, щит и прожарку за звёзды больше не продаём: уже купленные доживают срок.
 Звёзды выводятся владельцем через Fragment, возврат делается из админки."""
 
 import logging
@@ -27,7 +26,7 @@ DEFAULT_ITEMS += [
 ]
 CHAT_ITEMS = tuple(catalog.COIN_PACKS)
 
-DESCRIPTIONS = {key: f"{pack[0]} монет на твой кошелёк в этом чате" for key, pack in catalog.COIN_PACKS.items()}
+DESCRIPTIONS = {key: f"{pack[0]} монет на твой кошелёк. Монеты общие во всех чатах." for key, pack in catalog.COIN_PACKS.items()}
 
 
 def item_text(key: str) -> str:
@@ -105,8 +104,8 @@ def parse_payload(p: str) -> dict:
 async def check(bot: Bot, raw_payload: str, buyer_id: int) -> str | None:
     """Проверка перед оплатой. Строка: почему нельзя купить. None: можно."""
     p = parse_payload(raw_payload)
-    if p["item"] in catalog.COIN_PACKS and not p.get("chat_id"):
-        return "Пополнять монеты нужно из чата: напиши там магазин"
+    if p["item"] not in catalog.COIN_PACKS and not p["item"].startswith("don"):
+        return "Этот товар больше не продаётся"
     return None
 
 
@@ -117,8 +116,8 @@ async def apply(bot: Bot, raw_payload: str, buyer_id: int, buyer_name: str) -> s
     if item.startswith("don"):
         return f"💛 Спасибо за поддержку, {esc(buyer_name)}! Ты в топе донатеров."
     from bot.economy import hooks
-    if item in catalog.COIN_PACKS and p.get("chat_id"):
-        return await hooks.paid_coins(bot, p["chat_id"], buyer_id, buyer_name, catalog.COIN_PACKS[item][0])
+    if item in catalog.COIN_PACKS:
+        return await hooks.paid_coins(bot, buyer_id, buyer_name, catalog.COIN_PACKS[item][0])
     return "Готово."
 
 

@@ -17,5 +17,7 @@ done
 if [ -d /var/www/site ]; then
     cp -r /opt/linkhub/site/. /var/www/site/
 fi
+# защита: сторож, лимиты логов, автозапуск (повторный запуск безопасен)
+bash /opt/linkhub/deploy/harden.sh --quiet || echo "harden.sh: не всё получилось, запусти его отдельно"
 sleep 2
 systemctl --no-pager --lines=5 status linkhub || true

@@ -1,0 +1,7 @@
+# Сторож бота: deploy/health.sh. Запускается таймером linkhub-health.timer раз в 5 минут.
+[Unit]
+Description=linkhub health check
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/linkhub/deploy/health.sh
