@@ -189,6 +189,9 @@ async def card(target, chat_id: int, viewer: int = 0) -> None:
     await _show(target, "\n".join(lines), _kb(rows))
 
 
+LOCKED = "🔒 Частоту, долю ИИ и паузу в этом чате настроил владелец бота"
+
+
 def _activity(c, owner: bool = False) -> tuple[str, list]:
     """owner: владелец видит все шаги, админы чатов только до потолков из админки владельца."""
     from bot.services import plans
@@ -240,6 +243,13 @@ async def section(target, chat_id: int, sec: str) -> None:
     elif sec == "act":
         owner = getattr(getattr(target, "from_user", None), "id", 0) in config.OWNER_IDS
         text, rows = _activity(c, owner)
+        if c["act_locked"] and not owner:   # закреплено владельцем: показываем значения, без кнопок частоты
+            text += f"\n\n{LOCKED}"
+            rows = [r for r in rows if not any(":chance:" in b[1] or ":ai_share" in b[1] or ":cooldown" in b[1]
+                                               for b in r)]
+        if owner:
+            rows.insert(0, [(("🔒 Закреплено владельцем" if c["act_locked"] else "🔓 Админы чата могут менять"),
+                             f"mc:lock:{cid}")])
         rows.append(back)
     elif sec == "fx":
         text = (f"🎲 <b>Фишки в {esc(c['title'] or '')}</b>\n\nНажми, чтобы включить или выключить.\n\n"
@@ -355,6 +365,18 @@ async def cb_section(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
 
 
 CYCLES = {"ai_share": presets.AI_SHARE_STEPS, "cooldown": presets.COOLDOWN_STEPS}
+
+
+@router.callback_query(F.data.startswith("mc:lock:"))
+async def cb_lock(cb: CallbackQuery) -> None:
+    """Только владелец: закрепить настройки активности чата, чтобы админы чата их не меняли."""
+    if cb.from_user.id not in config.OWNER_IDS:
+        return await cb.answer()
+    cid = int(cb.data.split(":")[2])
+    chat = await db.get_chat(cid)
+    await db.update_chat(cid, act_locked=0 if chat["act_locked"] else 1)
+    await cb.answer("🔒 Закреплено: админы чата не поменяют" if not chat["act_locked"] else "🔓 Админы снова могут менять")
+    await section(cb, cid, "act")
 TOGGLE_FIELDS = set(CLIENT_TOGGLES) | {"protect_admins"}
 
 
@@ -365,6 +387,8 @@ async def cb_change(cb: CallbackQuery, bot: Bot) -> None:
     if not await _guard(cb, bot, cid):
         return
     chat = await db.get_chat(cid)
+    if op == "c" and field in CYCLES and chat["act_locked"] and cb.from_user.id not in config.OWNER_IDS:
+        return await cb.answer(LOCKED, show_alert=True)
     if op == "c" and field in CYCLES:
         steps = CYCLES[field]
         if field == "ai_share" and cb.from_user.id not in config.OWNER_IDS:
@@ -386,6 +410,8 @@ async def cb_value(cb: CallbackQuery, bot: Bot) -> None:
         return
     sec = {"mat": "rules", "qc": "fx", "cw": "call", "cs": "call", "cm": "call"}.get(key, "act")
     try:
+        if key == "chance" and (await db.get_chat(cid))["act_locked"] and cb.from_user.id not in config.OWNER_IDS:
+            return await cb.answer(LOCKED, show_alert=True)
         if key == "chance":
             from bot.services import plans
             value = presets.CHANCE_STEPS[int(val)]

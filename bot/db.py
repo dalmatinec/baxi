@@ -324,6 +324,7 @@ NEW_COLUMNS = {
         "bday": "INTEGER NOT NULL DEFAULT 1",           # поздравления с ДР
         "results_hour": "INTEGER NOT NULL DEFAULT 23",
         "card_style": "INTEGER NOT NULL DEFAULT -1",     # цвет карточек итогов (-1: свой по номеру чата)
+        "act_locked": "INTEGER NOT NULL DEFAULT 0",      # владелец закрепил частоту, долю ИИ и паузу: админ чата не меняет
         "last_results": "TEXT NOT NULL DEFAULT ''",
         "last_pairpoll": "TEXT NOT NULL DEFAULT ''",
         "results_manual": "REAL NOT NULL DEFAULT 0",      # когда последний раз звали «итоги»
@@ -381,7 +382,7 @@ NEW_COLUMNS = {
 
 CHAT_FIELDS = {"bot_name", "aliases", "persona", "topic", "chance", "ai_share",
                "cooldown", "greet", "games", "ads", "title", "active", "last_jump",
-               "pairpoll", "results", "rep", "bday", "results_hour", "last_results", "last_pairpoll",
+               "pairpoll", "results", "rep", "bday", "results_hour", "last_results", "last_pairpoll", "card_style", "act_locked",
                "results_manual", "approved", "pending_since", "added_by", "rent_until", "rent_warned", "members",
                "shop", "added_name", "added_username", "quiz", "quiz_count", "quiet_from", "quiet_to",
                "quiet_until", "humor", "mat", "banned", "protect_admins", "call_text", "call_who", "call_style",
@@ -760,6 +761,16 @@ async def add_spend(usd: float, tok_in: int, tok_out: int) -> None:
         "tok_in = tok_in + excluded.tok_in, tok_out = tok_out + excluded.tok_out",
         (today(), usd, tok_in, tok_out))
     await conn().commit()
+
+
+async def rescale_old_spend() -> None:
+    """Один раз после перехода на честные цены: дни, посчитанные по старым ценам (0.30/1.20 без кэша),
+    уменьшаем до реальных. Коэффициент 0.36 взят из сверки со счётом DeepSeek ($0.30 против $0.837)."""
+    if await kv_get("spend_rescaled") == "1":
+        return
+    await conn().execute("UPDATE spend SET usd = usd * 0.36")
+    await conn().commit()
+    await kv_set("spend_rescaled", "1")
 
 
 async def add_ai_log(chat_id: int, kind: str, usd: float) -> None:

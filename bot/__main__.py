@@ -24,6 +24,7 @@ async def main() -> None:
     await db.connect()
     from bot.economy import store as economy_store
     await economy_store.init()  # таблицы кошельков и питомцев
+    await db.rescale_old_spend()   # один раз: старые дни по старым ценам приводим к реальным
     limit = await db.kv_get("daily_limit")
     if limit:
         config.DAILY_LIMIT_USD = float(limit)  # лимит, заданный в админке, главнее .env

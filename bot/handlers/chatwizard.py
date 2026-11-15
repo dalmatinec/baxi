@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from bot import db, presets
+from bot import config, db, presets
 from bot.handlers.chatadmin import DENIED, _guard, _kb, _show, can_manage
 from bot.textutil import esc, short
 
@@ -123,8 +123,10 @@ async def cb_freq(cb: CallbackQuery, bot: Bot) -> None:
     cid = int(cid)
     if not await _guard(cb, bot, cid):
         return
-    try:
-        await db.update_chat(cid, chance=FREQ[int(i)][1])
-    except (ValueError, IndexError):
-        pass
+    chat = await db.get_chat(cid)
+    if not (chat["act_locked"] and cb.from_user.id not in config.OWNER_IDS):   # закреплено владельцем: не трогаем
+        try:
+            await db.update_chat(cid, chance=FREQ[int(i)][1])
+        except (ValueError, IndexError):
+            pass
     await done(cb, cid)

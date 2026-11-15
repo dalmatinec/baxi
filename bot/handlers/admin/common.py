@@ -278,12 +278,13 @@ async def cb_spend(cb: CallbackQuery) -> None:
             + ("\n".join(lines) if lines else "Пока ни одного запроса.")
             + f"\n\n💡 Считаю как в счёте сервиса: вход ${config.PRICE_IN:g}, из кэша ${config.PRICE_CACHE:g}, "
               f"ответ ${config.PRICE_OUT:g} за 1 млн токенов, в часы пика ×{config.PRICE_PEAK_X:g} ({peak}). "
-              "Дни до обновления посчитаны по старым ценам, они завышены. Точная сумма: platform.deepseek.com → Usage.\n\n"
+              "Точная сумма: platform.deepseek.com → Usage.\n\n"
             "Когда лимит на сегодня кончается, бот до полуночи отвечает фразами из базы.\n\n"
             "<b>Изменить лимит в сутки:</b>")
     steps = [0.1, 0.15, 0.2, 0.3, 0.5, 1]
     row = [((f"✓ ${v:g}" if abs(v - config.DAILY_LIMIT_USD) < 1e-9 else f"${v:g}"), f"lim:{v}") for v in steps]
     await show(cb, text, kb([[("⏰ По часам", "spend:hour"), ("💬 По чатам", "spend:chat_id"), ("🧩 На что", "spend:kind")],
+                             [("🎚 Частота и доля ИИ для всех чатов", "cfg:cap")],
                              row[:3], row[3:], [("✏️ Своя сумма", "lim:own")], [BACK_MENU]]))
 
 
