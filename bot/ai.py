@@ -5,6 +5,7 @@
 import asyncio
 import json
 import logging
+from contextvars import ContextVar
 import re
 
 import httpx
@@ -45,10 +46,19 @@ async def close() -> None:
         await _client.aclose()
 
 
+# Чат, для которого сейчас работает бот (ставит GroupTracker и планировщик), и проверка тарифа
+# (её регистрирует services/plans): у бесплатных чатов нейросеть выключена или ограничена.
+CURRENT_CHAT: ContextVar = ContextVar("current_chat", default=None)
+gate = None
+
+
 async def chat(messages: list[dict], max_tokens: int | None = None,
                temperature: float | None = None, json_mode: bool = False) -> str | None:
-    """Один запрос к модели. None, если ИИ выключен, лимит исчерпан или ошибка."""
+    """Один запрос к модели. None, если ИИ выключен, лимит исчерпан, тариф чата не позволяет или ошибка."""
     if not await budget_left():
+        return None
+    row = CURRENT_CHAT.get()
+    if row is not None and gate is not None and not gate(row):
         return None
     payload = {
         "model": config.AI_MODEL,

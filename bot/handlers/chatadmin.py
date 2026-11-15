@@ -155,6 +155,8 @@ def last_days(n: int) -> list[str]:
 
 def status_line(c) -> str:
     from bot.services.approval import until_text
+    if c["free"]:
+        return "🆓 бесплатная версия: без нейросети, отвечаю заготовками"
     if c["rent_until"]:
         kind = "🎁 пробный до" if c["trial"] else "📅 аренда до"
         return f"🟢 работаю · {kind} {until_text(c['rent_until'])}"
@@ -179,7 +181,8 @@ async def card(target, chat_id: int, viewer: int = 0) -> None:
         [("📝 Триггеры", f"mc:s:{cid}:trig"), ("📣 Зазывала", f"mc:s:{cid}:call")],
         [("📊 Статистика", f"mc:s:{cid}:stats"), ("🧰 Перенос и экспорт", f"mc:s:{cid}:tools")],
         [("👀 Пробный ответ", f"mc:try:{cid}", "primary")],
-        [("💳 Продлить аренду", f"rt:{cid}"), ("🆘 Владельцу", f"mc:sup:{cid}")],
+        [("💳 Подключить платную" if c["free"] or c["trial"] else "💳 Продлить аренду", f"rt:{cid}",
+          "success" if c["free"] else None), ("🆘 Владельцу", f"mc:sup:{cid}")],
         [("🧹 Стереть память", f"mc:w:{cid}", "danger")],
         [("⬅️ Мои чаты", "mc:list")] + ([("👑 В админку", f"ch:o:{cid}")] if viewer in config.OWNER_IDS else []),
     ]

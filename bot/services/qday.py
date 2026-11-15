@@ -37,6 +37,7 @@ async def question(chat) -> str:
 
 
 async def post(bot: Bot, chat) -> None:
+    ai.CURRENT_CHAT.set(chat)
     queue = [q for q in (chat["qday_queue"] or "").splitlines() if q.strip()]
     if queue:  # свой вопрос от админа чата идёт первым
         q = queue.pop(0).strip()

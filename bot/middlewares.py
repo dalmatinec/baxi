@@ -6,7 +6,7 @@ import logging
 from aiogram import BaseMiddleware
 from aiogram.types import Message
 
-from bot import db
+from bot import ai, db
 from bot.textutil import full_name, is_laugh, is_mat
 
 log = logging.getLogger(__name__)
@@ -65,6 +65,7 @@ class GroupTracker(BaseMiddleware):
             if license.sleeping():
                 return None  # копия white label не оплачена: в чатах молчим
             data["chat_row"] = chat
+            ai.CURRENT_CHAT.set(chat)  # для тарифа: бесплатным чатам нейросеть не отвечает
             user = event.from_user
             if user and not user.is_bot and not event.sender_chat and event.content_type in TRACKED:
                 name = full_name(user.first_name, user.last_name, user.username)

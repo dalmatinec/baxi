@@ -17,6 +17,8 @@ def _status(c) -> str:
         return "⚠️ бота нет в чате (удалили или вышел)"
     if not c["approved"]:
         return "⏳ ждёт одобрения, бот молчит"
+    if c["free"]:
+        return "🆓 бесплатный тариф: без нейросети"
     if c["rent_until"]:
         kind = "🎁 пробный" if c["trial"] else "📅 аренда"
         return f"{kind} до {approval.until_text(c['rent_until'])}"
@@ -75,7 +77,7 @@ async def _section(target, chat_id: int, sec: str = "rent") -> None:
     rows = [[("✅ Разрешить", f"ap:ok:{cid}", "success")] if c["active"] and not c["approved"] else [],
             [("📅 +30 дней", f"ap:rent:{cid}", "primary"), (f"🎁 Пробные {config.TRIAL_DAYS} дн", f"ap:trial:{cid}")]
             if c["active"] else [],
-            [("♾ Без срока", f"ap:inf:{cid}")] if c["active"] else [],
+            [("♾ Без срока", f"ap:inf:{cid}"), ("🆓 На бесплатный", f"ap:free:{cid}")] if c["active"] else [],
             [("⬅️ К чату", f"ch:o:{cid}"), BACK_MENU],
             [("🚪 Вывести бота из чата", f"ch:bye:{cid}")] if c["active"] else []]
     await show(target, text, kb(rows))
@@ -200,12 +202,16 @@ async def cb_approval(cb: CallbackQuery) -> None:
         await approval.approve(bot, chat_id, rent_days=approval.RENT_DAYS, announce=not chat["approved"])
         chat = await db.get_chat(chat_id)
         await cb.answer(f"📅 Аренда до {approval.until_text(chat['rent_until'])}")
+    elif action == "free":
+        await db.update_chat(chat_id, approved=1, pending_since=0, rent_until=0, trial=0, free=1)
+        await cb.answer("🆓 Чат на бесплатном тарифе")
     elif action == "trial":
         await approval.approve(bot, chat_id, rent_days=config.TRIAL_DAYS, announce=not chat["approved"], trial=True)
+        await db.update_chat(chat_id, trial_used=1)
         chat = await db.get_chat(chat_id)
         await cb.answer(f"🎁 Пробный период до {approval.until_text(chat['rent_until'])}")
     elif action == "inf":
-        await db.update_chat(chat_id, rent_until=0, rent_warned=0, trial=0)
+        await db.update_chat(chat_id, rent_until=0, rent_warned=0, trial=0, free=0)
         await cb.answer("♾ Теперь без срока")
     elif action == "no":
         await approval.leave(bot, chat_id, "Хозяин попросил тебя уйти из этого чата.")

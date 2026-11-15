@@ -197,6 +197,7 @@ async def tick(bot: Bot) -> None:
     now = datetime.now(config.TZ)
     day = db.today()
     for chat in await db.list_chats():
+        ai.CURRENT_CHAT.set(chat)
         try:
             if chat["results"] and now.hour == chat["results_hour"] and chat["last_results"] != day:
                 await db.update_chat(chat["chat_id"], last_results=day)
@@ -220,6 +221,8 @@ async def tick(bot: Bot) -> None:
     try:
         await qday.tick(bot)
         await qday.revive_tick(bot)
+        from bot.services import plans
+        await plans.tick(bot)
     except Exception:
         log.exception("Вопрос дня: ошибка в расписании")
     await stars.expire_titles(bot)

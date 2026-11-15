@@ -70,13 +70,29 @@ async def request(bot: Bot, chat_id: int, title: str, added_by: int = 0, added_n
         return
     if chat["pending_since"]:
         return
-    await db.update_chat(chat_id, pending_since=time.time(), added_by=added_by, added_name=added_name,
-                         added_username=added_username)
+    await db.update_chat(chat_id, added_by=added_by, added_name=added_name, added_username=added_username)
     members = "?"
     try:
         members = str(await bot.get_chat_member_count(chat_id))
     except Exception:
         pass
+    # пробный без ожидания, если выполнены условия; маленькие группы сразу на бесплатный
+    from bot.services import plans
+    chat = await db.get_chat(chat_id)
+    why = await plans.trial_check(chat, added_by, int(members) if members.isdigit() else 0)
+    if not why or why.startswith("в группе меньше"):
+        trial = not why
+        if not await approve(bot, chat_id, rent_days=config.TRIAL_DAYS if trial else 0, trial=trial):
+            return
+        if trial:
+            await db.update_chat(chat_id, trial_used=1)
+        else:
+            await db.update_chat(chat_id, free=1)
+        kind = f"🎁 пробный на {config.TRIAL_DAYS} дн." if trial else "🆓 бесплатный (маленькая группа)"
+        await notify.owners(bot, f"➕ Новый чат: <b>{esc(title)}</b>, {members} участн.\nТариф: {kind}\n"
+                                 f"Добавил: {adder_html(await db.get_chat(chat_id))}")
+        return
+    await db.update_chat(chat_id, pending_since=time.time())
     me = await bot.me()
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
         text="💬 Написать мне", url=f"https://t.me/{me.username}?start=rent", style="primary")]])
@@ -100,7 +116,8 @@ async def request(bot: Bot, chat_id: int, title: str, added_by: int = 0, added_n
         try:
             await bot.send_message(owner, f"🔔 <b>Заявка</b>\n\n"
                                           f"Чат: <b>{esc(title)}</b>\n👥 {members} участников · {kind}\n"
-                                          f"Добавил: {who}\n{rights}\n\n"
+                                          f"Добавил: {who}\n{rights}\n"
+                                          f"Пробный автоматически не дал: {esc(why)}\n\n"
                                           f"Без ответа выйду через {config.APPROVAL_HOURS} ч.\n\n"
                                           "<i>Написать через бота можно, только если человек уже запускал бота "
                                           "в личке. Иначе пиши ему напрямую.</i>",
@@ -159,7 +176,7 @@ async def approve(bot: Bot, chat_id: int, rent_days: int = 0, announce: bool = T
         start = max(time.time(), chat["rent_until"] or 0)
         rent_until = start + rent_days * 86400
     await db.update_chat(chat_id, approved=1, pending_since=0, rent_until=rent_until, rent_warned=0,
-                         trial=1 if trial else 0)
+                         trial=1 if trial else 0, free=0)
     if announce:
         period = "🎁 пробный период" if trial else "📅 аренда"
         tail = "🎲 что я умею: /games" + (f"\n{period} до {until_text(rent_until)}" if rent_until else "")
@@ -247,9 +264,10 @@ async def tick(bot: Bot) -> None:
         if not until:
             continue
         if now >= until:
-            await leave(bot, chat["chat_id"], "Тебе пора уйти из чата: закончился оплаченный срок.",
-                        tail_html="📅 вернуть меня: напишите мне в личку → Добавить в чат → Оплатить аренду")
-            await notify.owners(bot, f"📅 Аренда в {esc(chat['title'])} закончилась, я вышел")
+            from bot.services import plans
+            kind = "Пробный период закончился" if chat["trial"] else "Оплаченный срок закончился"
+            await plans.to_free(bot, chat, kind)
+            await notify.owners(bot, f"📅 {kind} в {esc(chat['title'])}, чат перешёл на бесплатный")
         elif until - now < (86400 if chat["trial"] else WARN_BEFORE) and not chat["rent_warned"]:
             await db.update_chat(chat["chat_id"], rent_warned=1)
             try:

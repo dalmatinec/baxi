@@ -64,7 +64,8 @@ async def context(chat) -> tuple[str, str]:
     vips = await db.vip_ids(ids)
     notes = [f"{u['name']}: {u['notes']}" for u in users if u["notes"]]
     notes += [f"{u['name']}: VIP чата, обращайся к нему с шутливым уважением" for u in users if u["user_id"] in vips]
-    system = prompts.system_prompt(chat["bot_name"], chat["persona"], chat["topic"],
+    from bot.services import plans
+    system = prompts.system_prompt(chat["bot_name"], plans.persona(chat), chat["topic"],
                                    chat["title"] or "без названия", notes, await rules(chat))
     return system, prompts.format_history(rows, chat["bot_name"], config.CREATOR_IDS)
 

@@ -19,6 +19,10 @@ class EmojiAdd(StatesGroup):
     collecting = State()
 
 
+class PlanPersona(StatesGroup):
+    value = State()
+
+
 class TextEdit(StatesGroup):
     value = State()
 
@@ -40,7 +44,7 @@ async def cb_menu(cb: CallbackQuery, state: FSMContext) -> None:
             f"🤖 Лимит ИИ в сутки: <b>${config.DAILY_LIMIT_USD:.2f}</b> (меняется в 🤖 ИИ и расход)\n\n"
             "<i>Строки в .env меняются на сервере: nano /opt/linkhub/.env, потом systemctl restart linkhub</i>")
     await show(cb, text, kb([[("💾 Бэкап", "cfg:bk", "primary"), ("😎 Премиум-эмодзи", "cfg:emoji")],
-                             [("✏️ Тексты бота в чатах", "cfg:tx")],
+                             [("🎁 Пробный и бесплатный", "cfg:pl"), ("✏️ Тексты бота", "cfg:tx")],
                              [("🔄 Обновить меню команд", "cfg:cmds")], [BACK_MENU]]))
 
 
@@ -252,3 +256,71 @@ async def on_text_value(message: Message, state: FSMContext) -> None:
                          + message.html_text.replace("{кому}", "<b>Олег</b>").replace("{от}", "Аня")
                          .replace("{сколько}", "48").replace("{место}", "3"),
                          parse_mode="HTML", reply_markup=kb([[("⬅️ Тексты", "cfg:tx")]]))
+
+
+# ---------- пробный и бесплатный тарифы ----------
+
+PLAN_STEPS = {"max_trials": [5, 10, 20, 50], "min_members": [0, 5, 10, 20, 50], "free_ai": [0, 10, 20, 50],
+              "nudges": [0, 1, 2]}
+
+
+async def _plans_screen(target) -> None:
+    import time as _t
+    from bot.services import plans
+    chats = await db.list_chats()
+    trials = sum(1 for c in chats if c["trial"] and c["rent_until"] > _t.time())
+    free = sum(1 for c in chats if c["free"])
+    st = plans.SETTINGS
+    text = ("🎁 <b>Пробный и бесплатный</b>\n\n"
+            f"Сейчас: на пробном <b>{trials}</b>, на бесплатном <b>{free}</b>\n\n"
+            f"🎁 Пробный {config.TRIAL_DAYS} дн. даётся сразу, без одобрения, если:\n"
+            f"• одновременно на пробном меньше <b>{st['max_trials']}</b> чатов\n"
+            f"• в группе от <b>{st['min_members']}</b> участников (меньше: сразу бесплатный)\n"
+            "• чат и человек ещё не брали пробный\nИначе приходит заявка тебе, как раньше.\n\n"
+            f"🆓 Бесплатный: нейросеть <b>{st['free_ai'] or 'выключена'}</b>"
+            + (" ответов в день" if st["free_ai"] else "") + ", остальное работает.\n"
+            f"📣 Напоминать про платную: <b>{st['nudges']}</b> раз в день\n"
+            f"🎭 Общий характер для бесплатных: <i>{esc(st['free_persona'][:200]) or 'свой у каждого чата'}</i>")
+    def row(key, label, fmt="{}"):
+        return [(("✓ " if st[key] == v else "") + label + " " + fmt.format(v), f"cfg:pl:{key}:{v}") for v in PLAN_STEPS[key]]
+    await show(target, text, kb([[("Пробных одновременно:", "noop")], row("max_trials", ""),
+                                 [("Мин. участников:", "noop")], row("min_members", ""),
+                                 [("ИИ бесплатным в день:", "noop")], row("free_ai", ""),
+                                 [("Напоминаний в день:", "noop")], row("nudges", ""),
+                                 [("🎭 Общий характер для бесплатных", "cfg:pl:persona")],
+                                 [("⬅️ Настройки", "cfg:menu"), BACK_MENU]]))
+
+
+@router.callback_query(F.data == "cfg:pl")
+async def cb_plans(cb: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await _plans_screen(cb)
+
+
+@router.callback_query(F.data == "noop")
+async def cb_noop(cb: CallbackQuery) -> None:
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("cfg:pl:"))
+async def cb_plan_value(cb: CallbackQuery, state: FSMContext) -> None:
+    from bot.services import plans
+    parts = cb.data.split(":")
+    if parts[2] == "persona":
+        await state.set_state(PlanPersona.value)
+        return await show(cb, "🎭 <b>Общий характер для бесплатных чатов</b>\n\nОн работает, только если бесплатным "
+                              "дана квота нейросети. Пришли текст или минус <code>-</code>, чтобы у каждого чата был "
+                              "свой.", kb([[("Отмена", "cfg:pl")]]))
+    key, value = parts[2], int(parts[3])
+    if key in PLAN_STEPS and value in PLAN_STEPS[key]:
+        await plans.set_value(key, value)
+    await _plans_screen(cb)
+
+
+@router.message(PlanPersona.value, F.text)
+async def on_plan_persona(message: Message, state: FSMContext) -> None:
+    from bot.services import plans
+    value = "" if message.text.strip() == "-" else message.text.strip()[:3000]
+    await plans.set_value("free_persona", value)
+    await state.clear()
+    await message.answer("✅ Сохранил", reply_markup=kb([[("⬅️ Пробный и бесплатный", "cfg:pl")]]))
