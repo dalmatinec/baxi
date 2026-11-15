@@ -51,6 +51,7 @@ async def _card(target, chat_id: int) -> None:
         [("⚙️ Настроить бота в чате", f"mc:o:{cid}", "primary")] if not pending else [],
         [("📅 Доступ и аренда", f"ch:s:{cid}:rent"),
          (f"📣 Реклама: {'✅' if c['ads'] else '❌'}", f"ch:ads:{cid}")],
+        [("👁 Итоги дня картинками (только мне)", f"mc:rp:{cid}")] if not pending else [],
         [("🚫 Отказать", f"ap:no:{cid}", "danger")] if pending else [],
     ] + _contact(c) + [[("🚪 Выйти из чата", f"ch:bye:{cid}")] if not pending else [],
                        [("⬅️ Чаты", "ch:list"), BACK_MENU]]))
