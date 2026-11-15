@@ -38,9 +38,6 @@ async def on_command(message: Message, bot: Bot, command: str, chat_row) -> None
             kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
                 text="⚙️ Открыть настройки", url=f"https://t.me/{me.username}?start=mc{chat_id}", style="primary")]])
             await say(bot, chat_id, "настройки этого чата в личке 👇", reply_to=message, markup=kb)
-        elif command == "shop":
-            if chat_row["shop"]:
-                await stars.chat_shop(bot, chat_row, message)
         elif command == "pair":
             await _pair(bot, message, chat_row, admin)
         elif command in ("quiet", "talk", "call", "stopcall"):

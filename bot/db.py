@@ -322,7 +322,7 @@ NEW_COLUMNS = {
         "rent_until": "REAL NOT NULL DEFAULT 0",          # 0 = без срока
         "rent_warned": "INTEGER NOT NULL DEFAULT 0",
         "members": "INTEGER NOT NULL DEFAULT 0",          # участников, обновляется раз в сутки
-        "shop": "INTEGER NOT NULL DEFAULT 1",             # магазин в чате (прожарка по полной)
+        "shop": "INTEGER NOT NULL DEFAULT 1",             # монеты, питомцы, кости и магазин за монеты
         "added_name": "TEXT NOT NULL DEFAULT ''",         # кто добавил бота: имя
         "added_username": "TEXT NOT NULL DEFAULT ''",     # и юзернейм, чтобы владелец мог связаться
         "quiz": "INTEGER NOT NULL DEFAULT 1",             # викторины включены
@@ -363,6 +363,7 @@ NEW_COLUMNS = {
         "emoji_id": "TEXT NOT NULL DEFAULT ''",          # премиум-эмодзи VIP у имени
         "emoji_alt": "TEXT NOT NULL DEFAULT ''",         # обычный эмодзи, если премиум не показывается
         "nick": "TEXT NOT NULL DEFAULT ''",              # ник VIP вместо имени
+        "look_forever": "INTEGER NOT NULL DEFAULT 0",    # ник и эмодзи куплены за монеты навсегда
     },
 }
 
@@ -1226,7 +1227,8 @@ async def get_perks(user_id: int) -> aiosqlite.Row | None:
 
 
 async def set_perks(user_id: int, **fields) -> None:
-    if set(fields) - {"title", "title_until", "shield_until", "vip_until", "emoji_id", "emoji_alt", "nick"}:
+    if set(fields) - {"title", "title_until", "shield_until", "vip_until", "emoji_id", "emoji_alt", "nick",
+                          "look_forever"}:
         raise ValueError("неизвестные поля")
     await conn().execute("INSERT OR IGNORE INTO perks (user_id) VALUES (?)", (user_id,))
     sets = ", ".join(f"{k} = ?" for k in fields)
@@ -1249,7 +1251,7 @@ async def chat_user_ids(chat_id: int) -> list[int]:
 
 
 async def vip_looks() -> list[aiosqlite.Row]:
-    async with conn().execute("SELECT user_id, emoji_id, emoji_alt, nick FROM perks WHERE vip_until > ?",
+    async with conn().execute("SELECT user_id, emoji_id, emoji_alt, nick FROM perks WHERE vip_until > ? OR look_forever = 1",
                               (time.time(),)) as cur:
         return list(await cur.fetchall())
 
@@ -1503,7 +1505,7 @@ SETTING_FIELDS = ["bot_name", "aliases", "persona", "topic", "chance", "ai_share
                   "pairpoll", "results", "results_hour", "rep", "bday", "shop", "quiz", "quiz_count", "quiet_from",
                   "quiet_to", "humor", "mat", "banned", "protect_admins", "call_text", "call_who", "call_style",
                   "call_max"]
-MOVE_TABLES = ["rep_points", "quiz_scores", "call_list"]   # переносятся целиком, с заменой chat_id
+MOVE_TABLES = ["rep_points", "quiz_scores", "call_list", "wallet", "pets"]   # переносятся целиком, с заменой chat_id
 
 
 async def chat_settings(chat_id: int) -> dict:

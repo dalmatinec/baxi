@@ -21,7 +21,9 @@ HELP_KB = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="📊 Итоги", callback_data="gm:results"),
      InlineKeyboardButton(text="🏆 Топ репы", callback_data="gm:rep_top")],
     [InlineKeyboardButton(text="🔮 Предсказание", callback_data="gm:predict"),
-     InlineKeyboardButton(text="🔥 Прожарка ⭐", callback_data="gm:roast")],
+     InlineKeyboardButton(text="💰 Кошелёк", callback_data="eco:w")],
+    [InlineKeyboardButton(text="🐾 Мой питомец", callback_data="eco:pet"),
+     InlineKeyboardButton(text="🛒 Магазин", callback_data="eco:shop")],
 ] + ([[InlineKeyboardButton(text="📖 Всё о Бакси и команды", url=f"{config.SITE_URL}/baxi#commands")]]
      if config.SITE_URL else []))
 
@@ -153,9 +155,6 @@ async def on_game_button(cb: CallbackQuery, bot: Bot) -> None:
     if not chat or not chat["approved"] or not chat["games"]:
         return await cb.answer("игры в этом чате выключены", show_alert=True)
     action, chat_id = cb.data[3:], chat["chat_id"]
-    if action == "roast":
-        return await cb.answer("Ответь словом магазин на сообщение человека или напиши мне: "
-                               "прожарь его по полной", show_alert=True)
     if action == "quiz":
         if not chat["quiz"]:
             return await cb.answer("викторины в этом чате выключены", show_alert=True)

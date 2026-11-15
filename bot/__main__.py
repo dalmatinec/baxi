@@ -22,6 +22,8 @@ async def main() -> None:
     logging.getLogger("aiogram.event").setLevel(logging.WARNING)
 
     await db.connect()
+    from bot.economy import store as economy_store
+    await economy_store.init()  # таблицы кошельков и питомцев
     limit = await db.kv_get("daily_limit")
     if limit:
         config.DAILY_LIMIT_USD = float(limit)  # лимит, заданный в админке, главнее .env

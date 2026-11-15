@@ -225,6 +225,11 @@ async def tick(bot: Bot) -> None:
         await plans.tick(bot)
     except Exception:
         log.exception("Вопрос дня: ошибка в расписании")
+    from bot.economy import hooks as economy
+    try:
+        await economy.tick(bot)  # голодные питомцы и брошенные кости
+    except Exception:
+        log.exception("Экономика: ошибка в расписании")
     await stars.expire_titles(bot)
     await stars.refresh_looks()
     await approval.tick(bot)

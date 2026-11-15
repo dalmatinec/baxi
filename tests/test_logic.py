@@ -228,9 +228,9 @@ def test_buttons_with_colors():
     assert parse_buttons("А - https://x.com - фиолетовая")[1]
 
 
-def test_roast_full_intent_and_donors():
-    assert brain.detect_intent("спидермен прожарь по полной") == "roast_full"
-    assert brain.detect_intent("спидермен прожарь диму по полной") == "roast_full"
+def test_roast_intent_and_donors():
+    # прожарка за звёзды убрана: «по полной» теперь обычная бесплатная прожарка
+    assert brain.detect_intent("спидермен прожарь по полной") == "roast"
     assert brain.detect_intent("спидермен прожарь его") == "roast"
     assert games.match("топ донатеров")[0] == "donors_top"
 
@@ -298,3 +298,19 @@ def test_who_game_not_questions():
     assert g.match("кто самый тупой в чате?")[0] == "who"
     for q in ("кто ты по нации", "кто ты?", "кто он такой", "кто это", "кто тебя создал", "кто вы"):
         assert g.match(q) is None, q
+
+
+# ---------- экономика ----------
+
+def test_economy_catalog():
+    from bot.economy import catalog
+    assert catalog.level_for(0) == 1 and catalog.level_for(50) == 2 and catalog.level_for(5000) == 11
+    assert all(catalog.level_for(catalog.xp_for(n)) == n for n in range(1, 30))
+    assert catalog.title_for(1) == "Новичок" and catalog.title_for(20) == "Бог чата"
+    assert catalog.AWARD_COOLDOWN >= 30   # не чаще 2 раз в минуту
+    star_pets = [k for k in catalog.PET_ORDER if catalog.PETS[k]["stars"]]
+    assert star_pets == ["tiger", "lion"] and all(catalog.PETS[k]["price"] == 0 for k in star_pets)
+    prices = [catalog.PETS[k]["price"] for k in catalog.PET_ORDER if not catalog.PETS[k]["stars"]]
+    assert prices == sorted(prices) and len(catalog.PETS) == 10
+    foods = catalog.foods("cat")
+    assert [f["key"] for f in foods] == ["food", "treat"] and foods[1]["price"] > foods[0]["price"]

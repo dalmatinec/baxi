@@ -1,0 +1,4 @@
+font.otf (Inter SemiBold) и font-bold.otf (Inter Display Bold): шрифт Inter, автор Rasmus Andersson,
+лицензия SIL Open Font License 1.1 (https://openfont.org). Можно свободно использовать и распространять.
+
+Картинки питомцев и еды: Noto Color Emoji (Google), лицензия SIL Open Font License 1.1 / Apache 2.0.

@@ -10,7 +10,7 @@ from aiogram.types import Message
 
 from bot import brain, config, db, presets
 from bot.middlewares import GROUPS, TRACKED, describe
-from bot.services import fun, memory, perms, quiz, stars, talk, triggers
+from bot.services import fun, memory, perms, quiz, talk, triggers
 from bot.services.out import say
 
 log = logging.getLogger(__name__)
@@ -96,8 +96,6 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
                 await fun.summary(bot, chat_row, message, text)
             elif intent == "joke":
                 await fun.joke(bot, chat_row, message, author)
-            elif intent == "roast_full":
-                await stars.offer_full_roast(bot, chat_row, message, user_row)
             elif intent == "roast":
                 await fun.roast(bot, chat_row, message, user_row)
             elif intent == "quiz":

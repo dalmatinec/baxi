@@ -1,7 +1,6 @@
 """Магазин за звёзды: личные товары и донаты в личке, оплата, выдача покупок, топ донатеров."""
 
 import logging
-import time
 from datetime import datetime
 
 from aiogram import Bot, F, Router
@@ -31,12 +30,8 @@ def _kb(rows: list[list[tuple]]) -> InlineKeyboardMarkup:
 async def shop_rows(user: User) -> list[list[InlineKeyboardButton]]:
     items = await stars.items_map()
     rows = []
-    if await stars.is_vip(user.id):
-        rows.append([InlineKeyboardButton(text="👑 Мой VIP: эмодзи и ник", callback_data="st:vip", style="success")])
-    for key, style in (("vip", "success"), ("shield", "primary")):
-        if key in items:
-            rows.append([InlineKeyboardButton(text=f"{items[key]['title']} · {items[key]['stars']} ⭐",
-                                              callback_data=f"st:b:{key}", style=style)])
+    if await stars.has_look(user.id):
+        rows.append([InlineKeyboardButton(text="✨ Мой ник и эмодзи", callback_data="st:vip", style="success")])
     if any(k.startswith("don") for k in items):
         rows.append([InlineKeyboardButton(text="💛 Поддержать бота", callback_data="st:don")])
     return rows
@@ -124,19 +119,21 @@ async def on_paid(message: Message, bot: Bot, state: FSMContext) -> None:
     await message.answer(result, parse_mode="HTML")
 
 
-# ---------- вид VIP: свой премиум-эмодзи и ник у имени ----------
+# ---------- свой ник: премиум-эмодзи и ник у имени (за монеты навсегда или по старому VIP) ----------
 
-async def _vip_screen(target: Message | CallbackQuery, user: User) -> None:
+async def look_screen(target: Message | CallbackQuery, user: User) -> None:
     perks = await db.get_perks(user.id)
-    if not perks or perks["vip_until"] < time.time():
-        text = "👑 VIP не активен. Купить можно в магазине."
-        kb = _kb([[("🛒 В магазин", "sc:shop", "success")]])
+    if not await stars.has_look(user.id):
+        text = ("✨ <b>Свой ник</b>\n\nПремиум-эмодзи и жирный ник у имени везде, где бот тебя упоминает. "
+                "Покупается навсегда за монеты: напиши в своём чате <b>магазин</b>.")
+        kb = _kb([[("⬅️ Магазин", "sc:shop")]])
     else:
-        until = datetime.fromtimestamp(perks["vip_until"], config.TZ).strftime("%d.%m.%Y")
-        text = ("👑 <b>Мой VIP</b>\n\n"
+        until = "навсегда" if perks["look_forever"] else \
+            "до " + datetime.fromtimestamp(perks["vip_until"], config.TZ).strftime("%d.%m.%Y")
+        text = ("✨ <b>Мой ник</b>\n\n"
                 f"Так тебя видят в чатах:\n{mention(user.id, full_name(user.first_name, user.last_name))}\n\n"
                 "Это везде, где бот тебя упоминает: топы, репутация, итоги, игры, пары.\n"
-                f"VIP действует до <b>{until}</b>.")
+                f"Действует <b>{until}</b>.")
         kb = _kb([[("✨ Свой эмодзи", "st:ve", "primary"), ("✏️ Ник", "st:vn", "primary")],
                   [("↩️ Сбросить вид", "st:vr")], [("⬅️ Магазин", "sc:shop")]])
     if isinstance(target, CallbackQuery):
@@ -151,20 +148,21 @@ async def _vip_screen(target: Message | CallbackQuery, user: User) -> None:
 @router.callback_query(F.data == "st:vip")
 async def cb_vip(cb: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await _vip_screen(cb, cb.from_user)
+    await look_screen(cb, cb.from_user)
 
 
 @router.callback_query(F.data.in_({"st:ve", "st:vn"}))
 async def cb_vip_edit(cb: CallbackQuery, state: FSMContext) -> None:
-    if not await stars.is_vip(cb.from_user.id):
-        return await cb.answer("VIP не активен", show_alert=True)
+    if not await stars.has_look(cb.from_user.id):
+        return await cb.answer("свой ник не куплен", show_alert=True)
     emoji = cb.data == "st:ve"
     await state.set_state(VipLook.emoji if emoji else VipLook.nick)
     await cb.answer()
     await cb.message.answer(
         "✨ Пришли сообщение с одним <b>премиум-эмодзи</b> (из любого набора), он встанет слева от твоего имени. "
         "Убрать и вернуть корону: пришли минус." if emoji else
-        "✏️ Пришли ник, который будет вместо имени (до 24 символов, без ссылок и @). Вернуть имя: пришли минус.",
+        "✏️ Пришли ник, который будет вместо имени, любым шрифтом (до 24 символов, без ссылок и @). "
+        "Он будет жирным. Вернуть имя: пришли минус.",
         parse_mode="HTML", reply_markup=_kb([[("Отмена", "st:vip")]]))
 
 
@@ -180,7 +178,7 @@ async def on_vip_emoji(message: Message, state: FSMContext) -> None:
         await db.set_perks(message.from_user.id, emoji_id=found[0], emoji_alt=found[1])
     await state.clear()
     await stars.refresh_looks()
-    await _vip_screen(message, message.from_user)
+    await look_screen(message, message.from_user)
 
 
 @router.message(VipLook.nick, F.text)
@@ -194,11 +192,11 @@ async def on_vip_nick(message: Message, state: FSMContext) -> None:
     await db.set_perks(message.from_user.id, nick=nick)
     await state.clear()
     await stars.refresh_looks()
-    await _vip_screen(message, message.from_user)
+    await look_screen(message, message.from_user)
 
 
 @router.callback_query(F.data == "st:vr")
 async def cb_vip_reset(cb: CallbackQuery) -> None:
     await db.set_perks(cb.from_user.id, emoji_id="", emoji_alt="", nick="")
     await stars.refresh_looks()
-    await _vip_screen(cb, cb.from_user)
+    await look_screen(cb, cb.from_user)

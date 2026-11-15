@@ -33,6 +33,9 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext, command: Comm
         return await message.answer("💼 <b>Заказать проект</b>\n\nОпиши одним сообщением, что хочешь: бот, сайт, "
                                     "мини-приложение или автоматизацию. Можно с примерами и сроками. "
                                     "Отвечу сюда же.", parse_mode="HTML")
+    if args == "nick":  # купил ник в чате: сразу экран настройки
+        from bot.handlers.stars import look_screen
+        return await look_screen(message, message.from_user)
     if args == "mychats":
         from bot.handlers.chatadmin import show_list
         return await show_list(bot, message)
