@@ -22,17 +22,20 @@ EXTRA_ROWS: dict[str, Callable[[User], Awaitable[list[list[InlineKeyboardButton]
 SHOW_IF: dict[str, Callable[[User], Awaitable[bool]]] = {}
 
 
-START_LAYOUT = 2   # поменял порядок кнопок главного меню: сохранённое в базе меню получает новые кнопки один раз
+START_LAYOUT = 3   # 2: новый порядок кнопок, 3: аватарка на приветствии. Сохранённое в базе меню обновляется один раз
 
 
 async def upgrade_start() -> None:
-    """Если главное меню сохранено в базе (менял текст в админке), ставим новые кнопки, текст и картинку не трогаем."""
-    if await db.kv_get("start_layout") == str(START_LAYOUT):
+    """Если главное меню сохранено в базе (менял текст в админке): текст не трогаем, кнопки ставим новые
+    (если ещё не ставили), картинку ставим, только если её не было."""
+    done = await db.kv_get("start_layout") or "0"
+    if done == str(START_LAYOUT):
         return
     row = await db.get_screen("start")
     if row:
-        await db.save_screen("start", row["text_html"], row["photo"],
-                             [dict(b) for b in screens.defaults()["start"]["buttons"]])
+        base = screens.defaults()["start"]
+        buttons = json.loads(row["buttons"]) if done == "2" else [dict(b) for b in base["buttons"]]
+        await db.save_screen("start", row["text_html"], row["photo"] or base["photo"], buttons)
     await db.kv_set("start_layout", str(START_LAYOUT))
 
 
@@ -41,7 +44,7 @@ async def load(key: str) -> dict:
     if row:
         return {"text": row["text_html"], "photo": row["photo"], "buttons": json.loads(row["buttons"])}
     base = screens.defaults().get(key) or screens.defaults()["start"]
-    return {"text": base["text"], "photo": "", "buttons": [dict(b) for b in base["buttons"]]}
+    return {"text": base["text"], "photo": base.get("photo", ""), "buttons": [dict(b) for b in base["buttons"]]}
 
 
 def make_button(b: dict, bot_username: str) -> InlineKeyboardButton:
@@ -131,10 +134,28 @@ async def show(bot: Bot, target: Message | CallbackQuery, key: str) -> None:
     await send_screen(bot, chat_id, text, photo, markup)
 
 
+async def _photo(photo: str):
+    """Картинка экрана: file_id из Telegram или asset:имя.jpg из папки bot/assets (стандартная аватарка).
+    После первой отправки запоминаем file_id, чтобы не грузить файл каждый раз."""
+    if not photo.startswith("asset:"):
+        return photo
+    cached = await db.kv_get("fid_" + photo)
+    if cached:
+        return cached
+    from aiogram.types import FSInputFile
+    return FSInputFile(config.ROOT / "bot" / "assets" / photo[6:])
+
+
+async def _remember(photo: str, sent) -> None:
+    if photo.startswith("asset:") and sent and getattr(sent, "photo", None):
+        await db.kv_set("fid_" + photo, sent.photo[-1].file_id)
+
+
 async def send_screen(bot: Bot, chat_id: int, text: str, photo: str, markup) -> None:
     if photo and len(text) <= 1024:
-        await bot.send_photo(chat_id, photo, caption=text, parse_mode="HTML", reply_markup=markup)
+        sent = await bot.send_photo(chat_id, await _photo(photo), caption=text, parse_mode="HTML", reply_markup=markup)
+        await _remember(photo, sent)
         return
     if photo:
-        await bot.send_photo(chat_id, photo)
+        await _remember(photo, await bot.send_photo(chat_id, await _photo(photo)))
     await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup, link_preview_options=NO_PREVIEW)

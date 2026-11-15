@@ -156,7 +156,109 @@ async def _buttons(target, key: str) -> None:
     extra = "\n\nКнопки форматов рекламы и товаров добавляются сами, их тут нет." if key in ("ads", "shop") else ""
     await show(target, f"🔘 <b>Кнопки экрана {esc(screens.TITLES.get(key, key))}</b>\n\n"
                        f"Кнопки с одинаковым номером ряда стоят рядом.{extra}",
-               kb(rows + [[("➕ Добавить кнопку", f"se:ba:{key}", "success")], [("⬅️ К экрану", f"se:o:{key}")]]))
+               kb([[("🔀 Расставить стрелками (вживую)", f"se:lv:{key}:-1", "primary")]] + rows
+                  + [[("➕ Добавить кнопку", f"se:ba:{key}", "success")], [("⬅️ К экрану", f"se:o:{key}")]]))
+
+
+# ---------- расстановка кнопок стрелками, вживую ----------
+# Кнопки показываются ровно так, как у людей. Нажал на кнопку: она выбрана (👉). Дальше стрелки:
+#   ⬇️ одна кнопка в ряду: встаёт в ряд ниже (к тем кнопкам), ещё раз: уходит отдельным рядом ещё ниже и т.д.
+#      кнопка в ряду с другими: выходит отдельным рядом сразу под ним
+#   ⬆️ то же самое вверх;  ⬅️ ➡️ меняет местами с соседней кнопкой в ряду
+MAX_IN_ROW = 4
+FIXED_ROW = 90   # ряды с номером от 90 (кнопка «В меню» и т.п.) всегда внизу, их не двигаем
+
+
+def layout(buttons: list[dict]) -> list[list[int]]:
+    """Ряды из номеров кнопок (без нижних служебных)."""
+    rows: dict[int, list[int]] = {}
+    for i, b in enumerate(buttons):
+        r = int(b.get("row", 0))
+        if r < FIXED_ROW:
+            rows.setdefault(r, []).append(i)
+    return [rows[k] for k in sorted(rows)]
+
+
+def move(rows: list[list[int]], sel: int, direction: str) -> list[list[int]]:
+    rows = [list(r) for r in rows]
+    r = next((n for n, row in enumerate(rows) if sel in row), None)
+    if r is None:
+        return rows
+    row, c = rows[r], rows[r].index(sel)
+    if direction in ("l", "r"):
+        j = c - 1 if direction == "l" else c + 1
+        if 0 <= j < len(row):
+            row[c], row[j] = row[j], row[c]
+        return rows
+    step = 1 if direction == "d" else -1
+    if len(row) > 1:                       # был в ряду с другими: выходит отдельным рядом ниже или выше
+        row.remove(sel)
+        rows.insert(r + 1 if step > 0 else r, [sel])
+        return rows
+    nxt = r + step
+    if not 0 <= nxt < len(rows):           # уже в самом низу или верху
+        return rows
+    if len(rows[nxt]) < MAX_IN_ROW:        # был один: встаёт в соседний ряд
+        rows.pop(r)
+        rows[nxt if step < 0 else r].append(sel)
+    else:                                  # соседний ряд полный: просто меняемся рядами
+        rows[r], rows[nxt] = rows[nxt], rows[r]
+    return rows
+
+
+def apply_layout(buttons: list[dict], rows: list[list[int]], sel: int) -> tuple[list[dict], int]:
+    """Новые номера рядов 0, 1, 2... и порядок кнопок. Возвращает кнопки и новый номер выбранной."""
+    out, new_sel = [], -1
+    for n, row in enumerate(rows):
+        for i in row:
+            if i == sel:
+                new_sel = len(out)
+            out.append(dict(buttons[i], row=n))
+    out += [b for b in buttons if int(b.get("row", 0)) >= FIXED_ROW]
+    return out, new_sel
+
+
+async def _live(target, key: str, sel: int) -> None:
+    screen = await menu.load(key)
+    buttons = screen["buttons"]
+    grid = []
+    for row in layout(buttons):
+        grid.append([(("👉 " if i == sel else "") + short(buttons[i]["text"], 22), f"se:lv:{key}:{i}",
+                      "success" if i == sel else (buttons[i].get("style") or None)) for i in row])
+    chosen = f"Выбрана: <b>{esc(buttons[sel]['text'])}</b>" if 0 <= sel < len(buttons) else "Нажми на кнопку, которую двигать."
+    controls = [[("⬅️", f"se:lm:{key}:{sel}:l"), ("⬆️", f"se:lm:{key}:{sel}:u"), ("⬇️", f"se:lm:{key}:{sel}:d"),
+                 ("➡️", f"se:lm:{key}:{sel}:r")]] if sel >= 0 else []
+    await show(target, f"🔀 <b>Расстановка кнопок: {esc(screens.TITLES.get(key, key))}</b>\n\n"
+                       "Кнопки ниже стоят так, как у людей. Нажми на кнопку, потом двигай стрелками: "
+                       "одно нажатие, один шаг.\n⬇️⬆️ одна в ряду встаёт к соседям, ещё раз уходит отдельным рядом дальше.\n"
+                       f"⬅️➡️ меняет местами в ряду.\n\n{chosen}",
+               kb(grid + [[("➖➖➖➖➖➖", f"se:lv:{key}:-1")]] + controls
+                  + [[("👁 Показать как у людей", f"se:v:{key}"), ("✅ Готово", f"se:b:{key}", "success")]]))
+
+
+@router.callback_query(F.data.startswith("se:lv:"))
+async def cb_live(cb: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    _, _, key, sel = cb.data.split(":")
+    await cb.answer()
+    await _live(cb, key, int(sel))
+
+
+@router.callback_query(F.data.startswith("se:lm:"))
+async def cb_live_move(cb: CallbackQuery) -> None:
+    _, _, key, sel, direction = cb.data.split(":")
+    screen = await menu.load(key)
+    sel = int(sel)
+    if not 0 <= sel < len(screen["buttons"]):
+        return await cb.answer()
+    rows = layout(screen["buttons"])
+    new_rows = move(rows, sel, direction)
+    if new_rows == rows:
+        return await cb.answer("дальше некуда")
+    buttons, sel = apply_layout(screen["buttons"], new_rows, sel)
+    await db.save_screen(key, screen["text"], screen["photo"], buttons)
+    await cb.answer()
+    await _live(cb, key, sel)
 
 
 @router.callback_query(F.data.startswith("se:b:"))
