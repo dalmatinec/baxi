@@ -32,7 +32,8 @@ async def _card(target, chat_id: int) -> None:
         return await show(target, f"💬 <b>{esc(c['title'] or str(chat_id))}</b>\n{_status(c)}\n\n"
                                   "Бота в этом чате уже нет. Его можно убрать из списка вместе с историей "
                                   "и статистикой этого чата.",
-                          kb([[("🗑 Убрать из списка", f"ch:del:{chat_id}", "danger")],
+                          kb([[("📦 Перенести всё в другой чат", f"mc:mv:{chat_id}", "primary")],
+                              [("🗑 Убрать из списка", f"ch:del:{chat_id}", "danger")],
                               [("⬅️ Удалённые чаты", "ch:dead"), BACK_MENU]]))
     text = (f"💬 <b>{esc(c['title'] or str(chat_id))}</b>\n"
             f"{_status(c)}\n\n"

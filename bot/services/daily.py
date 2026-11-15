@@ -211,6 +211,11 @@ async def tick(bot: Bot) -> None:
         except Exception:
             log.exception("Плановая задача в чате %s не выполнилась", chat["chat_id"])
     await close_polls(bot)
+    from bot.services import backup
+    try:
+        await backup.tick(bot)
+    except Exception:
+        log.exception("Бэкап: ошибка в расписании")
     await stars.expire_titles(bot)
     await stars.refresh_looks()
     await approval.tick(bot)

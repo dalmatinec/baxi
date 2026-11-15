@@ -41,6 +41,10 @@ class McCall(StatesGroup):
     add = State()
 
 
+class McImport(StatesGroup):
+    file = State()
+
+
 def _kb(rows: list[list[tuple]]) -> InlineKeyboardMarkup:
     out = []
     for row in rows:
@@ -113,7 +117,7 @@ async def _show(target: Message | CallbackQuery, text: str, kb: InlineKeyboardMa
 
 async def show_list(bot: Bot, target: Message | CallbackQuery) -> None:
     chats = await my_chats(bot, target.from_user.id)
-    if not chats:
+    if not chats and not await db.lost_chats(target.from_user.id):
         me = await bot.me()
         return await _show(target, "⚙️ <b>Мои чаты</b>\n\nЗдесь появятся чаты, где ты создатель или админ с правом "
                                    "назначать админов и где бот уже работает.\n\nПока таких нет. Если только что "
@@ -121,6 +125,8 @@ async def show_list(bot: Bot, target: Message | CallbackQuery) -> None:
                            _kb([[("➕ Добавить бота в чат", f"https://t.me/{me.username}?startgroup=true", "success")],
                                 [("⬅️ В меню", "sc:start")]]))
     rows = [[(f"💬 {short(c['title'] or str(c['chat_id']), 40)}", f"mc:o:{c['chat_id']}")] for c in chats]
+    if await db.lost_chats(target.from_user.id):
+        rows.append([("📦 Перенести из пропавшего чата", "mc:lost")])
     await _show(target, "⚙️ <b>Мои чаты</b>\n\nВыбери чат, чтобы настроить бота в нём.",
                 _kb(rows + [[("⬅️ В меню", "sc:start")]]))
 
@@ -167,7 +173,7 @@ async def card(target, chat_id: int, viewer: int = 0) -> None:
         [("🎭 Личность", f"mc:s:{cid}:who"), ("💬 Активность", f"mc:s:{cid}:act")],
         [("🎲 Фишки", f"mc:s:{cid}:fx"), ("🛡 Правила", f"mc:s:{cid}:rules")],
         [("📝 Триггеры", f"mc:s:{cid}:trig"), ("📣 Зазывала", f"mc:s:{cid}:call")],
-        [("📊 Статистика", f"mc:s:{cid}:stats")],
+        [("📊 Статистика", f"mc:s:{cid}:stats"), ("🧰 Перенос и экспорт", f"mc:s:{cid}:tools")],
         [("👀 Пробный ответ", f"mc:try:{cid}", "primary")],
         [("💳 Продлить аренду", f"rt:{cid}"), ("🆘 Владельцу", f"mc:sup:{cid}")],
         [("🧹 Стереть память", f"mc:w:{cid}", "danger")],
@@ -261,6 +267,15 @@ async def section(target, chat_id: int, sec: str) -> None:
         rows.append([_opt(str(n), f"mc:v:{cid}:cm:{n}", c["call_max"] == n) for n in presets.CALL_MAX])
         rows += [[(f"📋 Мой список ({people})", f"mc:cl:{cid}")],
                  [("▶️ Позвать сейчас", f"mc:run:{cid}", "success")], back]
+    elif sec == "tools":
+        text = ("🧰 <b>Перенос и экспорт</b>\n\n"
+                "📦 <b>Перенести в другой чат</b>: если этот чат пропал, забанили или вы переехали в новую группу. "
+                "Переносится всё: характер и настройки, память о людях и дни рождения, репутация, топ викторины, "
+                "триггеры, список зазывалы, одобрение и остаток аренды.\n\n"
+                "📤 <b>Скачать настройки</b> файлом и 📥 <b>загрузить</b> их в любой чат: характер, тема, частота, "
+                "фишки, правила, зазывала и триггеры.")
+        rows = [[("📦 Перенести в другой чат", f"mc:mv:{cid}", "primary")],
+                [("📤 Скачать настройки", f"mc:ex:{cid}"), ("📥 Загрузить", f"mc:im:{cid}")], back]
     else:  # stats
         days = last_days(7)
         totals = await db.days_totals(cid, days)
@@ -590,3 +605,153 @@ async def cb_wipe_ok(cb: CallbackQuery, bot: Bot) -> None:
         await db.clear_memory(cid)
         await cb.answer("🧹 Память стёрта", show_alert=True)
         await card(cb, cid, cb.from_user.id)
+
+
+# ---------- перенос чата ----------
+
+async def can_move_from(bot: Bot, user_id: int, src: int) -> bool:
+    """Из рабочего чата переносить может тот, кто им управляет. Из пропавшего: владелец бота или тот, кто
+    когда-то добавил бота (Telegram уже не скажет, кто там админ)."""
+    chat = await db.get_chat(src)
+    if not chat:
+        return False
+    if user_id in config.OWNER_IDS:
+        return True
+    if chat["active"]:
+        return await can_manage(bot, user_id, src)
+    return chat["added_by"] == user_id
+
+
+async def _rights_only(bot: Bot, user_id: int, chat_id: int) -> bool:
+    """Права в новом чате, даже если его ещё не одобрили."""
+    if user_id in config.OWNER_IDS:
+        return True
+    try:
+        m = await bot.get_chat_member(chat_id, user_id)
+        return m.status == "creator" or (m.status == "administrator" and bool(getattr(m, "can_promote_members", False)))
+    except Exception:
+        return False
+
+
+async def move_targets(bot: Bot, user_id: int, src: int) -> list:
+    if user_id in config.OWNER_IDS:
+        rows = [c for c in await db.list_chats(active_only=False) if c["active"]]
+    else:
+        rows = await db.candidate_chats(user_id, approved_only=False)
+    return [c for c in rows if c["chat_id"] != src and await _rights_only(bot, user_id, c["chat_id"])]
+
+
+@router.callback_query(F.data == "mc:lost")
+async def cb_lost(cb: CallbackQuery) -> None:
+    lost = await db.lost_chats(cb.from_user.id)
+    rows = [[(f"🕳 {short(c['title'] or str(c['chat_id']), 40)}", f"mc:mv:{c['chat_id']}")] for c in lost[:20]]
+    await _show(cb, "📦 <b>Пропавшие чаты</b>\n\nЧаты, которые ты добавлял, но бота там больше нет. Выбери, "
+                    "откуда перенести всё в новый чат.", _kb(rows + [[("⬅️ Мои чаты", "mc:list")]]))
+
+
+@router.callback_query(F.data.startswith("mc:mv:"))
+async def cb_move(cb: CallbackQuery, bot: Bot) -> None:
+    src = int(cb.data.split(":")[2])
+    if not await can_move_from(bot, cb.from_user.id, src):
+        return await cb.answer(DENIED, show_alert=True)
+    chat = await db.get_chat(src)
+    targets = await move_targets(bot, cb.from_user.id, src)
+    me = await bot.me()
+    if not targets:
+        return await _show(cb, "📦 <b>Куда переносим?</b>\n\nСначала добавь бота в новую группу, где ты создатель или "
+                               "админ с правом назначать админов. Потом вернись сюда, одобрения ждать не нужно.",
+                           _kb([[("➕ Добавить бота в группу", f"https://t.me/{me.username}?startgroup=true", "success")],
+                                [("🔄 Проверить снова", f"mc:mv:{src}")], [("⬅️ Мои чаты", "mc:list")]]))
+    rows = [[(f"➡️ {short(c['title'] or str(c['chat_id']), 40)}", f"mc:mt:{src}:{c['chat_id']}")] for c in targets[:20]]
+    await _show(cb, f"📦 <b>Перенос из {esc(chat['title'] or str(src))}</b>\n\nВыбери новый чат. Бот уже должен "
+                    "быть добавлен туда.", _kb(rows + [[("⬅️ Мои чаты", "mc:list")]]))
+
+
+@router.callback_query(F.data.startswith(("mc:mt:", "mc:MT:")))
+async def cb_move_to(cb: CallbackQuery, bot: Bot) -> None:
+    _, op, src, dst = cb.data.split(":")
+    src, dst = int(src), int(dst)
+    if not await can_move_from(bot, cb.from_user.id, src) or not await _rights_only(bot, cb.from_user.id, dst):
+        return await cb.answer(DENIED, show_alert=True)
+    a, b = await db.get_chat(src), await db.get_chat(dst)
+    if op == "mt":
+        from bot.services.approval import until_text
+        rent = f"\n📅 Аренда до {until_text(a['rent_until'])} перейдёт в новый чат." if a["rent_until"] else ""
+        return await _show(cb, f"📦 Перенести всё из <b>{esc(a['title'] or '')}</b> в <b>{esc(b['title'] or '')}</b>?\n\n"
+                               "Настройки нового чата заменятся настройками старого, память о людях, репутация, "
+                               f"топ викторины и триггеры добавятся.{rent}\n\nСтарый чат после переноса выключится.",
+                           _kb([[("✅ Да, перенести", f"mc:MT:{src}:{dst}", "success")], [("Отмена", f"mc:mv:{src}")]]))
+    counts = await db.move_chat(src, dst)
+    triggers.forget(dst)
+    from bot import notify
+    await notify.owners(bot, f"📦 Перенос чата: {esc(a['title'] or str(src))} → {esc(b['title'] or str(dst))} "
+                             f"(перенёс {esc(cb.from_user.full_name)})")
+    await cb.answer("✅ Перенесено", show_alert=True)
+    try:
+        await cb.message.answer(f"✅ Готово! Перенёс в <b>{esc(b['title'] or '')}</b>: настройки, людей "
+                                f"({counts.get('users', 0)}), репутацию, викторину и триггеры "
+                                f"({counts.get('triggers', 0)}).", parse_mode="HTML")
+    except Exception:
+        pass
+    await card(cb.message, dst, cb.from_user.id)
+
+
+# ---------- экспорт и импорт настроек ----------
+
+@router.callback_query(F.data.startswith("mc:ex:"))
+async def cb_export(cb: CallbackQuery, bot: Bot) -> None:
+    import json
+    from aiogram.types import BufferedInputFile
+    cid = int(cb.data.split(":")[2])
+    if not await _guard(cb, bot, cid):
+        return
+    chat = await db.get_chat(cid)
+    data = {"format": "baxi-settings", "version": 1, "title": chat["title"], "settings": await db.chat_settings(cid),
+            "triggers": [{k: t[k] for k in ("word", "media_kind", "file_id", "text_html")}
+                         for t in await db.list_triggers(cid)]}
+    raw = json.dumps(data, ensure_ascii=False, indent=1).encode()
+    await cb.answer()
+    await bot.send_document(cb.from_user.id, BufferedInputFile(raw, filename=f"baxi-settings-{abs(cid)}.json"),
+                            caption="📤 Настройки бота. Загрузить в любой чат: Мои чаты → чат → 🧰 → 📥 Загрузить")
+
+
+@router.callback_query(F.data.startswith("mc:im:"))
+async def cb_import(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
+    cid = int(cb.data.split(":")[2])
+    if not await _guard(cb, bot, cid):
+        return
+    await state.set_state(McImport.file)
+    await state.update_data(chat_id=cid)
+    await _show(cb, "📥 <b>Загрузить настройки</b>\n\nПришли файл baxi-settings-....json, который скачивал раньше. "
+                    "Настройки этого чата заменятся, триггеры добавятся.", _kb([[("Отмена", f"mc:s:{cid}:tools")]]))
+
+
+@router.message(McImport.file, F.document)
+async def on_import(message: Message, bot: Bot, state: FSMContext) -> None:
+    import io
+    import json
+    cid = (await state.get_data())["chat_id"]
+    if not await can_manage(bot, message.from_user.id, cid):
+        await state.clear()
+        return await message.answer(DENIED)
+    if (message.document.file_size or 0) > 1024 * 1024:
+        return await message.answer("Файл слишком большой, это не файл настроек.")
+    buf = io.BytesIO()
+    await bot.download(message.document, destination=buf)
+    try:
+        data = json.loads(buf.getvalue().decode())
+        if data.get("format") != "baxi-settings":
+            raise ValueError
+    except Exception:
+        return await message.answer("Это не файл настроек Бакси. Нужен baxi-settings-....json.")
+    n = await db.apply_settings(cid, data.get("settings", {}))
+    t = 0
+    for trig in data.get("triggers", [])[:MAX_TRIGGERS]:
+        if trig.get("word"):
+            await db.add_trigger(cid, str(trig["word"])[:40], str(trig.get("media_kind", "")),
+                                 str(trig.get("file_id", "")), str(trig.get("text_html", ""))[:3500])
+            t += 1
+    triggers.forget(cid)
+    await state.clear()
+    await message.answer(f"✅ Загрузил: настроек {n}, триггеров {t}.")
+    await card(message, cid, message.from_user.id)

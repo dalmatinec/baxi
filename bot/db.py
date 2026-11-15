@@ -291,6 +291,11 @@ CREATE TABLE IF NOT EXISTS call_list (
     PRIMARY KEY (chat_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS kv (
+    key         TEXT    PRIMARY KEY,            -- служебные настройки: канал бэкапов и т.п.
+    value       TEXT    NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS quiz_scores (
     chat_id     INTEGER NOT NULL,
     user_id     INTEGER NOT NULL,
@@ -370,9 +375,25 @@ def today() -> str:
     return datetime.now(config.TZ).strftime("%Y-%m-%d")
 
 
+def _swap_restored() -> None:
+    """Если владелец восстановил базу из бэкапа через бота, подменяем её до подключения."""
+    restored = config.DATA_DIR / "restore.db"
+    if not restored.exists():
+        return
+    import shutil
+    if config.DB_PATH.exists():
+        shutil.copy2(config.DB_PATH, config.DATA_DIR / f"bot.db.before-restore-{int(time.time())}")
+    for ext in ("-wal", "-shm"):
+        side = config.DB_PATH.with_name(config.DB_PATH.name + ext)
+        if side.exists():
+            side.unlink()
+    restored.replace(config.DB_PATH)
+
+
 async def connect() -> None:
     global _db
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _swap_restored()
     _db = await aiosqlite.connect(config.DB_PATH)
     _db.row_factory = aiosqlite.Row
     await _db.execute("PRAGMA journal_mode=WAL")
@@ -445,11 +466,12 @@ async def fix_legacy_name(new_name: str) -> int:
     return len(ids)
 
 
-async def candidate_chats(user_id: int) -> list[aiosqlite.Row]:
+async def candidate_chats(user_id: int, approved_only: bool = True) -> list[aiosqlite.Row]:
     """Рабочие чаты, где человек мог бы быть админом: он туда писал или сам добавил бота.
     Права всё равно проверяются у Telegram, это только чтобы не опрашивать все чаты подряд."""
+    ok = "AND approved = 1 " if approved_only else ""
     async with conn().execute(
-            "SELECT * FROM chats WHERE active = 1 AND approved = 1 AND (added_by = ? OR chat_id IN "
+            "SELECT * FROM chats WHERE active = 1 " + ok + "AND (added_by = ? OR chat_id IN "
             "(SELECT chat_id FROM users WHERE user_id = ?)) ORDER BY title", (user_id, user_id)) as cur:
         return list(await cur.fetchall())
 
@@ -1443,3 +1465,88 @@ async def username_of(user_id: int) -> str:
                                   "ORDER BY last_seen DESC LIMIT 1", (user_id,)) as cur:
             row = await cur.fetchone()
     return row[0] if row else ""
+
+
+# ---------- служебные настройки ----------
+
+async def kv_get(key: str, default: str = "") -> str:
+    async with conn().execute("SELECT value FROM kv WHERE key = ?", (key,)) as cur:
+        row = await cur.fetchone()
+    return row[0] if row else default
+
+
+async def kv_set(key: str, value: str) -> None:
+    await conn().execute("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)", (key, str(value)))
+    await conn().commit()
+
+
+# ---------- перенос чата и экспорт настроек ----------
+
+# что из настроек чата переносится и попадает в экспорт (без названия, id, статуса и служебных отметок)
+SETTING_FIELDS = ["bot_name", "aliases", "persona", "topic", "chance", "ai_share", "cooldown", "greet", "games",
+                  "pairpoll", "results", "results_hour", "rep", "bday", "shop", "quiz", "quiz_count", "quiet_from",
+                  "quiet_to", "humor", "mat", "banned", "protect_admins", "call_text", "call_who", "call_style",
+                  "call_max"]
+MOVE_TABLES = ["rep_points", "quiz_scores", "call_list"]   # переносятся целиком, с заменой chat_id
+
+
+async def chat_settings(chat_id: int) -> dict:
+    chat = await get_chat(chat_id)
+    return {f: chat[f] for f in SETTING_FIELDS if f in chat.keys()} if chat else {}
+
+
+async def apply_settings(chat_id: int, data: dict) -> int:
+    fields = {k: v for k, v in data.items() if k in SETTING_FIELDS}
+    if fields:
+        await update_chat(chat_id, **fields)
+    return len(fields)
+
+
+async def _columns(table: str) -> list[str]:
+    async with conn().execute(f"PRAGMA table_info({table})") as cur:
+        return [r[1] for r in await cur.fetchall()]
+
+
+async def move_chat(src: int, dst: int) -> dict:
+    """Переносит всё из старого чата в новый: настройки, людей с памятью и ДР, репутацию, викторину,
+    триггеры, список зазывалы, одобрение и остаток аренды. Старый чат теряет аренду и одобрение."""
+    old = await get_chat(src)
+    await apply_settings(dst, await chat_settings(src))
+    await update_chat(dst, approved=1, pending_since=0, rent_until=old["rent_until"], trial=old["trial"],
+                      rent_warned=0, added_by=old["added_by"] or 0, added_name=old["added_name"],
+                      added_username=old["added_username"])
+    counts = {}
+    for table in MOVE_TABLES:
+        cols = [c for c in await _columns(table) if c != "chat_id"]
+        names = ", ".join(cols)
+        cur = await conn().execute(f"INSERT OR IGNORE INTO {table} (chat_id, {names}) "
+                                   f"SELECT ?, {names} FROM {table} WHERE chat_id = ?", (dst, src))
+        counts[table] = cur.rowcount
+    cols = [c for c in await _columns("triggers") if c not in ("id", "chat_id")]
+    names = ", ".join(cols)
+    cur = await conn().execute(f"INSERT INTO triggers (chat_id, {names}) SELECT ?, {names} FROM triggers "
+                               "WHERE chat_id = ? AND word NOT IN (SELECT word FROM triggers WHERE chat_id = ?)",
+                               (dst, src, dst))
+    counts["triggers"] = cur.rowcount
+    # люди: заметки бота и дни рождения. Кого бот уже видел в новом чате, тем дописываем пустые поля
+    cols = [c for c in await _columns("users") if c != "chat_id"]
+    names = ", ".join(cols)
+    cur = await conn().execute(f"INSERT OR IGNORE INTO users (chat_id, {names}) SELECT ?, {names} FROM users "
+                               "WHERE chat_id = ?", (dst, src))
+    counts["users"] = cur.rowcount
+    await conn().execute(
+        "UPDATE users SET notes = (SELECT o.notes FROM users o WHERE o.chat_id = ? AND o.user_id = users.user_id), "
+        "birthday = COALESCE(NULLIF(birthday, ''), (SELECT o.birthday FROM users o WHERE o.chat_id = ? "
+        "AND o.user_id = users.user_id)) WHERE chat_id = ? AND (notes = '' OR notes IS NULL) "
+        "AND user_id IN (SELECT user_id FROM users WHERE chat_id = ?)", (src, src, dst, src))
+    await conn().execute("UPDATE chats SET rent_until = 0, approved = 0, trial = 0, pending_since = 0 "
+                         "WHERE chat_id = ?", (src,))
+    await conn().commit()
+    return counts
+
+
+async def lost_chats(user_id: int) -> list[aiosqlite.Row]:
+    """Чаты, где бота больше нет и которые этот человек когда-то добавил: из них можно перенести всё."""
+    async with conn().execute("SELECT * FROM chats WHERE active = 0 AND added_by = ? ORDER BY title",
+                              (user_id,)) as cur:
+        return list(await cur.fetchall())
