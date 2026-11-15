@@ -36,7 +36,7 @@ async def step2(target, cid: int, state: FSMContext) -> None:
     await state.update_data(chat_id=cid)
     chat = await db.get_chat(cid)
     await _show(target, "⚙️ <b>Шаг 2 из 3</b>\n\nО чём ваш чат? Напиши парой слов, например:\n"
-                        "<i>кальяны, вечеринки, Алматы</i>\n\n"
+                        "<i>футбол, мемы, встречи по пятницам</i>\n\n"
                         f"Сейчас: {esc(short(chat['topic'], 200))}",
                 _kb([[("Оставить как есть", f"wz:k:{cid}")]]))
 

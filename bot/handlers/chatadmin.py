@@ -45,6 +45,10 @@ class McImport(StatesGroup):
     file = State()
 
 
+class McQday(StatesGroup):
+    add = State()
+
+
 def _kb(rows: list[list[tuple]]) -> InlineKeyboardMarkup:
     out = []
     for row in rows:
@@ -231,6 +235,7 @@ async def section(target, chat_id: int, sec: str) -> None:
         rows = [[(f"{'✅' if c[f] else '❌'} {label}", f"mc:t:{cid}:{f}") for f, label in items[i:i + 2]]
                 for i in range(0, len(items), 2)]
         rows.append([_opt(f"🧠 {n} вопросов", f"mc:v:{cid}:qc:{n}", c["quiz_count"] == n) for n in presets.QUIZ_COUNTS])
+        rows.append([("❓ Свои вопросы дня", f"mc:s:{cid}:qday")])
         rows.append(back)
     elif sec == "rules":
         text = (f"🛡 <b>Правила</b>\n\n"
@@ -267,6 +272,17 @@ async def section(target, chat_id: int, sec: str) -> None:
         rows.append([_opt(str(n), f"mc:v:{cid}:cm:{n}", c["call_max"] == n) for n in presets.CALL_MAX])
         rows += [[(f"📋 Мой список ({people})", f"mc:cl:{cid}")],
                  [("▶️ Позвать сейчас", f"mc:run:{cid}", "success")], back]
+    elif sec == "qday":
+        from bot.services.qday import HOUR
+        queue = [q for q in (c["qday_queue"] or "").splitlines() if q.strip()]
+        listing = "\n".join(f"{i + 1}. {esc(short(q, 120))}" for i, q in enumerate(queue[:15])) or "пусто"
+        text = (f"❓ <b>Вопрос дня</b>: {'✅ включён' if c['qday'] else '❌ выключен'}, каждый день в {HOUR}:00\n\n"
+                "Если очередь пуста, вопрос придумывает бот под тему чата. Свои вопросы идут первыми, "
+                f"по одному в день.\n\n<b>Очередь ({len(queue)}):</b>\n{listing}")
+        rows = [[("✏️ Добавить свои вопросы", f"mc:qa:{cid}", "success")],
+                [("▶️ Задать сейчас", f"mc:qn:{cid}"), ("🗑 Очистить", f"mc:qx:{cid}")],
+                [(f"{'✅' if c['qday'] else '❌'} Вопрос дня", f"mc:t:{cid}:qday")],
+                [("⬅️ Фишки", f"mc:s:{cid}:fx")]]
     elif sec == "tools":
         text = ("🧰 <b>Перенос и экспорт</b>\n\n"
                 "📦 <b>Перенести в другой чат</b>: если этот чат пропал, забанили или вы переехали в новую группу. "
@@ -755,3 +771,38 @@ async def on_import(message: Message, bot: Bot, state: FSMContext) -> None:
     await state.clear()
     await message.answer(f"✅ Загрузил: настроек {n}, триггеров {t}.")
     await card(message, cid, message.from_user.id)
+
+
+# ---------- свои вопросы дня ----------
+
+@router.callback_query(F.data.startswith(("mc:qa:", "mc:qn:", "mc:qx:")))
+async def cb_qday(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
+    op, cid = cb.data.split(":")[1], int(cb.data.split(":")[2])
+    if not await _guard(cb, bot, cid):
+        return
+    if op == "qx":
+        await db.update_chat(cid, qday_queue="")
+        return await section(cb, cid, "qday")
+    if op == "qn":
+        from bot.services import qday
+        await qday.post(bot, await db.get_chat(cid))
+        await cb.answer("❓ Задал вопрос в чате", show_alert=True)
+        return await section(cb, cid, "qday")
+    await state.set_state(McQday.add)
+    await state.update_data(chat_id=cid)
+    await _show(cb, "✏️ <b>Свои вопросы дня</b>\n\nПришли вопросы, каждый с новой строки. Они встанут в очередь, "
+                    "по одному в день.", _kb([[("Готово", f"mc:s:{cid}:qday")]]))
+
+
+@router.message(McQday.add, F.text)
+async def on_qday_add(message: Message, bot: Bot, state: FSMContext) -> None:
+    cid = (await state.get_data())["chat_id"]
+    if not await can_manage(bot, message.from_user.id, cid):
+        await state.clear()
+        return await message.answer(DENIED)
+    chat = await db.get_chat(cid)
+    new = [" ".join(q.split())[:300] for q in message.text.splitlines() if q.strip()]
+    queue = [q for q in (chat["qday_queue"] or "").splitlines() if q.strip()] + new
+    await db.update_chat(cid, qday_queue="\n".join(queue[:100]))
+    await message.answer(f"✅ Добавил {len(new)}, в очереди {min(len(queue), 100)}. Пришли ещё или нажми Готово.",
+                         reply_markup=_kb([[("Готово", f"mc:s:{cid}:qday")]]))

@@ -219,6 +219,7 @@ async def tick(bot: Bot) -> None:
     from bot.services import qday
     try:
         await qday.tick(bot)
+        await qday.revive_tick(bot)
     except Exception:
         log.exception("Вопрос дня: ошибка в расписании")
     await stars.expire_titles(bot)

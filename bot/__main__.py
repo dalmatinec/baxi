@@ -22,6 +22,9 @@ async def main() -> None:
     logging.getLogger("aiogram.event").setLevel(logging.WARNING)
 
     await db.connect()
+    limit = await db.kv_get("daily_limit")
+    if limit:
+        config.DAILY_LIMIT_USD = float(limit)  # лимит, заданный в админке, главнее .env
     await stars.refresh_looks()
     bot = Bot(config.BOT_TOKEN)
     bot.session.middleware(sanitize_requests)  # никаких длинных тире и ёлочек ни в одном сообщении

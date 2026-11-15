@@ -10,9 +10,13 @@ from bot import db
 from bot.middlewares import GROUPS, real_reply
 from bot.services import daily, quiz
 from bot.services.out import say
-from bot.textutil import full_name, human_date, mention, parse_birthday, rep_delta
+from bot.textutil import esc, full_name, human_date, mention, parse_birthday, rep_delta
 
 router = Router(name="fun")
+
+
+REP_PLUS = "💜 <b>+1 к репутации</b>\n{от} → <b>{кому}</b>\n⭐ теперь {сколько} · {место} место в чате"
+REP_MINUS = "👎 <b>-1 к репутации</b>\n{от} → <b>{кому}</b>\nтеперь {сколько} · {место} место в чате"
 
 
 async def rep_filter(message: Message, chat_row=None, user_row=None) -> dict | bool:
@@ -32,9 +36,11 @@ async def on_rep(message: Message, bot: Bot, delta: int, target, user_row) -> No
         return  # уже давал этому человеку в последний час: молча пропускаем
     points = await db.rep_change(chat_id, message.from_user.id, target.id, delta)
     name = full_name(target.first_name, target.last_name)
-    sign = "⭐ +1" if delta > 0 else "👎 -1"
-    await say(bot, chat_id, f"{sign} к репутации {mention(target.id, name)}, теперь <b>{points}</b> "
-                            f"(от {user_row['name']})", reply_to=message)
+    place = await db.rep_place(chat_id, target.id)
+    tpl = await db.kv_get("tpl_rep_plus" if delta > 0 else "tpl_rep_minus") or (REP_PLUS if delta > 0 else REP_MINUS)
+    html = (tpl.replace("{кому}", mention(target.id, name)).replace("{от}", esc(user_row["name"]))
+            .replace("{сколько}", str(points)).replace("{место}", str(place)))
+    await say(bot, chat_id, html, reply_to=message)
 
 
 async def bday_filter(message: Message, chat_row=None, user_row=None) -> dict | bool:

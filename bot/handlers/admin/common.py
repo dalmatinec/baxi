@@ -266,8 +266,20 @@ async def cb_spend(cb: CallbackQuery) -> None:
     month = sum(r["usd"] for r in rows)
     text = ("🤖 <b>ИИ и расход</b>\n\n"
             + (f"Модель: <code>{config.AI_MODEL}</code>\n" if config.IS_MAIN else "")
-            + f"Лимит в сутки: <b>${config.DAILY_LIMIT_USD:.2f}</b> (меняется в .env, DAILY_LIMIT_USD)\n"
+            + f"Лимит в сутки: <b>${config.DAILY_LIMIT_USD:.2f}</b>, примерно ${config.DAILY_LIMIT_USD * 30:.0f} в месяц максимум\n"
             f"За 30 дней: <b>${month:.3f}</b>\n\n"
             + ("\n".join(lines) if lines else "Пока ни одного запроса.")
-            + "\n\nКогда лимит на сегодня кончается, бот до полуночи отвечает фразами из базы.")
-    await show(cb, text, kb([[BACK_MENU]]))
+            + "\n\nКогда лимит на сегодня кончается, бот до полуночи отвечает фразами из базы.\n\n"
+            "<b>Изменить лимит в сутки:</b>")
+    steps = [0.3, 0.5, 0.75, 1, 1.5, 2, 3]
+    row = [((f"✓ ${v:g}" if abs(v - config.DAILY_LIMIT_USD) < 1e-9 else f"${v:g}"), f"lim:{v}") for v in steps]
+    await show(cb, text, kb([row[:4], row[4:], [BACK_MENU]]))
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("lim:"))
+async def cb_limit(cb: CallbackQuery) -> None:
+    value = float(cb.data[4:])
+    config.DAILY_LIMIT_USD = value
+    await db.kv_set("daily_limit", str(value))
+    await cb.answer(f"Лимит ${value:g} в сутки")
+    await cb_spend(cb)

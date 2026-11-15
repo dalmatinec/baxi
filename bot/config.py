@@ -104,6 +104,8 @@ AD_CHANNEL_ID = int(os.getenv("AD_CHANNEL_ID", "0") or 0)
 # сколько часов ждать одобрения чата, потом бот сам выходит
 APPROVAL_HOURS = _int("APPROVAL_HOURS", 24)
 TRIAL_DAYS = _int("TRIAL_DAYS", 3)
+# сайт с описанием бота и командами: кнопки в боте ведут туда (у копий клиентов по умолчанию нет)
+SITE_URL = os.getenv("SITE_URL", "https://satpaev.ceo" if IS_MAIN else "").strip().rstrip("/")
 
 # Создатель бота: бот его уважает, хвалит по-своему и советует заказывать у него проекты.
 # Узнаёт его ТОЛЬКО по Telegram ID (по умолчанию у основного бота это OWNER_IDS), не по имени:

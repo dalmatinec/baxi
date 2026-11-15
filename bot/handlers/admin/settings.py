@@ -1,5 +1,7 @@
 """Админка → Настройки: премиум-эмодзи бота, меню команд, создатель."""
 
+import os
+
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -17,6 +19,10 @@ class EmojiAdd(StatesGroup):
     collecting = State()
 
 
+class TextEdit(StatesGroup):
+    value = State()
+
+
 class BackupSet(StatesGroup):
     channel = State()
     file = State()
@@ -31,9 +37,10 @@ async def cb_menu(cb: CallbackQuery, state: FSMContext) -> None:
             f"😎 Премиум-эмодзи бота: <b>{len(await db.emoji_list())}</b>\n"
             f"👑 Создатель: {creator}\n"
             f"🎁 Пробный период: <b>{config.TRIAL_DAYS} дн.</b> (TRIAL_DAYS в .env)\n"
-            f"🤖 Лимит ИИ в сутки: <b>${config.DAILY_LIMIT_USD:.2f}</b> (DAILY_LIMIT_USD в .env)\n\n"
+            f"🤖 Лимит ИИ в сутки: <b>${config.DAILY_LIMIT_USD:.2f}</b> (меняется в 🤖 ИИ и расход)\n\n"
             "<i>Строки в .env меняются на сервере: nano /opt/linkhub/.env, потом systemctl restart linkhub</i>")
     await show(cb, text, kb([[("💾 Бэкап", "cfg:bk", "primary"), ("😎 Премиум-эмодзи", "cfg:emoji")],
+                             [("✏️ Тексты бота в чатах", "cfg:tx")],
                              [("🔄 Обновить меню команд", "cfg:cmds")], [BACK_MENU]]))
 
 
@@ -89,7 +96,7 @@ async def _backup_screen(target) -> None:
     from bot.services import backup
     last = int(await db.kv_get("backup_last", "0") or 0)
     size = int(await db.kv_get("backup_size", "0") or 0)
-    channel = await db.kv_get("backup_channel")
+    channel = os.getenv("BACKUP_CHANNEL", "").strip() or await db.kv_get("backup_channel")
     local = sorted(backup.folder().glob("baxi-*.db.gz*")) if backup.folder().exists() else []
     when = "ещё не было" if not last else f"{int((_t.time() - last) // 3600)} ч назад, {size / 1024 / 1024:.1f} МБ"
     text = ("💾 <b>Бэкап</b>\n\n"
@@ -198,3 +205,49 @@ async def cb_backup_go(cb: CallbackQuery) -> None:
     await cb.answer()
     await asyncio.sleep(1)
     os._exit(3)  # systemd поднимет бота заново, при старте база подменится
+
+
+# ---------- тексты бота в чатах ----------
+
+def _texts() -> dict:
+    from bot.handlers.fun import REP_MINUS, REP_PLUS
+    hint = "{кому} кто получил, {от} кто дал, {сколько} сколько стало, {место} место в чате"
+    return {"tpl_rep_plus": ("💜 Плюс к репутации", REP_PLUS, hint),
+            "tpl_rep_minus": ("👎 Минус к репутации", REP_MINUS, hint)}
+
+
+@router.callback_query(F.data == "cfg:tx")
+async def cb_texts(cb: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    rows = [[(title, f"cfg:tx:{key}")] for key, (title, _, _) in _texts().items()]
+    await show(cb, "✏️ <b>Тексты бота в чатах</b>\n\nВыбери, что поменять. Можно с премиум-эмодзи и жирным.",
+               kb(rows + [[("⬅️ Настройки", "cfg:menu"), BACK_MENU]]))
+
+
+@router.callback_query(F.data.startswith("cfg:tx:"))
+async def cb_text_item(cb: CallbackQuery, state: FSMContext) -> None:
+    key = cb.data[7:]
+    reset = key.startswith("reset:")
+    key = key[6:] if reset else key
+    title, default, hint = _texts()[key]
+    if reset:
+        await db.kv_set(key, "")
+        await cb.answer("Вернул стандартный")
+    current = await db.kv_get(key) or default
+    await state.set_state(TextEdit.value)
+    await state.update_data(key=key)
+    await show(cb, f"✏️ <b>{title}</b>\n\nСейчас:\n{current}\n\n<b>Подстановки:</b> {esc(hint)}\n\n"
+                   "Пришли новый текст сообщением.",
+               kb([[("↩️ Вернуть стандартный", f"cfg:tx:reset:{key}")], [("⬅️ Тексты", "cfg:tx")]]))
+
+
+@router.message(TextEdit.value, F.text)
+async def on_text_value(message: Message, state: FSMContext) -> None:
+    key = (await state.get_data())["key"]
+    await db.kv_set(key, message.html_text[:1500])
+    await state.clear()
+    title = _texts()[key][0]
+    await message.answer(f"✅ {title}: сохранил. Так это будет выглядеть:\n\n"
+                         + message.html_text.replace("{кому}", "<b>Олег</b>").replace("{от}", "Аня")
+                         .replace("{сколько}", "48").replace("{место}", "3"),
+                         parse_mode="HTML", reply_markup=kb([[("⬅️ Тексты", "cfg:tx")]]))

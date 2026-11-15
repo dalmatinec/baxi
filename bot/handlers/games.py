@@ -22,7 +22,8 @@ HELP_KB = InlineKeyboardMarkup(inline_keyboard=[
      InlineKeyboardButton(text="🏆 Топ репы", callback_data="gm:rep_top")],
     [InlineKeyboardButton(text="🔮 Предсказание", callback_data="gm:predict"),
      InlineKeyboardButton(text="🔥 Прожарка ⭐", callback_data="gm:roast")],
-])
+] + ([[InlineKeyboardButton(text="📖 Все команды на сайте", url=f"{config.SITE_URL}/baxi#commands")]]
+     if config.SITE_URL else []))
 
 
 async def couple_html(bot: Bot, chat_id: int) -> str:

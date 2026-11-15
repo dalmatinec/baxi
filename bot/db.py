@@ -341,6 +341,9 @@ NEW_COLUMNS = {
         "trial": "INTEGER NOT NULL DEFAULT 0",            # сейчас идёт пробный период
         "qday": "INTEGER NOT NULL DEFAULT 1",             # вопрос дня включён
         "last_qday": "TEXT NOT NULL DEFAULT ''",          # когда последний раз задавали
+        "qday_queue": "TEXT NOT NULL DEFAULT ''",         # свои вопросы дня от админа, по строке
+        "revive": "INTEGER NOT NULL DEFAULT 0",           # оживлять чат, когда долго тихо
+        "last_revive": "REAL NOT NULL DEFAULT 0",
     },
     "users": {
         "birthday": "TEXT NOT NULL DEFAULT ''",         # 'MM-DD'
@@ -366,7 +369,7 @@ CHAT_FIELDS = {"bot_name", "aliases", "persona", "topic", "chance", "ai_share",
                "results_manual", "approved", "pending_since", "added_by", "rent_until", "rent_warned", "members",
                "shop", "added_name", "added_username", "quiz", "quiz_count", "quiet_from", "quiet_to",
                "quiet_until", "humor", "mat", "banned", "protect_admins", "call_text", "call_who", "call_style",
-               "call_max", "trial", "qday", "last_qday"}
+               "call_max", "trial", "qday", "last_qday", "qday_queue", "revive", "last_revive"}
 AD_FIELDS = {"title", "media_kind", "file_id", "text_html", "buttons", "interval",
              "enabled", "delete_prev"}
 
@@ -1493,6 +1496,7 @@ async def kv_set(key: str, value: str) -> None:
 
 # что из настроек чата переносится и попадает в экспорт (без названия, id, статуса и служебных отметок)
 SETTING_FIELDS = ["bot_name", "aliases", "persona", "topic", "chance", "ai_share", "cooldown", "greet", "games", "qday",
+                  "revive", "qday_queue",
                   "pairpoll", "results", "results_hour", "rep", "bday", "shop", "quiz", "quiz_count", "quiet_from",
                   "quiet_to", "humor", "mat", "banned", "protect_admins", "call_text", "call_who", "call_style",
                   "call_max"]
@@ -1559,3 +1563,16 @@ async def lost_chats(user_id: int) -> list[aiosqlite.Row]:
     async with conn().execute("SELECT * FROM chats WHERE active = 0 AND added_by = ? ORDER BY title",
                               (user_id,)) as cur:
         return list(await cur.fetchall())
+
+
+async def rep_place(chat_id: int, user_id: int) -> int:
+    async with conn().execute(
+            "SELECT COUNT(*) + 1 FROM rep_points WHERE chat_id = ? AND points > "
+            "(SELECT COALESCE(MAX(points), 0) FROM rep_points WHERE chat_id = ? AND user_id = ?)",
+            (chat_id, chat_id, user_id)) as cur:
+        return (await cur.fetchone())[0]
+
+
+async def last_message_ts(chat_id: int) -> float:
+    async with conn().execute("SELECT MAX(ts) FROM history WHERE chat_id = ? AND is_bot = 0", (chat_id,)) as cur:
+        return (await cur.fetchone())[0] or 0

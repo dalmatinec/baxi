@@ -74,7 +74,7 @@ def rotate() -> None:
 
 
 async def _send_to_channel(bot: Bot, path: Path) -> None:
-    channel = await db.kv_get("backup_channel")
+    channel = os.getenv("BACKUP_CHANNEL", "").strip() or await db.kv_get("backup_channel")
     if not channel:
         return
     reach = await db.reach()

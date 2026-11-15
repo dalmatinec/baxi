@@ -39,6 +39,8 @@ def defaults() -> dict[str, dict]:
     if config.IS_MAIN:
         start_buttons.append(btn("💼 Свой бот", "screen:wl", 3, "success"))
     start_buttons.append(btn("🆘 Поддержка", "act:support", 4))
+    if config.SITE_URL:
+        start_buttons.append(btn("🌐 Сайт и команды", f"url:{config.SITE_URL}/baxi", 4))
     return {
         "start": {
             "text": "👋 <b>Привет, {name}!</b>\n\n"
