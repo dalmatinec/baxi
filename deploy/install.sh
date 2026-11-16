@@ -5,7 +5,7 @@
 set -euo pipefail
 
 DIR=/opt/linkhub
-cd "$DIR" || { echo "Сначала: git clone https://github.com/dalmatinec/linkhub $DIR"; exit 1; }
+cd "$DIR" || { echo "Сначала: git clone https://github.com/dalmatinec/baxi $DIR"; exit 1; }
 
 # swap 5 ГБ, если его ещё нет: на сервере с 2 ГБ памяти без него тесно
 bash "$DIR/deploy/swap.sh" 5 >/dev/null && echo "Swap: $(swapon --show=SIZE --noheadings | head -1)"

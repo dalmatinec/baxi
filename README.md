@@ -264,7 +264,7 @@ docker compose logs -f         # логи
 
 ```bash
 apt update && apt install -y git
-git clone https://github.com/dalmatinec/linkhub /opt/linkhub
+git clone https://github.com/dalmatinec/baxi /opt/linkhub
 bash /opt/linkhub/deploy/install.sh
 ```
 

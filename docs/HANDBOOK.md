@@ -164,7 +164,7 @@
 
 **Переезд на новый сервер или сервер умер**
 1. Новый сервер Ubuntu, зайти по ssh.
-2. `git clone https://github.com/dalmatinec/linkhub /opt/linkhub`
+2. `git clone https://github.com/dalmatinec/baxi /opt/linkhub`
 3. `bash /opt/linkhub/deploy/install.sh`: спросит токен, твой ID и ключ нейросети.
 4. Скачать последний бэкап из закрытого канала, закинуть на сервер (или переслать боту, как выше), `bash /opt/linkhub/deploy/restore.sh /путь/к/файлу.db.gz`
 5. В `.env` вернуть остальное: `BACKUP_CHANNEL`, кошельки USDT, `CREATOR_CONTACT` и т.д.
