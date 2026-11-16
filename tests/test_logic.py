@@ -330,3 +330,11 @@ def test_editable_texts():
 def test_memory_prompt_warns_about_addressing():
     msgs = prompts.memory_messages("Серега", "", ["(отвечает Сатпаев) Дастан, ты где"])
     assert "обращение к ДРУГОМУ" in msgs[0]["content"] and "(отвечает Сатпаев)" in msgs[1]["content"]
+
+
+def test_drop_hello():
+    from bot.prompts import drop_hello
+    assert drop_hello("салам бро, закажи пельмени", "чё поесть") == "закажи пельмени"
+    assert drop_hello("салам, как ты", "салам всем") == "салам, как ты"
+    assert drop_hello("куда пойдём", "а") == "куда пойдём"
+    assert drop_hello("салам бро", "а") == "салам бро"

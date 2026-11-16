@@ -71,12 +71,15 @@ async def context(chat) -> tuple[str, str]:
     return system, prompts.format_history(rows, chat["bot_name"], config.CREATOR_IDS)
 
 
-async def _ask(chat, make_task) -> str | None:
-    """make_task получает историю чата текстом и возвращает задание для нейросети."""
+async def _ask(chat, make_task, incoming: str | None = None) -> str | None:
+    """make_task получает историю чата текстом и возвращает задание для нейросети.
+    incoming: на что отвечаем; если там нет приветствия, «салам бро» в начале ответа срезаем."""
     system, history = await context(chat)
     answer = await ai.chat([{"role": "system", "content": system},
                             {"role": "user", "content": make_task(history)}])
     text = prompts.clean_reply(answer or "", chat["bot_name"])
+    if incoming is not None:
+        text = prompts.drop_hello(text, incoming)
     return text or None
 
 
@@ -103,7 +106,7 @@ async def send_text(bot: Bot, chat, text_html: str, plain: str, reply_to: Messag
 async def ai_answer(bot: Bot, chat, message: Message, author: str, text: str, jump: bool) -> None:
     """Ответ нейросети на сообщение. Не вышло (лимит, ошибка), отвечает фразой из базы."""
     build = prompts.jump_task if jump else prompts.reply_task
-    reply = await _ask(chat, lambda history: build(history, author, text or "[без текста]"))
+    reply = await _ask(chat, lambda history: build(history, author, text or "[без текста]"), incoming=text or "")
     creator = bool(message.from_user and message.from_user.id in config.CREATOR_IDS)
     if reply is None:
         if jump and not creator:
