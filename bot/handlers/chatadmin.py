@@ -180,12 +180,10 @@ async def card(target, chat_id: int, viewer: int = 0) -> None:
         [("🎲 Фишки", f"mc:s:{cid}:fx"), ("🛡 Правила", f"mc:s:{cid}:rules")],
         [("📝 Триггеры", f"mc:s:{cid}:trig"), ("📣 Зазывала", f"mc:s:{cid}:call")],
         [("📊 Статистика", f"mc:s:{cid}:stats"), ("🧰 Перенос и экспорт", f"mc:s:{cid}:tools")],
-        [("👀 Пробный ответ", f"mc:try:{cid}", "primary")],
-        [("💳 Подключить платную" if c["free"] or c["trial"] else "💳 Продлить аренду", f"rt:{cid}",
-          "success" if c["free"] else None), ("🆘 Владельцу", f"mc:sup:{cid}")],
-        [("🧹 Стереть память", f"mc:w:{cid}", "danger")],
-        [("⬅️ Мои чаты", "mc:list")] + ([("👑 В админку", f"ch:o:{cid}")] if viewer in config.OWNER_IDS else []),
-    ]
+        [("👀 Пробный ответ", f"mc:try:{cid}"), ("🧹 Стереть память", f"mc:w:{cid}")],
+        [("💳 Подключить платную" if c["free"] or c["trial"] else "💳 Продлить аренду", f"rt:{cid}", "success")],
+        [("⬅️ Мои чаты", "mc:list"), ("🆘 Поддержка", f"mc:sup:{cid}")],
+    ] + ([[("👑 В админку", f"ch:o:{cid}")]] if viewer in config.OWNER_IDS else [])
     await _show(target, "\n".join(lines), _kb(rows))
 
 

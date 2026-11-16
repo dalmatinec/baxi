@@ -52,11 +52,11 @@ async def _card(target, chat_id: int) -> None:
         [("⚙️ Настроить бота в чате", f"mc:o:{cid}", "primary")] if not pending else [],
         [("📅 Доступ и аренда", f"ch:s:{cid}:rent"),
          (f"📣 Реклама: {'✅' if c['ads'] else '❌'}", f"ch:ads:{cid}")],
-        [("🧠 Стереть заметки о людях", f"ch:nz:{cid}")] if not pending else [],
-        [("👁 Итоги картинками (только мне)", f"ch:rp:{cid}"),
+        [("👁 Итоги картинками", f"ch:rp:{cid}"),
          (f"🎨 Цвет: {STYLES[style_for(cid, c['card_style'])][0]}", f"ch:cs:{cid}")] if not pending else [],
         [("🚫 Отказать", f"ap:no:{cid}", "danger")] if pending else [],
-    ] + _contact(c) + [[("🚪 Выйти из чата", f"ch:bye:{cid}")] if not pending else [],
+    ] + _contact(c) + [[("🧠 Стереть заметки", f"ch:nz:{cid}"), ("🚪 Выйти из чата", f"ch:bye:{cid}")]
+                       if not pending else [],
                        [("⬅️ Чаты", "ch:list"), BACK_MENU]]))
 
 
@@ -64,7 +64,7 @@ def _contact(c) -> list[list[tuple]]:
     """Связь с тем, кто добавил бота: через бота и напрямую по юзернейму."""
     if not c["added_by"]:
         return []
-    row = [("✍️ Написать добавившему", f"sup:{c['added_by']}")]
+    row = [("✍️ Написать ему", f"sup:{c['added_by']}")]
     if c["added_username"]:
         row.append((f"💬 @{c['added_username']}", f"https://t.me/{c['added_username']}"))
     return [row]
