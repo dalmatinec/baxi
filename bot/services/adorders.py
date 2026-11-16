@@ -29,7 +29,8 @@ DEFAULT_PRODUCTS = [
     ("dm", "✉️ Рассылка в личку бота", 15, 1, 4),
 ]
 # не реклама, а оплата аренды и своего бота: продаются через те же заказы и ту же оплату USDT
-SERVICE_PRODUCTS = [("rent", "📅 Аренда бота на 30 дней", 50, 30, 20), ("wl", "💼 Свой бот", 100, 1, 21)]
+SERVICE_PRODUCTS = [("rent", "📅 Аренда бота на 30 дней", 30, 30, 20), ("wl", "💼 Свой бот", 100, 1, 21)]
+RENT_PRICE = 30   # $ в месяц; цену потом можно менять в админке (Реклама → Форматы и цены)
 SERVICE_KINDS = {"rent", "wl", "coins"}   # coins: монеты на кошелёк, days = сколько монет
 KIND_TEXT = {
     "rent": "бот в твоём чате на 30 дней, со своим характером и всеми фишками",
@@ -420,6 +421,11 @@ async def run_scheduler(bot: Bot) -> None:
     await db.seed_products(DEFAULT_PRODUCTS)
     for product in SERVICE_PRODUCTS:
         await db.ensure_product(*product)
+    if await db.kv_get("rent_price_30") != "1":   # один раз: аренда 50$ → 30$ в уже работающей базе
+        rent = await db.product_by_kind("rent")
+        if rent and rent["price"] == 50:
+            await db.update_product(rent["id"], price=RENT_PRICE)
+        await db.kv_set("rent_price_30", "1")
     while True:
         try:
             await tick(bot)
