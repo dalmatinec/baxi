@@ -89,21 +89,30 @@ def format_history(rows, bot_name: str, creator_ids: set[int] | frozenset = froz
         who = f"{bot_name} (это ты)" if r["is_bot"] else r["name"]
         if not r["is_bot"] and creator_ids and r["user_id"] in creator_ids:
             who += " (создатель)"
-        to = f" → {r['reply_name']}" if r["reply_name"] else ""
+        # автор всегда первым; кому он отвечает, пишем в скобках, чтобы нейросеть не приняла адресата за автора.
+        # Эту служебную разметку видит только нейросеть, в чат она не попадает.
+        to = f" (отвечает {r['reply_name']})" if r["reply_name"] else ""
         text = " ".join(r["text"].split())
-        lines.append(f"{who}{to}: {text}")
+        lines.append(f"[{who}{to}]: {text}")
     return "\n".join(lines) if lines else "(в чате пока тихо)"
 
 
+NAMES_RULE = ("В переписке автор каждого сообщения указан в квадратных скобках в начале строки, это служебная "
+              "пометка, сам так не пиши. Люди, которых автор упоминает или кому отвечает, это не он. "
+              "Если обращаешься к человеку, называй его только по имени из его подписи в скобках. Имена и прозвища, "
+              "которыми его зовут другие, не используй и не переноси на других людей.")
+
+
 def reply_task(history: str, author: str, text: str) -> str:
-    return (f"Последние сообщения чата:\n{history}\n\n"
-            f"{author} обратился к тебе: '{text}'\n"
-            f"Напиши свой ответ {author} одной репликой.")
+    return (f"Последние сообщения чата:\n{history}\n\n{NAMES_RULE}\n\n"
+            f"Тебе написал {author}: '{text}'\n"
+            f"Напиши свой ответ именно ему, {author}, одной репликой.")
 
 
 def jump_task(history: str, author: str, text: str) -> str:
-    return (f"Последние сообщения чата:\n{history}\n\n"
-            f"Тебя не звали, но ты решил влезть в разговор и ответить на сообщение {author}: '{text}'\n"
+    return (f"Последние сообщения чата:\n{history}\n\n{NAMES_RULE}\n\n"
+            f"Тебя не звали, но ты решил влезть в разговор. Ты отвечаешь на сообщение, которое написал {author}: "
+            f"'{text}'\nЕсли обращаешься, то к {author}, а не к тому, с кем он говорит. "
             f"Напиши одну короткую реплику по теме разговора.")
 
 
@@ -119,9 +128,12 @@ def memory_messages(name: str, old_notes: str, messages: list[str]) -> list[dict
     return [
         {"role": "system", "content":
             "Ты ведёшь короткие заметки об участниках чата. Пиши только факты, которые человек "
-            "сам сообщил или которые явно видны: как зовут или как называть, откуда, чем занимается, "
-            "увлечения, прозвища, манера общения. До 250 символов, одной строкой, без оценок и домыслов. "
-            "Если нового ничего нет, верни старые заметки без изменений."},
+            "сам сообщил о себе: откуда, чем занимается, увлечения, манера общения. До 250 символов, одной строкой, "
+            "без оценок и домыслов.\n"
+            "ВАЖНО про имена: имя в начале сообщения (Дастан, привет / Серега, ты где) это обращение к ДРУГОМУ "
+            "человеку, а не имя автора. Пометка (отвечает X) тоже про другого человека. Другие имена и прозвища "
+            "не записывай. Имя автора пиши, только если он прямо сказал о себе: меня зовут..., я ..., зовите меня....\n"
+            "Если нового ничего нет, верни старые заметки без изменений, но убери из них имена, взятые из обращений."},
         {"role": "user", "content":
             f"Участник: {name}\nСтарые заметки: {old_notes or 'нет'}\n"
             f"Его последние сообщения:\n{text}\n\nОбновлённые заметки:"},
@@ -129,11 +141,12 @@ def memory_messages(name: str, old_notes: str, messages: list[str]) -> list[dict
 
 
 _PREFIX = re.compile(r"^\s*[\w\s]{1,30}\s*(\(это ты\))?\s*:\s+")
+_BRACKET = re.compile(r"^\s*\[[^\]\n]{1,80}\]\s*:\s*")   # модель скопировала служебную пометку [Имя]: из переписки
 
 
 def clean_reply(text: str, bot_name: str, limit: int = 600) -> str:
     """Приводит ответ модели к виду реплики в чате."""
-    text = (text or "").strip()
+    text = _BRACKET.sub("", (text or "").strip(), count=1)
     # модель иногда пишет «Марат: ...», убираем своё имя в начале
     if text.lower().startswith(bot_name.lower()):
         text = _PREFIX.sub("", text, count=1)
@@ -162,8 +175,8 @@ def transcript(rows, limit: int = 300, cut: int = 160) -> str:
     lines = []
     for r in [r for r in rows if not r["is_bot"]][-limit:]:
         text = " ".join(r["text"].split())[:cut]
-        to = f" → {r['reply_name']}" if r["reply_name"] else ""
-        lines.append(f"{r['name']}{to}: {text}")
+        to = f" (отвечает {r['reply_name']})" if r["reply_name"] else ""
+        lines.append(f"[{r['name']}{to}]: {text}")   # тот же формат, что в format_history: автор первым
     return "\n".join(lines)
 
 

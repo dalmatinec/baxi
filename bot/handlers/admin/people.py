@@ -28,7 +28,8 @@ async def cb_menu(cb: CallbackQuery, state: FSMContext) -> None:
     lines = [f"• {esc(r['name'])}: {r['stars']} ⭐" for r in top] if top else []
     await show(cb, "👥 <b>Люди</b>\n\nПришли @username или id человека, покажу всё о нём: в каких чатах, "
                    "сколько задонатил, VIP и щит."
-               + ("\n\n<b>Топ донатеров:</b>\n" + "\n".join(lines) if lines else ""), kb([[BACK_MENU]]))
+               + ("\n\n<b>Топ донатеров:</b>\n" + "\n".join(lines) if lines else ""),
+               kb([[("🧠 Стереть заметки о людях во всех чатах", "ppl:nzall")], [BACK_MENU]]))
 
 
 async def person_card(target, uid: int) -> None:
@@ -45,11 +46,16 @@ async def person_card(target, uid: int) -> None:
             f"💬 Чаты: {chats}\n📨 Личка с ботом: {'да' if p['dm'] else 'нет'}\n"
             f"⭐ Задонатил: {p['stars']} ⭐\n"
             f"👑 VIP: {'до ' + until_text(vip) if vip else 'нет'}\n🛡 Щит: {'до ' + until_text(shield) if shield else 'нет'}")
+    notes = await db.notes_of(uid)
+    if notes:
+        text += "\n\n🧠 <b>Что бот о нём помнит:</b>\n" + "\n".join(
+            f"• <i>{esc(n['title'] or 'чат')[:30]}</i>: {esc(n['notes'])}" for n in notes[:6])
     rows = [[("✍️ Написать через бота", f"sup:{uid}", "primary")]]
     if p["username"]:
         rows.append([(f"💬 @{p['username']} напрямую", f"https://t.me/{p['username']}")])
     rows += [[("👑 VIP +30 дн", f"ppl:vip:{uid}", "success"), ("🛡 Щит +7 дн", f"ppl:sh:{uid}")],
              [("❌ Снять VIP и щит", f"ppl:off:{uid}", "danger")] if vip or shield else [],
+             [("🧠 Стереть, что бот о нём помнит", f"ppl:nz:{uid}")] if notes else [],
              [("🔎 Искать ещё", "ppl:menu"), BACK_MENU]]
     await show(target, text, kb(rows))
 
@@ -61,6 +67,28 @@ async def on_query(message: Message, state: FSMContext) -> None:
         return await message.answer("Не нашёл. Пришли @username или id ещё раз или /cancel.")
     await state.clear()
     await person_card(message, p["user_id"])
+
+
+@router.callback_query(F.data.startswith("ppl:nz:"))
+async def cb_clear_person_notes(cb: CallbackQuery) -> None:
+    uid = int(cb.data.split(":")[2])
+    n = await db.clear_notes(user_id=uid)
+    await cb.answer(f"🧠 Стёр заметки ({n}). Бот узнает его заново через 20 сообщений", show_alert=True)
+    await person_card(cb, uid)
+
+
+@router.callback_query(F.data.in_({"ppl:nzall", "ppl:NZALL"}))
+async def cb_clear_all_notes(cb: CallbackQuery, state: FSMContext) -> None:
+    """Стереть все заметки о людях во всех чатах (с подтверждением)."""
+    if cb.data == "ppl:nzall":
+        await cb.answer()
+        return await show(cb, "🧠 <b>Стереть заметки о людях во всех чатах?</b>\n\nБот забудет, что знал о людях "
+                              "(имена, увлечения, кто откуда), и узнает их заново по новым правилам: первая заметка "
+                              "через 20 сообщений человека. История переписки, ранги, монеты и репутация останутся.",
+                          kb([[("Нет", "ppl:menu")], [("🧠 Да, стереть", "ppl:NZALL", "danger")]]))
+    n = await db.clear_notes()
+    await cb.answer(f"Стёр заметки: {n}", show_alert=True)
+    await cb_menu(cb, state)
 
 
 @router.callback_query(F.data.startswith(("ppl:vip:", "ppl:sh:", "ppl:off:")))

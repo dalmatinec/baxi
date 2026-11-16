@@ -114,7 +114,9 @@ def test_history_format():
     rows = [{"name": "Аня", "text": "привет", "reply_name": "", "is_bot": 0},
             {"name": "Марат", "text": "здарова", "reply_name": "Аня", "is_bot": 1}]
     text = prompts.format_history(rows, "Марат")
-    assert text == "Аня: привет\nМарат (это ты) → Аня: здарова"
+    # автор в скобках первым, адресат отдельно: нейросеть не путает, кто написал
+    assert text == "[Аня]: привет\n[Марат (это ты) (отвечает Аня)]: здарова"
+    assert prompts.clean_reply("[Марат (это ты)]: ну привет", "Марат") == "ну привет"
 
 
 def test_system_prompt_has_settings():
@@ -323,3 +325,8 @@ def test_editable_texts():
         assert "{" not in texts.sample(key, default), key   # у каждой подстановки есть пример
         assert "—" not in default and "«" not in default
     assert texts.fill("{от} → {кому}", {"от": "А", "кому": "Б"}) == "А → Б"
+
+
+def test_memory_prompt_warns_about_addressing():
+    msgs = prompts.memory_messages("Серега", "", ["(отвечает Сатпаев) Дастан, ты где"])
+    assert "обращение к ДРУГОМУ" in msgs[0]["content"] and "(отвечает Сатпаев)" in msgs[1]["content"]

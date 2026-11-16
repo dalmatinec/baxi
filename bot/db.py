@@ -619,11 +619,35 @@ async def recent_history(chat_id: int, limit: int) -> list[aiosqlite.Row]:
 
 
 async def user_messages(chat_id: int, user_id: int, limit: int) -> list[str]:
+    """Последние сообщения человека; если он кому-то отвечал, с пометкой (отвечает X)."""
     async with conn().execute(
-            "SELECT text FROM history WHERE chat_id = ? AND user_id = ? ORDER BY id DESC LIMIT ?",
+            "SELECT text, reply_name FROM history WHERE chat_id = ? AND user_id = ? ORDER BY id DESC LIMIT ?",
             (chat_id, user_id, limit)) as cur:
         rows = await cur.fetchall()
-    return [r["text"] for r in reversed(rows)]
+    return [(f"(отвечает {r['reply_name']}) " if r["reply_name"] else "") + r["text"] for r in reversed(rows)]
+
+
+async def notes_of(user_id: int) -> list[aiosqlite.Row]:
+    """Заметки бота о человеке во всех чатах."""
+    async with conn().execute(
+            "SELECT u.chat_id, u.notes, COALESCE(c.title, '') AS title FROM users u LEFT JOIN chats c "
+            "ON c.chat_id = u.chat_id WHERE u.user_id = ? AND u.notes != ''", (user_id,)) as cur:
+        return list(await cur.fetchall())
+
+
+async def clear_notes(chat_id: int | None = None, user_id: int | None = None) -> int:
+    """Стереть заметки: одного человека, всего чата или (без аргументов) все. Бот заново узнает людей."""
+    where, args = ["notes != ''"], []
+    if chat_id is not None:
+        where.append("chat_id = ?")
+        args.append(chat_id)
+    if user_id is not None:
+        where.append("user_id = ?")
+        args.append(user_id)
+    # notes_at = msg_count: новая заметка появится через MEMORY_FIRST сообщений человека после очистки
+    cur = await conn().execute("UPDATE users SET notes = '', notes_at = msg_count WHERE " + " AND ".join(where), args)
+    await conn().commit()
+    return cur.rowcount
 
 
 async def clear_memory(chat_id: int) -> None:

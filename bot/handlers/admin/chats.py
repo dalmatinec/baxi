@@ -52,6 +52,7 @@ async def _card(target, chat_id: int) -> None:
         [("⚙️ Настроить бота в чате", f"mc:o:{cid}", "primary")] if not pending else [],
         [("📅 Доступ и аренда", f"ch:s:{cid}:rent"),
          (f"📣 Реклама: {'✅' if c['ads'] else '❌'}", f"ch:ads:{cid}")],
+        [("🧠 Стереть заметки о людях", f"ch:nz:{cid}")] if not pending else [],
         [("👁 Итоги картинками (только мне)", f"ch:rp:{cid}"),
          (f"🎨 Цвет: {STYLES[style_for(cid, c['card_style'])][0]}", f"ch:cs:{cid}")] if not pending else [],
         [("🚫 Отказать", f"ap:no:{cid}", "danger")] if pending else [],
@@ -179,6 +180,21 @@ async def cb_bye(cb: CallbackQuery) -> None:
                    "• <b>Выйти и убрать из списка</b>: чат исчезнет из админки вместе с историей и статистикой.",
                kb([[("Нет, оставить", f"ch:o:{cid}", "success")],
                    [("🚪 Выйти", f"ap:no:{cid}"), ("🗑 Выйти и убрать из списка", f"ch:gone:{cid}", "danger")]]))
+
+
+@router.callback_query(F.data.startswith(("ch:nz:", "ch:NZ:")))
+async def cb_clear_chat_notes(cb: CallbackQuery) -> None:
+    """Стереть, что бот помнит о людях этого чата (с подтверждением). Бот узнает их заново."""
+    op, cid = cb.data.split(":")[1], int(cb.data.split(":")[2])
+    if op == "nz":
+        await cb.answer()
+        return await show(cb, "🧠 <b>Стереть заметки о людях этого чата?</b>\n\nБот забудет имена, увлечения и прочее, "
+                              "что запомнил, и узнает людей заново: первая заметка через 20 сообщений человека. "
+                              "Переписка, ранги, монеты и репутация останутся.",
+                          kb([[("Нет", f"ch:o:{cid}")], [("🧠 Да, стереть", f"ch:NZ:{cid}", "danger")]]))
+    n = await db.clear_notes(chat_id=cid)
+    await cb.answer(f"Стёр заметки: {n}", show_alert=True)
+    await _card(cb, cid)
 
 
 @router.callback_query(F.data.startswith("ch:rp:"))
