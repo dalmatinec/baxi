@@ -65,9 +65,15 @@ async def context(chat) -> tuple[str, str]:
     vips = await db.vip_ids(ids)
     notes = [f"{u['name']}: {u['notes']}" for u in users if u["notes"]]
     notes += [f"{u['name']}: VIP чата, обращайся к нему с шутливым уважением" for u in users if u["user_id"] in vips]
+    shared = []
+    if chat["share_notes"]:   # общая память: кого здесь ещё не знаем, узнаём по заметкам из других чатов
+        known = {u["user_id"] for u in users if u["notes"]}
+        names = {u["user_id"]: u["name"] for u in users}
+        other = await db.notes_elsewhere(chat["chat_id"], [i for i in ids if i not in known and i in names])
+        shared = [f"{names[i]}: {n}" for i, n in other.items()]
     from bot.services import plans
     system = prompts.system_prompt(chat["bot_name"], plans.persona(chat), chat["topic"],
-                                   chat["title"] or "без названия", notes, await rules(chat))
+                                   chat["title"] or "без названия", notes, await rules(chat), shared)
     return system, prompts.format_history(rows, chat["bot_name"], config.CREATOR_IDS)
 
 

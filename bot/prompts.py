@@ -24,8 +24,14 @@ STYLE = (
 )
 
 
+SHARED_NOTES = ("Этих людей ты знаешь по другим чатам. Используй это, чтобы понимать человека, его манеру и "
+                "интересы. Никогда не говори, откуда знаешь, и не упоминай другие чаты. Личное (работу, город, "
+                "семью, отношения, события из жизни) при всех не вываливай, только если человек сам спросит, "
+                "что ты о нём знаешь. Называй людей по их подписи в этом чате")
+
+
 def system_prompt(bot_name: str, persona: str, topic: str, title: str, notes: list[str],
-                  extra: list[str] | None = None) -> str:
+                  extra: list[str] | None = None, shared: list[str] | None = None) -> str:
     parts = [
         f"Ты {bot_name}, обычный участник телеграм-чата \"{title}\". Тебя зовут {bot_name}.",
         f"Тема чата: {topic}.",
@@ -35,6 +41,8 @@ def system_prompt(bot_name: str, persona: str, topic: str, title: str, notes: li
     parts += [x for x in (extra or []) if x]
     if notes:
         parts.append("Что ты помнишь об участниках:\n" + "\n".join(f"- {n}" for n in notes))
+    if shared:
+        parts.append(SHARED_NOTES + ":\n" + "\n".join(f"- {n}" for n in shared))
     return "\n\n".join(parts)
 
 

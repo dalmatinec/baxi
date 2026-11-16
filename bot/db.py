@@ -324,7 +324,8 @@ NEW_COLUMNS = {
         "bday": "INTEGER NOT NULL DEFAULT 1",           # поздравления с ДР
         "results_hour": "INTEGER NOT NULL DEFAULT 23",
         "card_style": "INTEGER NOT NULL DEFAULT -1",     # цвет карточек итогов (-1: свой по номеру чата)
-        "act_locked": "INTEGER NOT NULL DEFAULT 0",      # владелец закрепил частоту, долю ИИ и паузу: админ чата не меняет
+        "act_locked": "INTEGER NOT NULL DEFAULT 0",
+        "share_notes": "INTEGER NOT NULL DEFAULT 1",     # общая память: бот узнаёт людей по заметкам из других чатов      # владелец закрепил частоту, долю ИИ и паузу: админ чата не меняет
         "last_results": "TEXT NOT NULL DEFAULT ''",
         "last_pairpoll": "TEXT NOT NULL DEFAULT ''",
         "results_manual": "REAL NOT NULL DEFAULT 0",      # когда последний раз звали «итоги»
@@ -382,7 +383,7 @@ NEW_COLUMNS = {
 
 CHAT_FIELDS = {"bot_name", "aliases", "persona", "topic", "chance", "ai_share",
                "cooldown", "greet", "games", "ads", "title", "active", "last_jump",
-               "pairpoll", "results", "rep", "bday", "results_hour", "last_results", "last_pairpoll", "card_style", "act_locked",
+               "pairpoll", "results", "rep", "bday", "results_hour", "last_results", "last_pairpoll", "card_style", "act_locked", "share_notes",
                "results_manual", "approved", "pending_since", "added_by", "rent_until", "rent_warned", "members",
                "shop", "added_name", "added_username", "quiz", "quiz_count", "quiet_from", "quiet_to",
                "quiet_until", "humor", "mat", "banned", "protect_admins", "call_text", "call_who", "call_style",
@@ -633,6 +634,19 @@ async def notes_of(user_id: int) -> list[aiosqlite.Row]:
             "SELECT u.chat_id, u.notes, COALESCE(c.title, '') AS title FROM users u LEFT JOIN chats c "
             "ON c.chat_id = u.chat_id WHERE u.user_id = ? AND u.notes != ''", (user_id,)) as cur:
         return list(await cur.fetchall())
+
+
+async def notes_elsewhere(chat_id: int, ids: list[int]) -> dict[int, str]:
+    """Заметки о людях из других чатов (где общая память не выключена). Если человек есть в нескольких,
+    берём чат, где он больше всего писал: там бот знает его лучше."""
+    if not ids:
+        return {}
+    marks = ",".join("?" * len(ids))
+    async with conn().execute(
+            f"SELECT u.user_id, u.notes FROM users u LEFT JOIN chats c ON c.chat_id = u.chat_id "
+            f"WHERE u.user_id IN ({marks}) AND u.chat_id != ? AND u.notes != '' AND COALESCE(c.share_notes, 1) = 1 "
+            f"ORDER BY u.msg_count ASC", (*ids, chat_id)) as cur:
+        return {r["user_id"]: r["notes"] for r in await cur.fetchall()}   # последний (самый активный) перезаписывает
 
 
 async def clear_notes(chat_id: int | None = None, user_id: int | None = None) -> int:
