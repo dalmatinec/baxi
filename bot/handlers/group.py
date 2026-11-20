@@ -10,7 +10,7 @@ from aiogram.types import Message
 
 from bot import brain, config, db, presets
 from bot.middlewares import GROUPS, TRACKED, describe
-from bot.services import fun, memory, perms, quiz, talk, triggers
+from bot.services import fun, maint, memory, perms, quiz, talk, triggers
 from bot.services.out import say
 
 log = logging.getLogger(__name__)
@@ -64,6 +64,11 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
     if act is brain.Act.PHRASE and (creator_hit or user_row["user_id"] in config.CREATOR_IDS):
         act = brain.Act.AI_JUMP  # про создателя говорит сам, а не фразой из базы
     if act is brain.Act.NONE:
+        return
+    if maint.is_on():   # владелец обновляет бота: без ИИ, на обращения шуточная фраза, сам не влезает
+        phrase = maint.pick(chat_id, user_row["user_id"]) if act is brain.Act.AI_REPLY else None
+        if phrase:
+            await say(bot, chat_id, phrase, reply_to=message)
         return
     if act is brain.Act.AI_REPLY and not spam_guard.allow(chat_id, user_row["user_id"], time.time()):
         return  # человек долбит бота обращениями: молча пропускаем, ИИ не тратим

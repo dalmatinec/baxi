@@ -338,3 +338,15 @@ def test_drop_hello():
     assert drop_hello("салам, как ты", "салам всем") == "салам, как ты"
     assert drop_hello("куда пойдём", "а") == "куда пойдём"
     assert drop_hello("салам бро", "а") == "салам бро"
+
+
+def test_maint_pick_limits():
+    pytest.importorskip("httpx")
+    pytest.importorskip("aiosqlite")
+    from bot.services import maint
+    maint._chat_last.clear(); maint._user_last.clear()
+    assert maint.pick(-1, 7, 1000) in maint.PHRASES
+    assert maint.pick(-1, 8, 1010) is None          # тот же чат, рано
+    assert maint.pick(-2, 7, 1100) is None          # тот же человек, рано
+    assert maint.pick(-2, 8, 1100) in maint.PHRASES
+    assert all("—" not in p and "«" not in p for p in maint.PHRASES)

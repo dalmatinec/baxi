@@ -7,6 +7,7 @@ import json
 import logging
 from contextvars import ContextVar
 import re
+import time
 
 import httpx
 
@@ -78,6 +79,8 @@ async def close() -> None:
 # (её регистрирует services/plans): у бесплатных чатов нейросеть выключена или ограничена.
 CURRENT_CHAT: ContextVar = ContextVar("current_chat", default=None)
 gate = None
+# режим «меня обновляют» (services/maint): до этого времени нейросеть не вызывается вообще
+PAUSED_UNTIL = 0.0
 # вид запроса для разбивки расхода в админке: reply ответы, memory заметки, results итоги и т.д.
 KINDS = {"reply": "💬 ответы в чате", "memory": "🧠 заметки о людях", "results": "📊 итоги дня",
          "event": "🎉 приветствия, вопрос дня, оживление", "quiz": "🎯 викторины", "joke": "😂 шутки",
@@ -96,6 +99,8 @@ async def chat_json_as(kind: str, messages: list[dict], **kw) -> dict | None:
 async def chat(messages: list[dict], max_tokens: int | None = None,
                temperature: float | None = None, json_mode: bool = False, kind: str = "reply") -> str | None:
     """Один запрос к модели. None, если ИИ выключен, лимит исчерпан, тариф чата не позволяет или ошибка."""
+    if time.time() < PAUSED_UNTIL:
+        return None
     if not await budget_left():
         return None
     row = CURRENT_CHAT.get()

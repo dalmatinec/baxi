@@ -5,6 +5,7 @@
   /backup   бэкап базы прямо сейчас (в канал бэкапов, если он задан)
   /give     выдать монеты людям (можно сразу многим)
   /chats    список чатов
+  /maint    режим «меня обновляют»: /maint (на 2 часа), /maint 30 (на 30 минут), /maint off
 Работают только в личке и только для OWNER_IDS (фильтр в admin/__init__.py)."""
 
 from aiogram import Bot, Router
@@ -61,3 +62,27 @@ async def cmd_give(message: Message, state: FSMContext) -> None:
 async def cmd_chats(message: Message, state: FSMContext) -> None:
     await state.clear()
     await show(message, "💬 Чаты", kb([[("💬 Открыть список чатов", "ch:list")]]))
+
+
+@router.message(Command("maint"))
+async def cmd_maint(message: Message, state: FSMContext) -> None:
+    import time
+    from datetime import datetime
+
+    from bot import config
+    from bot.services import maint
+    await state.clear()
+    arg = ((message.text or "").split(maxsplit=1)[1:] or [""])[0].strip().lower()
+    if arg in ("off", "выкл", "0", "стоп", "нет"):
+        await maint.turn_off()
+        return await message.answer("✅ Режим обновления выключен, бот снова говорит как обычно.")
+    if not arg and maint.is_on():
+        left = int((maint.until() - time.time()) // 60) + 1
+        return await message.answer(f"🔧 Режим обновления включён ещё {left} мин.\n"
+                                    "Выключить: /maint off. Продлить: /maint 60")
+    minutes = int(arg) if arg.isdigit() and 1 <= int(arg) <= 1440 else maint.DEFAULT_MIN
+    until = await maint.turn_on(minutes)
+    await message.answer(f"🔧 Режим обновления включён до {datetime.fromtimestamp(until, config.TZ):%H:%M}.\n\n"
+                         "Нейросеть на паузе, сам в разговоры не лезет, на обращения отвечает шуткой вроде "
+                         f"<i>{maint.PHRASES[0]}</i>\nИгры и команды работают. Выключить: /maint off",
+                         parse_mode="HTML")
