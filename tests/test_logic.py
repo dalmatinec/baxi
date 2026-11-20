@@ -392,3 +392,14 @@ def test_echo_stretched_and_facts_rule():
     assert prompts.echo_words("ооо привет", "ооо, явился") == {"ооо"}
     sp = prompts.system_prompt("Бакси", "", "", "чат", ["Айран: работает в магазине"])
     assert "никогда не выдавай придуманное за правду" in sp
+
+
+def test_with_tag():
+    pytest.importorskip("aiogram")
+    from bot.services import out
+    out.TAGS.clear()
+    assert out.with_tag(-1, "привет") == "привет"
+    out.TAGS[-1] = (42, "Ай<ран")
+    assert out.with_tag(-1, "привет") == 'привет <a href="tg://user?id=42">Ай&lt;ран</a>'
+    assert out.with_tag(-2, "привет") == "привет"
+    out.TAGS.clear()

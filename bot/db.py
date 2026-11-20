@@ -326,7 +326,8 @@ NEW_COLUMNS = {
         "results_hour": "INTEGER NOT NULL DEFAULT 23",
         "card_style": "INTEGER NOT NULL DEFAULT -1",     # цвет карточек итогов (-1: свой по номеру чата)
         "act_locked": "INTEGER NOT NULL DEFAULT 0",
-        "share_notes": "INTEGER NOT NULL DEFAULT 1",     # общая память: бот узнаёт людей по заметкам из других чатов      # владелец закрепил частоту, долю ИИ и паузу: админ чата не меняет
+        "share_notes": "INTEGER NOT NULL DEFAULT 1",     # общая память: бот узнаёт людей по заметкам из других чатов
+        "tag_user": "INTEGER NOT NULL DEFAULT 0",        # владелец задал: в каждом сообщении бота тегать этого человека
         "last_results": "TEXT NOT NULL DEFAULT ''",
         "last_pairpoll": "TEXT NOT NULL DEFAULT ''",
         "results_manual": "REAL NOT NULL DEFAULT 0",      # когда последний раз звали «итоги»
@@ -384,7 +385,7 @@ NEW_COLUMNS = {
 
 CHAT_FIELDS = {"bot_name", "aliases", "persona", "topic", "chance", "ai_share",
                "cooldown", "greet", "games", "ads", "title", "active", "last_jump",
-               "pairpoll", "results", "rep", "bday", "results_hour", "last_results", "last_pairpoll", "card_style", "act_locked", "share_notes",
+               "pairpoll", "results", "rep", "bday", "results_hour", "last_results", "last_pairpoll", "card_style", "act_locked", "share_notes", "tag_user",
                "results_manual", "approved", "pending_since", "added_by", "rent_until", "rent_warned", "members",
                "shop", "added_name", "added_username", "quiz", "quiz_count", "quiet_from", "quiet_to",
                "quiet_until", "humor", "mat", "banned", "protect_admins", "call_text", "call_who", "call_style",
@@ -618,6 +619,14 @@ async def recent_history(chat_id: int, limit: int) -> list[aiosqlite.Row]:
         rows = list(await cur.fetchall())
     rows.reverse()
     return rows
+
+
+async def tag_map() -> dict[int, tuple[int, str]]:
+    """Чаты, где бот тегает человека в каждом сообщении: chat_id → (user_id, имя)."""
+    async with conn().execute(
+            "SELECT c.chat_id, c.tag_user, COALESCE(u.name, '') AS name FROM chats c "
+            "LEFT JOIN users u ON u.chat_id = c.chat_id AND u.user_id = c.tag_user WHERE c.tag_user != 0") as cur:
+        return {r["chat_id"]: (r["tag_user"], r["name"]) for r in await cur.fetchall()}
 
 
 async def bot_replies(chat_id: int, limit: int = 10) -> list[tuple[str, float]]:

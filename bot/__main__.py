@@ -32,6 +32,8 @@ async def main() -> None:
     await plans.load()
     from bot.services import maint
     await maint.load()  # режим «меня обновляют» переживает перезапуск
+    from bot.services import out
+    await out.load_tags()  # чаты, где бот тегает человека в каждом сообщении
     from bot.services import menu
     await menu.upgrade_start()  # новый порядок кнопок главного меню
     await stars.refresh_looks()

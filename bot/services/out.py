@@ -67,10 +67,33 @@ def thread_of(message: Message | None) -> int | None:
     return None
 
 
+# чат → (кого тегать, имя): владелец включает в карточке чата, «🔔 Тегать»
+TAGS: dict[int, tuple[int, str]] = {}
+
+
+async def load_tags() -> None:
+    from bot import db
+    TAGS.clear()
+    TAGS.update(await db.tag_map())
+
+
+def with_tag(chat_id: int, html: str, reply_to: Message | None = None) -> str:
+    """Дописывает упоминание человека в конец сообщения бота, если в этом чате так настроено.
+    Если бот и так отвечает этому человеку, не дублируем."""
+    tag = TAGS.get(chat_id)
+    if not tag:
+        return html
+    uid, name = tag
+    if reply_to is not None and reply_to.from_user and reply_to.from_user.id == uid:
+        return html
+    from bot.textutil import esc
+    return f'{html} <a href="tg://user?id={uid}">{esc(name or "👤")}</a>'
+
+
 async def say(bot: Bot, chat_id: int, html: str, *, reply_to: Message | None = None,
               thread: int | None = None, markup: InlineKeyboardMarkup | None = None) -> Message:
     from bot.services import emoji
-    html = humanize(html)
+    html = with_tag(chat_id, humanize(html), reply_to)
     pretty = emoji.decorate(html)
     kwargs = dict(parse_mode="HTML", link_preview_options=NO_PREVIEW, reply_parameters=reply_params(reply_to),
                   message_thread_id=thread if reply_to is None else None, reply_markup=markup)

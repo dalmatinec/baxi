@@ -3,7 +3,8 @@
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, Message
 
 from bot import config, db
 from bot.cards.results import STYLES, style_for
@@ -54,6 +55,7 @@ async def _card(target, chat_id: int) -> None:
          (f"📣 Реклама: {'✅' if c['ads'] else '❌'}", f"ch:ads:{cid}")],
         [("👁 Итоги картинками", f"ch:rp:{cid}"),
          (f"🎨 Цвет: {STYLES[style_for(cid, c['card_style'])][0]}", f"ch:cs:{cid}")] if not pending else [],
+        [(f"🔔 Тегать: {'✅' if c['tag_user'] else 'выкл'}", f"ch:tg:{cid}")] if not pending else [],
         [("🚫 Отказать", f"ap:no:{cid}", "danger")] if pending else [],
     ] + _contact(c) + [[("🧠 Стереть заметки", f"ch:nz:{cid}"), ("🚪 Выйти из чата", f"ch:bye:{cid}")]
                        if not pending else [],
@@ -271,3 +273,60 @@ async def cb_approval(cb: CallbackQuery) -> None:
         await cb.answer("🚪 Вышел из чата")
         return await _card(cb, chat_id)
     await _section(cb, chat_id, "rent")
+
+
+class TagUser(StatesGroup):
+    uid = State()
+
+
+async def _tag_screen(target, cid: int) -> None:
+    c = await db.get_chat(cid)
+    if c["tag_user"]:
+        u = await db.get_user(cid, c["tag_user"])
+        who = f"<b>{esc(u['name'])}</b> (ID <code>{c['tag_user']}</code>)" if u else f"ID <code>{c['tag_user']}</code>"
+        now = f"Сейчас бот в каждом своём сообщении в этом чате тегает {who}."
+    else:
+        now = "Сейчас выключено."
+    await show(target, f"🔔 <b>Тегать человека</b>\n{esc(c['title'] or str(cid))}\n\n{now}\n\n"
+                       "Пришли ID человека (число). Бот будет дописывать упоминание в конец каждого своего "
+                       "сообщения в этом чате. В других чатах ничего не меняется. Если бот и так отвечает этому "
+                       "человеку, второй раз не тегает.\n\nID можно узнать в /admin → люди или у @userinfobot.",
+               kb([[("🔕 Выключить", f"ch:tgoff:{cid}")] if c["tag_user"] else [],
+                   [("⬅️ К чату", f"ch:o:{cid}")]]))
+
+
+@router.callback_query(F.data.startswith("ch:tg:"))
+async def cb_tag(cb: CallbackQuery, state: FSMContext) -> None:
+    cid = int(cb.data.split(":")[2])
+    await state.set_state(TagUser.uid)
+    await state.update_data(cid=cid)
+    await cb.answer()
+    await _tag_screen(cb, cid)
+
+
+@router.callback_query(F.data.startswith("ch:tgoff:"))
+async def cb_tag_off(cb: CallbackQuery, state: FSMContext) -> None:
+    cid = int(cb.data.split(":")[2])
+    await state.clear()
+    await db.update_chat(cid, tag_user=0)
+    from bot.services import out
+    await out.load_tags()
+    await cb.answer("🔕 Больше не тегает")
+    await _card(cb, cid)
+
+
+@router.message(TagUser.uid, F.text)
+async def on_tag_uid(message: Message, state: FSMContext) -> None:
+    raw = message.text.strip()
+    if not raw.isdigit() or not 4 <= len(raw) <= 15:
+        return await message.answer("Нужен числовой ID, например <code>123456789</code>", parse_mode="HTML")
+    cid = (await state.get_data()).get("cid")
+    await state.clear()
+    await db.update_chat(cid, tag_user=int(raw))
+    from bot.services import out
+    await out.load_tags()
+    name = out.TAGS.get(cid, (0, ""))[1]
+    await message.answer(f"✅ Готово: бот в этом чате тегает {esc(name) if name else 'ID ' + raw} в каждом сообщении."
+                         + ("" if name else "\nЭтого человека бот в чате ещё не видел, тег будет без имени, "
+                            "пока он не напишет."),
+                         reply_markup=kb([[("⬅️ К чату", f"ch:o:{cid}")]]))
