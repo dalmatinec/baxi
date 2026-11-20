@@ -385,3 +385,10 @@ def test_slang_hint():
     assert "збл = заебал" in h and "блеа" in h and "сам такой" in h
     assert slang.hint(["привет всем"]) == ""
     assert all("—" not in v for v in slang.SLANG.values())
+
+
+def test_echo_stretched_and_facts_rule():
+    assert prompts.echo_words("Уааа", "уааа у него, секрет раскрыт") == {"уааа"}
+    assert prompts.echo_words("ооо привет", "ооо, явился") == {"ооо"}
+    sp = prompts.system_prompt("Бакси", "", "", "чат", ["Айран: работает в магазине"])
+    assert "никогда не выдавай придуманное за правду" in sp

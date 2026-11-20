@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS history (
     ts          REAL    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS history_chat ON history (chat_id, id);
+CREATE INDEX IF NOT EXISTS users_user ON users (user_id);   -- общая память: заметки человека из других чатов
 CREATE INDEX IF NOT EXISTS history_msg ON history (chat_id, message_id);
 CREATE INDEX IF NOT EXISTS history_ts ON history (chat_id, ts);
 
