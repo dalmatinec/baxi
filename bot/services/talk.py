@@ -72,6 +72,30 @@ async def chat_style(chat_id: int) -> str:
     return hint
 
 
+_people_cache: dict[int, tuple[float, list]] = {}
+
+
+async def about_people(chat, texts: list[str], skip: set[int]) -> list[str]:
+    """Люди, которых назвали по имени в разговоре, но которые сами сейчас не пишут: заметка или «участник чата».
+    Список людей кешируется на 10 минут, поиск по именам идёт в памяти, без нейросети."""
+    hit = _people_cache.get(chat["chat_id"])
+    if not hit or time.time() - hit[0] > 600:
+        rows = await db.people_index(chat["chat_id"])
+        # свой чат первым, потом самые активные: при одинаковых именах берём их
+        rows.sort(key=lambda r: (r["chat_id"] != chat["chat_id"], -r["msg_count"]))
+        hit = (time.time(), [(prompts.name_key(r["name"]), dict(r)) for r in rows])
+        _people_cache[chat["chat_id"]] = hit
+    bot_key = prompts.name_key(chat["bot_name"])
+    people = [(k, p) for k, p in hit[1] if k != bot_key and p["user_id"] not in skip]
+    out = []
+    for p in prompts.mentioned(texts, people)[:4]:
+        if p["notes"] and (p["chat_id"] == chat["chat_id"] or chat["share_notes"]):
+            out.append(f"{p['name']}: {p['notes']}")
+        elif p["chat_id"] == chat["chat_id"]:
+            out.append(f"{p['name']}: участник этого чата, заметок пока нет")
+    return out
+
+
 async def context(chat) -> tuple[str, str]:
     """Системный промпт с заметками об участниках и текст последних сообщений."""
     rows = await db.recent_history(chat["chat_id"], config.CONTEXT_MESSAGES)
@@ -86,13 +110,27 @@ async def context(chat) -> tuple[str, str]:
         names = {u["user_id"]: u["name"] for u in users}
         other = await db.notes_elsewhere(chat["chat_id"], [i for i in ids if i not in known and i in names])
         shared = [f"{names[i]}: {n}" for i, n in other.items()]
+    talk_texts = [r["text"] for r in rows if not r["is_bot"]][-8:]
+    about = await about_people(chat, talk_texts, set(ids))
     from bot.services import plans
     system = prompts.system_prompt(chat["bot_name"], plans.persona(chat), chat["topic"],
                                    chat["title"] or "без названия", notes,
                                    (await rules(chat)) + [await chat_style(chat["chat_id"]),
                                                           slang.hint([r["text"] for r in rows if not r["is_bot"]][-8:])],
-                                   shared)
+                                   shared, about)
     return system, prompts.format_history(rows, chat["bot_name"], config.CREATOR_IDS)
+
+
+# ответы, которые только что придуманы, но ещё могут быть не записаны в историю: два одинаковых сообщения
+# подряд обрабатываются параллельно и иначе не видят друг друга
+_fresh: dict[int, list[tuple[float, str]]] = {}
+
+
+def _fresh_texts(chat_id: int) -> list[str]:
+    now = time.time()
+    items = [(ts, t) for ts, t in _fresh.get(chat_id, []) if now - ts < 120]
+    _fresh[chat_id] = items
+    return [t for _, t in items]
 
 
 SKIP = ""   # _ask вернул пустую строку: ответ повторяется даже со второй попытки, лучше промолчать
@@ -122,7 +160,8 @@ async def _ask(chat, make_task, incoming: str | None = None) -> str | None:
             return None
         text = prompts.clean_reply(answer, chat["bot_name"])
         text = prompts.limit_commas(prompts.strip_names(prompts.drop_hello(text, incoming), names, said))
-        repeat, echo = prompts.is_repeat(text, said), prompts.echo_words(incoming, text)
+        repeat = prompts.is_repeat(text, said + _fresh_texts(chat["chat_id"]))
+        echo = prompts.echo_words(incoming, text)
         if not text or not (repeat or echo):
             break
         if attempt == 1:
@@ -136,6 +175,8 @@ async def _ask(chat, make_task, incoming: str | None = None) -> str | None:
         if echo:
             hint.append(f"Не повторяй словечки собеседника ({', '.join(sorted(echo))}), отвечай на смысл.")
         task += "\n" + " ".join(hint)
+    if text:
+        _fresh.setdefault(chat["chat_id"], []).append((time.time(), text))
     return text or None
 
 

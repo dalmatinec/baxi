@@ -403,3 +403,14 @@ def test_with_tag():
     assert out.with_tag(-1, "привет") == 'привет <a href="tg://user?id=42">Ай&lt;ран</a>'
     assert out.with_tag(-2, "привет") == "привет"
     out.TAGS.clear()
+
+
+def test_mentioned_names():
+    people = [(prompts.name_key(n), {"name": n}) for n in ["Сюзи 🌸", "Марат", "Разнорабочий Кот", "Ай"]]
+    found = [p["name"] for p in prompts.mentioned(["Поэтому позову тебе Сюзи"], people)]
+    assert found == ["Сюзи 🌸"]
+    assert [p["name"] for p in prompts.mentioned(["где Марата носит"], people)] == ["Марат"]
+    assert prompts.mentioned(["марафон завтра"], people) == []
+    lena = [(prompts.name_key("Лена"), {"name": "Лена"})]
+    assert prompts.mentioned(["позови Лену"], lena) and not prompts.mentioned(["ленивый"], lena)
+    assert prompts.name_key("Ай") == ""

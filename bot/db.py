@@ -621,6 +621,16 @@ async def recent_history(chat_id: int, limit: int) -> list[aiosqlite.Row]:
     return rows
 
 
+async def people_index(chat_id: int) -> list:
+    """Кого бот может узнать по имени: все люди этого чата и люди с заметками из других чатов (где общая память
+    не выключена). Для поиска «о ком говорят»."""
+    async with conn().execute(
+            "SELECT u.user_id, u.chat_id, u.name, u.notes, u.msg_count FROM users u "
+            "LEFT JOIN chats c ON c.chat_id = u.chat_id "
+            "WHERE u.chat_id = ? OR (u.notes != '' AND COALESCE(c.share_notes, 1) = 1)", (chat_id,)) as cur:
+        return list(await cur.fetchall())
+
+
 async def tag_map() -> dict[int, tuple[int, str]]:
     """Чаты, где бот тегает человека в каждом сообщении: chat_id → (user_id, имя)."""
     async with conn().execute(

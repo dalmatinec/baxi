@@ -39,6 +39,32 @@ STYLE_EXAMPLES = (
 )
 
 
+_NAME_KEY = re.compile(r"[a-zа-яё]+", re.I)
+
+
+def name_key(name: str) -> str:
+    """Первое слово имени без эмодзи, в нижнем регистре: «Сюзи 🌸» → «сюзи»."""
+    m = _NAME_KEY.search((name or "").lower().replace("ё", "е"))
+    return m.group(0) if m and len(m.group(0)) >= 3 else ""
+
+
+def mentioned(texts: list[str], people: list[tuple[str, dict]]) -> list[dict]:
+    """Кого из известных людей назвали по имени в этих сообщениях. people: (ключ имени, данные).
+    Падежи ловим по началу слова: «Марата» → «марат», «Сюзи» → «сюзи»."""
+    tokens = set()
+    for t in texts:
+        tokens.update(_NAME_KEY.findall((t or "").lower().replace("ё", "е")))
+    out, seen = [], set()
+    for key, person in people:
+        if not key or key in seen or key in COMMON:
+            continue
+        stem = key[:-1] if len(key) >= 4 and key[-1] in "аяьйо" else key   # Лена → Лену, Леной
+        if any(tok == key or (tok.startswith(stem) and len(tok) - len(stem) <= 3) for tok in tokens):
+            seen.add(key)
+            out.append(person)
+    return out
+
+
 def chat_style(texts: list[str]) -> str:
     """Подсказка о том, как пишут в этом чате, по последним сообщениям людей. Без нейросети."""
     texts = [t.strip() for t in texts if t and t.strip() and not t.startswith("/")]
@@ -79,7 +105,8 @@ SHARED_NOTES = ("Этих людей ты знаешь по другим чат�
 
 
 def system_prompt(bot_name: str, persona: str, topic: str, title: str, notes: list[str],
-                  extra: list[str] | None = None, shared: list[str] | None = None) -> str:
+                  extra: list[str] | None = None, shared: list[str] | None = None,
+                  about: list[str] | None = None) -> str:
     parts = [
         f"Ты {bot_name}, обычный участник телеграм-чата \"{title}\". Тебя зовут {bot_name}.",
         f"Тема чата: {topic}.",
@@ -91,6 +118,11 @@ def system_prompt(bot_name: str, persona: str, topic: str, title: str, notes: li
     if notes:
         parts.append("Что ты помнишь об участниках:\n" + "\n".join(f"- {n}" for n in notes))
     parts.append(FACTS_RULE)
+    if about:
+        parts.append("О ком сейчас говорят (эти люди есть в чате или ты их знаешь, не называй их выдуманными):\n"
+                     + "\n".join(f"- {n}" for n in about))
+    parts.append("Если назвали имя, которого ты не знаешь, это скорее всего реальный человек из чата: "
+                 "не высмеивай его как выдумку, можешь спросить, кто это.")
     if shared:
         parts.append(SHARED_NOTES + ":\n" + "\n".join(f"- {n}" for n in shared))
     return "\n\n".join(parts)
