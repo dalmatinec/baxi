@@ -367,3 +367,13 @@ def test_reply_filters():
     assert p.limit_commas("да, ну, а") == "да, ну, а"
     assert p.cooldown_words([("пельмени топ", 100), ("опять пельмени варю", 200)], 300) == {"пельмени"}
     assert p.cooldown_words([("пельмени топ", 100), ("опять пельмени варю", 200)], 5000) == set()
+
+
+def test_chat_style_hint():
+    short = ["го в доту", "ну хз", "ахах жесть", "я щас", "кто тут"] * 4
+    hint = prompts.chat_style(short)
+    assert "почти без запятых" in hint and "с маленькой буквы" in hint and "без точки" in hint
+    assert prompts.chat_style(short[:5]) == ""
+    long = ["Привет, как дела, что нового у всех сегодня."] * 20
+    assert "с большой буквы" in prompts.chat_style(long)
+    assert "—" not in prompts.STYLE_EXAMPLES and "«" not in prompts.STYLE_EXAMPLES

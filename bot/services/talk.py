@@ -58,6 +58,20 @@ async def rules(chat) -> list[str]:
     return [x for x in out if x]
 
 
+_style_cache: dict[int, tuple[float, str]] = {}
+
+
+async def chat_style(chat_id: int) -> str:
+    """Как пишут в чате, по 200 последним сообщениям людей. Пересчитывается раз в час."""
+    hit = _style_cache.get(chat_id)
+    if hit and time.time() - hit[0] < 3600:
+        return hit[1]
+    rows = await db.recent_history(chat_id, 200)
+    hint = prompts.chat_style([r["text"] for r in rows if not r["is_bot"]])
+    _style_cache[chat_id] = (time.time(), hint)
+    return hint
+
+
 async def context(chat) -> tuple[str, str]:
     """Системный промпт с заметками об участниках и текст последних сообщений."""
     rows = await db.recent_history(chat["chat_id"], config.CONTEXT_MESSAGES)
@@ -74,7 +88,8 @@ async def context(chat) -> tuple[str, str]:
         shared = [f"{names[i]}: {n}" for i, n in other.items()]
     from bot.services import plans
     system = prompts.system_prompt(chat["bot_name"], plans.persona(chat), chat["topic"],
-                                   chat["title"] or "без названия", notes, await rules(chat), shared)
+                                   chat["title"] or "без названия", notes,
+                                   (await rules(chat)) + [await chat_style(chat["chat_id"])], shared)
     return system, prompts.format_history(rows, chat["bot_name"], config.CREATOR_IDS)
 
 
