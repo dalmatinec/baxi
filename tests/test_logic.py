@@ -377,3 +377,11 @@ def test_chat_style_hint():
     long = ["Привет, как дела, что нового у всех сегодня."] * 20
     assert "с большой буквы" in prompts.chat_style(long)
     assert "—" not in prompts.STYLE_EXAMPLES and "«" not in prompts.STYLE_EXAMPLES
+
+
+def test_slang_hint():
+    from bot import slang
+    h = slang.hint(["Збл ты...", "Блеа..."])
+    assert "збл = заебал" in h and "блеа" in h and "сам такой" in h
+    assert slang.hint(["привет всем"]) == ""
+    assert all("—" not in v for v in slang.SLANG.values())

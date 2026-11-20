@@ -10,7 +10,7 @@ from aiogram import Bot
 from aiogram.enums import ChatAction
 from aiogram.types import Message
 
-from bot import ai, brain, config, db, prompts
+from bot import ai, brain, config, db, prompts, slang
 from bot.services.out import reply_params as _reply
 from bot.services.out import say, thread_of  # noqa: F401  (thread_of нужен другим модулям)
 from bot.textutil import esc, humanize, is_laugh, is_mat, mention
@@ -89,7 +89,9 @@ async def context(chat) -> tuple[str, str]:
     from bot.services import plans
     system = prompts.system_prompt(chat["bot_name"], plans.persona(chat), chat["topic"],
                                    chat["title"] or "без названия", notes,
-                                   (await rules(chat)) + [await chat_style(chat["chat_id"])], shared)
+                                   (await rules(chat)) + [await chat_style(chat["chat_id"]),
+                                                          slang.hint([r["text"] for r in rows if not r["is_bot"]][-8:])],
+                                   shared)
     return system, prompts.format_history(rows, chat["bot_name"], config.CREATOR_IDS)
 
 
