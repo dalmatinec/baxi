@@ -81,6 +81,8 @@ CURRENT_CHAT: ContextVar = ContextVar("current_chat", default=None)
 gate = None
 # режим «меня обновляют» (services/maint): до этого времени нейросеть не вызывается вообще
 PAUSED_UNTIL = 0.0
+# штраф за повторы слов в ответах (frequency/presence penalty); если сервис его не примет, выключаем сами
+_penalty_ok = True
 # вид запроса для разбивки расхода в админке: reply ответы, memory заметки, results итоги и т.д.
 KINDS = {"reply": "💬 ответы в чате", "memory": "🧠 заметки о людях", "results": "📊 итоги дня",
          "event": "🎉 приветствия, вопрос дня, оживление", "quiz": "🎯 викторины", "joke": "😂 шутки",
@@ -97,7 +99,8 @@ async def chat_json_as(kind: str, messages: list[dict], **kw) -> dict | None:
 
 
 async def chat(messages: list[dict], max_tokens: int | None = None,
-               temperature: float | None = None, json_mode: bool = False, kind: str = "reply") -> str | None:
+               temperature: float | None = None, json_mode: bool = False, kind: str = "reply",
+               penalties: bool = False) -> str | None:
     """Один запрос к модели. None, если ИИ выключен, лимит исчерпан, тариф чата не позволяет или ошибка."""
     if time.time() < PAUSED_UNTIL:
         return None
@@ -113,11 +116,21 @@ async def chat(messages: list[dict], max_tokens: int | None = None,
         "temperature": config.AI_TEMPERATURE if temperature is None else temperature,
         "stream": False,
     }
+    global _penalty_ok
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
+    if penalties and _penalty_ok and config.AI_FREQ_PENALTY:
+        payload["frequency_penalty"] = config.AI_FREQ_PENALTY
+        payload["presence_penalty"] = config.AI_PRES_PENALTY
     async with _slots:
         try:
             resp = await _http().post("/chat/completions", json=payload)
+            if resp.status_code == 400 and "frequency_penalty" in payload:
+                log.warning("Сервис не принял штраф за повторы, выключаю его: %s", resp.text[:200])
+                _penalty_ok = False
+                payload.pop("frequency_penalty")
+                payload.pop("presence_penalty")
+                resp = await _http().post("/chat/completions", json=payload)
             if resp.status_code != 200:
                 log.warning("ИИ ответил %s: %s", resp.status_code, resp.text[:300])
                 return None

@@ -168,6 +168,79 @@ def drop_hello(reply: str, incoming: str) -> str:
     return rest or reply
 
 
+# ---------- фильтры ответа: повторы, эхо, имена, запятые ----------
+
+COMMON = set("""и в во не на я что ты это а как так но он она оно мы вы они да нет ну же бы ли вот там тут все всё его её ее
+мне тебя тебе меня уже еще ещё был была было были есть если или для про без кто где когда чем чего тоже только очень может
+можно надо просто щас сейчас вообще короче типа ладно давай норм ага ок окей хорошо тот та те эта этот эти мой моя твой твоя
+свой своя наш ваш их им ему ей нам вам с со к ко у о об от до по за из под над при ой ах эх ха хаха ахах лол чё че чо него нее
+неё них раз два три сам сама сами себя себе бро брат""".split())
+_TOKEN = re.compile(r"[a-zа-яё0-9]+", re.I)
+_VOWELS = set("аеёиоуыэюяaeiouy")
+
+
+def _tokens(text: str) -> list[str]:
+    return [t.replace("ё", "е") for t in _TOKEN.findall((text or "").lower())]
+
+
+def content_words(text: str, min_len: int = 3) -> set[str]:
+    return {t for t in _tokens(text) if len(t) >= min_len and t not in COMMON and not t.isdigit()}
+
+
+def is_repeat(reply: str, recent: list[str], threshold: float = 0.5) -> bool:
+    """Ответ похож на один из прошлых ответов бота: много общих слов или то же начало."""
+    words, start = content_words(reply), _tokens(reply)[:3]
+    for old in recent:
+        if len(start) == 3 and _tokens(old)[:3] == start:
+            return True
+        prev = content_words(old)
+        if len(words) >= 2 and len(prev) >= 2 and len(words & prev) / len(words | prev) >= threshold:
+            return True
+    return False
+
+
+def cooldown_words(recent: list[tuple[str, float]], now: float, window: float = 1800) -> set[str]:
+    """Слова, которые бот сказал в двух последних ответах подряд за последние 30 минут: на время их запрещаем.
+    recent: (текст, время) от старых к новым."""
+    last = [t for t, ts in recent[-2:] if now - ts <= window]
+    if len(last) < 2:
+        return set()
+    return content_words(last[0], 4) & content_words(last[1], 4)
+
+
+def _slang(token: str) -> bool:
+    return token not in COMMON and not token.isdigit() and (not (set(token) & _VOWELS) or len(token) <= 3)
+
+
+def echo_words(incoming: str, reply: str) -> set[str]:
+    """Сленг собеседника, который бот повторил: «жб», «хз», «крч» и прочие короткие словечки."""
+    slang = {t for t in _tokens(incoming) if _slang(t)}
+    return slang & set(_tokens(reply))
+
+
+def strip_names(reply: str, names: list[str], recent: list[str], every: int = 5) -> str:
+    """Имя человека в начале или конце ответа убираем, если бот уже называл его в последних every ответах."""
+    used = " ".join(recent[-every:]).lower()
+    for name in sorted({n for n in names if n and len(n) >= 2}, key=len, reverse=True):
+        if name.lower() not in used:
+            continue
+        n = re.escape(name)
+        cut = re.sub(rf"^\s*{n}[\s,!:)]*", "", reply, count=1, flags=re.I)
+        cut = re.sub(rf"[\s,]+{n}[\s!.)]*$", "", cut, count=1, flags=re.I)
+        if cut.strip():
+            reply = cut.strip()
+    return reply
+
+
+def limit_commas(reply: str, keep: int = 2) -> str:
+    """Больше двух запятых: обрезаем на третьей, если до неё осталась нормальная фраза (3+ слова)."""
+    if reply.count(",") <= keep:
+        return reply
+    parts = reply.split(",")
+    head = ",".join(parts[:keep + 1]).strip()
+    return head if len(head.split()) >= 3 else reply
+
+
 def clean_reply(text: str, bot_name: str, limit: int = 600) -> str:
     """Приводит ответ модели к виду реплики в чате."""
     text = _BRACKET.sub("", (text or "").strip(), count=1)

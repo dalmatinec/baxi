@@ -350,3 +350,20 @@ def test_maint_pick_limits():
     assert maint.pick(-2, 7, 1100) is None          # тот же человек, рано
     assert maint.pick(-2, 8, 1100) in maint.PHRASES
     assert all("—" not in p and "«" not in p for p in maint.PHRASES)
+
+
+def test_reply_filters():
+    p = prompts
+    assert p.is_repeat("пельмени в кипяток и готово", ["ну закинь пельмени в кипяток и готово"])
+    assert not p.is_repeat("пойду посплю", ["пельмени в кипяток и готово"])
+    assert p.is_repeat("ну ты даёшь конечно", ["ну ты даёшь брат"])          # то же начало
+    assert p.echo_words("жб завтра едем", "жб едем конечно") == {"жб"}
+    assert p.echo_words("ну да", "ну да ладно") == set()
+    assert p.echo_words("пиво будет", "пиво будет") == set()
+    assert p.strip_names("Марат, иди спать", ["Марат"], ["марат ты где"]) == "иди спать"
+    assert p.strip_names("иди спать, Марат", ["Марат"], ["марат ты где"]) == "иди спать"
+    assert p.strip_names("Марат, иди спать", ["Марат"], ["давно не виделись"]) == "Марат, иди спать"
+    assert p.limit_commas("ну да, конечно, иди отсюда, а то, короче") == "ну да, конечно, иди отсюда"
+    assert p.limit_commas("да, ну, а") == "да, ну, а"
+    assert p.cooldown_words([("пельмени топ", 100), ("опять пельмени варю", 200)], 300) == {"пельмени"}
+    assert p.cooldown_words([("пельмени топ", 100), ("опять пельмени варю", 200)], 5000) == set()

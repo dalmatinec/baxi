@@ -619,6 +619,21 @@ async def recent_history(chat_id: int, limit: int) -> list[aiosqlite.Row]:
     return rows
 
 
+async def bot_replies(chat_id: int, limit: int = 10) -> list[tuple[str, float]]:
+    """Последние реплики самого бота в чате (текст, время), от старых к новым."""
+    async with conn().execute("SELECT text, ts FROM history WHERE chat_id = ? AND is_bot = 1 ORDER BY id DESC LIMIT ?",
+                              (chat_id, limit)) as cur:
+        rows = [(r["text"], r["ts"]) for r in await cur.fetchall()]
+    rows.reverse()
+    return rows
+
+
+async def recent_names(chat_id: int, limit: int = 40) -> list[str]:
+    async with conn().execute("SELECT DISTINCT name FROM (SELECT name, is_bot FROM history WHERE chat_id = ? "
+                              "ORDER BY id DESC LIMIT ?) WHERE is_bot = 0", (chat_id, limit)) as cur:
+        return [r["name"] for r in await cur.fetchall()]
+
+
 async def user_messages(chat_id: int, user_id: int, limit: int) -> list[str]:
     """Последние сообщения человека; если он кому-то отвечал, с пометкой (отвечает X)."""
     async with conn().execute(

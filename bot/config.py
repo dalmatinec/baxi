@@ -47,6 +47,8 @@ AI_MODEL = os.getenv("AI_MODEL", "deepseek-chat")
 AI_TIMEOUT = _float("AI_TIMEOUT", 40)
 AI_MAX_TOKENS = _int("AI_MAX_TOKENS", 160)
 AI_TEMPERATURE = _float("AI_TEMPERATURE", 1.1)
+AI_FREQ_PENALTY = _float("AI_FREQ_PENALTY", 0.5)   # штраф за повторы слов в ответах в чате, 0 выключает
+AI_PRES_PENALTY = _float("AI_PRES_PENALTY", 0.3)   # штраф за уже упомянутые темы
 
 # Цены модели в долларах за 1 млн токенов, нужны только для подсчёта расхода (платишь ты по тарифу сервиса).
 # По умолчанию тариф DeepSeek Flash в обычные часы; в часы пик всё умножается на PRICE_PEAK_X.

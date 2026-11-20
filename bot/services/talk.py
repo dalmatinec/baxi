@@ -4,6 +4,7 @@
 import asyncio
 import logging
 import random
+import time
 
 from aiogram import Bot
 from aiogram.enums import ChatAction
@@ -77,15 +78,47 @@ async def context(chat) -> tuple[str, str]:
     return system, prompts.format_history(rows, chat["bot_name"], config.CREATOR_IDS)
 
 
+SKIP = ""   # _ask вернул пустую строку: ответ повторяется даже со второй попытки, лучше промолчать
+
+
 async def _ask(chat, make_task, incoming: str | None = None) -> str | None:
     """make_task получает историю чата текстом и возвращает задание для нейросети.
-    incoming: на что отвечаем; если там нет приветствия, «салам бро» в начале ответа срезаем."""
+    incoming задан (ответ человеку или влезание в разговор): включаются фильтры. Срезаем «салам бро», если не
+    здоровались; лишнее имя; хвост после третьей запятой. Повтор своих прошлых ответов или эхо сленга собеседника:
+    одна перегенерация с подсказкой; если снова повтор, возвращаем SKIP (бот молчит). None: нейросеть не ответила."""
     system, history = await context(chat)
-    answer = await ai.chat([{"role": "system", "content": system},
-                            {"role": "user", "content": make_task(history)}])
-    text = prompts.clean_reply(answer or "", chat["bot_name"])
-    if incoming is not None:
-        text = prompts.drop_hello(text, incoming)
+    task = make_task(history)
+    if incoming is None:
+        answer = await ai.chat([{"role": "system", "content": system}, {"role": "user", "content": task}])
+        return prompts.clean_reply(answer or "", chat["bot_name"]) or None
+    recent = await db.bot_replies(chat["chat_id"], 10)
+    said = [t for t, _ in recent]
+    names = await db.recent_names(chat["chat_id"])
+    banned = prompts.cooldown_words(recent, time.time())
+    if banned:
+        task += f"\nНе используй слова: {', '.join(sorted(banned))}."
+    text = ""
+    for attempt in range(2):
+        answer = await ai.chat([{"role": "system", "content": system}, {"role": "user", "content": task}],
+                               penalties=True)
+        if not answer:
+            return None
+        text = prompts.clean_reply(answer, chat["bot_name"])
+        text = prompts.limit_commas(prompts.strip_names(prompts.drop_hello(text, incoming), names, said))
+        repeat, echo = prompts.is_repeat(text, said), prompts.echo_words(incoming, text)
+        if not text or not (repeat or echo):
+            break
+        if attempt == 1:
+            if repeat:
+                log.info("Чат %s: ответ повторяется, молчу: %s", chat["chat_id"], text[:80])
+                return SKIP
+            break
+        hint = []
+        if repeat:
+            hint.append("Ты уже говорил похожее, скажи по-другому, другими словами и о другом.")
+        if echo:
+            hint.append(f"Не повторяй словечки собеседника ({', '.join(sorted(echo))}), отвечай на смысл.")
+        task += "\n" + " ".join(hint)
     return text or None
 
 
@@ -114,6 +147,8 @@ async def ai_answer(bot: Bot, chat, message: Message, author: str, text: str, ju
     build = prompts.jump_task if jump else prompts.reply_task
     reply = await _ask(chat, lambda history: build(history, author, text or "[без текста]"), incoming=text or "")
     creator = bool(message.from_user and message.from_user.id in config.CREATOR_IDS)
+    if reply == SKIP:
+        return   # повторялся бы: молчим
     if reply is None:
         if jump and not creator:
             return await phrase_answer(bot, chat, message, author)
