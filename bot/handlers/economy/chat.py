@@ -26,9 +26,10 @@ router = Router(name="economy_chat")
 
 _TAIL = r"(@\w+)?\s*[!?.]*\s*$"
 COMMANDS = [
-    ("wallet", re.compile(r"^\s*(кошел[её]к|баланс|ранг|мой ранг|мой уровень|/wallet|/me|/rank)" + _TAIL, re.I)),
+    ("wallet", re.compile(r"^\s*(кошел[её]к|баланс|ранг|мой ранг|мой уровень|/wallet|/rank)" + _TAIL, re.I)),
     ("tops", re.compile(r"^\s*(топы|/top)" + _TAIL, re.I)),
-    ("profile", re.compile(r"^\s*(профиль|мой профиль|магазин|/shop|/profile)" + _TAIL, re.I)),
+    ("profile", re.compile(r"^\s*(профиль|мой профиль|/profile|/me)" + _TAIL, re.I)),
+    ("shop", re.compile(r"^\s*(магазин|/shop)" + _TAIL, re.I)),
     ("bonus", re.compile(r"^\s*(бонус|/bonus)" + _TAIL, re.I)),
     ("pet", re.compile(r"^\s*(питомец|мой питомец|/pet)" + _TAIL, re.I)),
     ("feed", re.compile(r"^\s*(покормить|покорми|/feed)" + _TAIL, re.I)),
@@ -89,7 +90,13 @@ async def on_eco(message: Message, bot: Bot, eco: tuple[str, str], chat_row) -> 
             await say(bot, chat_id, await rank_card(chat_id, user), reply_to=message, markup=await profile_kb(bot))
         elif name == "tops":
             await say(bot, chat_id, "🏆 <b>Топы</b>: выбирай 👇", reply_to=message, markup=kb(TOPS_KB_ROWS))
-        elif name == "profile":
+        elif name == "profile":   # профиль по шаблону чата; ответом на сообщение: профиль того человека
+            from bot.middlewares import real_reply
+            from bot.services import profile
+            rt = real_reply(message)
+            who = rt.from_user if rt and rt.from_user and not rt.from_user.is_bot else user
+            await profile.send(bot, chat_id, who, reply_to=message, extra=await profile_kb(bot, "🛒 Магазин в личке"))
+        elif name == "shop":
             await say(bot, chat_id, SHOP_HINT, reply_to=message, markup=await profile_kb(bot, "🛒 Открыть в личке"))
         elif name == "bonus":
             await say(bot, chat_id, await bonus_text(user), reply_to=message)

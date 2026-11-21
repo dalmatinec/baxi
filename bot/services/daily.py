@@ -345,6 +345,7 @@ async def tick(bot: Bot) -> None:
         await db.prune_ai_log()   # разбивку расхода держим 40 дней
         from bot.services import guardlink
         await guardlink.cleanup()  # события модератора держим 30 дней
+        await db.prune_user_hours()  # почасовые счётчики сообщений держим двое суток
     for chat in await db.list_chats():
         ai.CURRENT_CHAT.set(chat)
         try:

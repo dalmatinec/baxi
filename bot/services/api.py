@@ -6,6 +6,8 @@ GET  /v1/chat/{chat_id}/trusted   {"admins": [id, ...], "vip": [id, ...]}  их 
 POST /v1/events                   событие модератора, ответ {"ok": true}
 GET  /v1/user/{user_id}           ник человека: красивый, простой, эмодзи (для модератора и сайта)
 GET  /v1/users?ids=1,2,3          то же пачкой: {"users": {"1": {...}, ...}}
+GET  /v1/chat/{chat_id}/text/{key}  шаблон текста чата: {"html", "photo", "buttons": [[{"text", "url"}]]}
+                                  (модератор берёт отсюда тексты бана, мута, варна; подстановки заполняет сам)
 GET  /v1/ping                     {"ok": true}
 
 Без BAXI_API_KEY в .env сервер не поднимается (так и у копий клиентов)."""
@@ -122,12 +124,23 @@ async def users(request: web.Request) -> web.Response:
     return _json({"users": {str(i): await guardlink.nick_info(i) for i in ids}})
 
 
+async def chat_text(request: web.Request) -> web.Response:
+    from bot.services import texts
+    chat_id, key = int(request.match_info["chat_id"]), request.match_info["key"]
+    if key not in texts.TEXTS:
+        return _json({"ok": False, "error": "unknown key"}, 404)
+    t = await texts.template(key, chat_id)
+    return _json({"html": t.html, "photo": t.photo,
+                  "buttons": [[{"text": tx, "url": u} for tx, u in row] for row in t.buttons]})
+
+
 def make_app(bot) -> web.Application:
     app = web.Application(middlewares=[auth], client_max_size=64 * 1024)
     app[BOT] = bot
     app.router.add_get("/v1/ping", ping)
     app.router.add_get(r"/v1/chat/{chat_id:-?\d+}", chat_info)
     app.router.add_get(r"/v1/chat/{chat_id:-?\d+}/trusted", trusted)
+    app.router.add_get(r"/v1/chat/{chat_id:-?\d+}/text/{key:[a-z_]+}", chat_text)
     app.router.add_post("/v1/events", events)
     app.router.add_get(r"/v1/user/{user_id:\d+}", user)
     app.router.add_get("/v1/users", users)

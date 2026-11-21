@@ -36,9 +36,10 @@ async def on_rep(message: Message, bot: Bot, delta: int, target, user_row) -> No
     name = full_name(target.first_name, target.last_name)
     place = await db.rep_place(chat_id, target.id)
     from bot.services import texts
-    html = await texts.render("tpl_rep_plus" if delta > 0 else "tpl_rep_minus", кому=mention(target.id, name),
-                              от=esc(user_row["name"]), сколько=points, место=place)
-    await say(bot, chat_id, html, reply_to=message)
+    who = mention(target.id, name)
+    await texts.send(bot, chat_id, "tpl_rep_plus" if delta > 0 else "tpl_rep_minus", reply_to=message,
+                     user=who, amount=abs(delta), reputation=points,
+                     кому=who, от=esc(user_row["name"]), сколько=points, место=place)  # старые подстановки тоже
 
 
 async def bday_filter(message: Message, chat_row=None, user_row=None) -> dict | bool:

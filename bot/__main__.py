@@ -26,6 +26,8 @@ async def main() -> None:
     await economy_store.init()  # таблицы кошельков и питомцев
     from bot.services import guardlink
     await guardlink.init()      # события модератора: варны, муты, баны
+    from bot.services import texts as chat_texts
+    await chat_texts.init()     # свои тексты чатов: картинки и кнопки
     await db.rescale_old_spend()   # один раз: старые дни по старым ценам приводим к реальным
     limit = await db.kv_get("daily_limit")
     if limit:

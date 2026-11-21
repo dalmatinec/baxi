@@ -49,6 +49,10 @@ class McQday(StatesGroup):
     add = State()
 
 
+class McText(StatesGroup):
+    value = State()   # в data: chat_id, key, what (text | photo | buttons)
+
+
 def _kb(rows: list[list[tuple]]) -> InlineKeyboardMarkup:
     out = []
     for row in rows:
@@ -180,7 +184,7 @@ async def card(target, chat_id: int, viewer: int = 0) -> None:
         [("🎲 Фишки", f"mc:s:{cid}:fx"), ("🛡 Правила", f"mc:s:{cid}:rules")],
         [("📝 Триггеры", f"mc:s:{cid}:trig"), ("📣 Зазывала", f"mc:s:{cid}:call")],
         [("📊 Статистика", f"mc:s:{cid}:stats"), ("🧰 Перенос и экспорт", f"mc:s:{cid}:tools")],
-        [("🛡 Модерация", f"mc:g:{cid}")],
+        [("🛡 Модерация", f"mc:g:{cid}"), ("✉️ Тексты", f"mc:tx:{cid}")],
         [("💳 Подключить платную" if c["free"] or c["trial"] else "💳 Продлить аренду", f"rt:{cid}", "success"),
          ("🆘 Поддержка", f"mc:sup:{cid}")],
         [("👀 Пробный ответ", f"mc:try:{cid}"), ("🧹 Стереть память", f"mc:w:{cid}")],
@@ -913,4 +917,161 @@ async def cb_guard(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
         c = await db.get_chat(chat_id)
         await db.update_chat(chat_id, guard_tease=0 if c["guard_tease"] else 1)
     await guard_screen(cb, chat_id)
+
+
+# ---------- ✉️ Тексты чата: свой текст, картинка и кнопки у любого сообщения бота ----------
+
+TEXT_ICONS = {"Репутация": "⭐", "Монеты": "🪙", "Ранги": "🏅", "Кости": "🎲", "Питомцы": "🐾", "Профиль": "👤",
+              "Модерация": "🛡", "Задолженность": "💳", "Рулетка": "🎰"}
+BUTTONS_HELP = ("Каждая кнопка с новой строки: <code>Текст - ссылка</code>. Несколько кнопок в один ряд "
+                "через <code>|</code>.\nПример:\n<code>📢 Наш канал - https://t.me/channel | 🛒 Магазин - "
+                "https://example.com</code>")
+
+
+def _text_keys(group: str) -> list[str]:
+    from bot.services import texts
+    return [k for k, v in texts.TEXTS.items() if v[0] == group]
+
+
+async def texts_home(target, chat_id: int) -> None:
+    from bot.services import texts
+    c = await db.get_chat(chat_id)
+    own = await texts.custom_keys(chat_id)
+    rows, buttons = [], []
+    for n, group in enumerate(texts.groups()):
+        keys = _text_keys(group)
+        mine = len([k for k in keys if k in own])
+        rows.append(f"{TEXT_ICONS.get(group, '📝')} {group} · {len(keys)}" + (f" · ✏️ {mine} своих" if mine else ""))
+        buttons.append((f"{TEXT_ICONS.get(group, '📝')} {group}", f"mc:txg:{chat_id}:{n}"))
+    text = (f"✉️ <b>Тексты</b> · {esc(c['title'] or str(chat_id))}\n━━━━━━━━━━━━━━\n" + "\n".join(rows) +
+            "\n━━━━━━━━━━━━━━\n<i>Любое сообщение бота в этом чате можно переписать под себя: свой текст с "
+            "премиум-эмодзи, картинка, кнопки-ссылки (например, реклама). Другие чаты это не меняет.</i>")
+    grid = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    await _show(target, text, _kb(grid + [[("⬅️ К чату", f"mc:o:{chat_id}")]]))
+
+
+async def texts_group(target, chat_id: int, n: int) -> None:
+    from bot.services import texts
+    group = texts.groups()[n]
+    own = await texts.custom_keys(chat_id)
+    rows = [[(("✏️ " if k in own else "") + texts.TEXTS[k][1], f"mc:txi:{chat_id}:{k}")] for k in _text_keys(group)]
+    await _show(target, f"{TEXT_ICONS.get(group, '📝')} <b>{group}</b>\n━━━━━━━━━━━━━━\n"
+                        "Нажми на текст, чтобы посмотреть и поменять. ✏️ значит в этом чате уже свой.",
+                _kb(rows + [[("⬅️ Разделы", f"mc:tx:{chat_id}")]]))
+
+
+async def texts_item(target, chat_id: int, key: str) -> None:
+    from bot.services import texts
+    group, title, default, subs = texts.TEXTS[key]
+    own = await texts.chat_override(chat_id, key) or {}
+    src = "свой в этом чате" if own.get("html") else ("от владельца бота" if await db.kv_get(key) else "стандартный")
+    t = await texts.template(key, chat_id)
+    hint = "\n".join(f"<code>{{{k}}}</code> {v[0]}" for k, v in subs.items())
+    sample = texts.sample(key, t.html)
+    text = (f"✏️ <b>{title}</b>\n━━━━━━━━━━━━━━\n"
+            f"📝 Текст · {src}\n🖼 Картинка · {'есть' if t.photo else 'нет'}\n"
+            f"🔘 Кнопки · {sum(len(r) for r in t.buttons) or 'нет'}\n━━━━━━━━━━━━━━\n"
+            f"<b>Так выглядит:</b>\n{sample}\n━━━━━━━━━━━━━━\n<b>Подстановки</b> (нажми, чтобы скопировать):\n{hint}")
+    if len(text) > 4000:
+        text = text[:3990] + "…"
+    gi = texts.groups().index(group)
+    rows = [[("✏️ Текст", f"mc:txe:{chat_id}:{key}:text", "primary"), ("🖼 Картинка", f"mc:txe:{chat_id}:{key}:photo")],
+            [("🔘 Кнопки", f"mc:txe:{chat_id}:{key}:buttons"), ("👁 Как в чате", f"mc:txv:{chat_id}:{key}")]]
+    extra = []
+    if t.photo:
+        extra.append(("🗑 Убрать картинку", f"mc:txe:{chat_id}:{key}:nophoto"))
+    if t.buttons:
+        extra.append(("🗑 Убрать кнопки", f"mc:txe:{chat_id}:{key}:nobuttons"))
+    if extra:
+        rows.append(extra)
+    if own:
+        rows.append([("↩️ Вернуть как было", f"mc:txr:{chat_id}:{key}")])
+    rows.append([("⬅️ К разделу", f"mc:txg:{chat_id}:{gi}")])
+    await _show(target, text, _kb(rows))
+
+
+@router.callback_query(F.data.startswith(("mc:tx:", "mc:txg:", "mc:txi:", "mc:txe:", "mc:txv:", "mc:txr:")))
+async def cb_texts(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
+    from bot.services import texts
+    parts = cb.data.split(":")
+    kind, chat_id = parts[1], int(parts[2])
+    if not await _guard(cb, bot, chat_id):
+        return
+    await state.clear()
+    if kind == "tx":
+        return await texts_home(cb, chat_id)
+    if kind == "txg":
+        return await texts_group(cb, chat_id, int(parts[3]))
+    key = parts[3]
+    if key not in texts.TEXTS:
+        return await cb.answer()
+    if kind == "txi":
+        return await texts_item(cb, chat_id, key)
+    if kind == "txr":
+        await texts.reset_chat_text(chat_id, key)
+        await cb.answer("Вернул как было")
+        return await texts_item(cb, chat_id, key)
+    if kind == "txv":   # прислать как будет в чате: с картинкой, кнопками и примерами вместо подстановок
+        await cb.answer()
+        t = await texts.template(key, chat_id)
+        msg = texts.Msg(html=texts.sample(key, t.html), photo=t.photo, buttons=t.buttons)
+        kb = texts.markup(msg)
+        try:
+            if msg.photo and len(msg.html) <= texts.MAX_CAPTION:
+                await cb.message.answer_photo(msg.photo, caption=msg.html, parse_mode="HTML", reply_markup=kb)
+            else:
+                if msg.photo:
+                    await cb.message.answer_photo(msg.photo)
+                await cb.message.answer(msg.html, parse_mode="HTML", reply_markup=kb)
+        except Exception as exc:
+            await cb.message.answer(f"⚠️ Telegram не принял этот текст: {esc(str(exc)[:200])}\nПоправь и попробуй ещё.")
+        return
+    what = parts[4]
+    if what == "nophoto":
+        await texts.set_chat_text(chat_id, key, photo="")
+        return await texts_item(cb, chat_id, key)
+    if what == "nobuttons":
+        await texts.set_chat_text(chat_id, key, buttons="")
+        return await texts_item(cb, chat_id, key)
+    await state.set_state(McText.value)
+    await state.update_data(chat_id=chat_id, key=key, what=what)
+    prompts = {"text": "Пришли новый текст одним сообщением. Можно с премиум-эмодзи, жирным, курсивом и ссылками: "
+                       "как пришлёшь, так и будет. Подстановки в фигурных скобках бот заменит сам.",
+               "photo": "Пришли картинку. Она будет над текстом (подпись до 1024 символов, длиннее: картинка "
+                        "и текст отдельно).",
+               "buttons": BUTTONS_HELP}
+    await cb.answer()
+    await cb.message.answer(f"✏️ {prompts[what]}\n\n<i>Отменить: /cancel</i>", parse_mode="HTML")
+
+
+@router.message(McText.value)
+async def on_text_input(message: Message, bot: Bot, state: FSMContext) -> None:
+    from bot.services import texts
+    data = await state.get_data()
+    chat_id, key, what = data["chat_id"], data["key"], data["what"]
+    if not await can_manage(bot, message.from_user.id, chat_id):
+        await state.clear()
+        return
+    if (message.text or "").strip().lower() in ("/cancel", "отмена"):
+        await state.clear()
+        return await texts_item(message, chat_id, key)
+    if what == "text":
+        if not message.text:
+            return await message.answer("Нужен текст. Пришли ещё раз или /cancel")
+        await texts.set_chat_text(chat_id, key, html=message.html_text[:texts.MAX_HTML])
+        note = "✅ Текст сохранён"
+    elif what == "photo":
+        if not message.photo:
+            return await message.answer("Нужна картинка. Пришли ещё раз или /cancel")
+        await texts.set_chat_text(chat_id, key, photo=message.photo[-1].file_id)
+        note = "✅ Картинка сохранена"
+    else:
+        rows, bad = texts.parse_buttons(message.text or "")
+        if not rows:
+            return await message.answer("Не нашёл ни одной кнопки.\n\n" + BUTTONS_HELP, parse_mode="HTML")
+        await texts.set_chat_text(chat_id, key, buttons=texts.buttons_text(rows))
+        note = f"✅ Кнопок: {sum(len(r) for r in rows)}" + (f"\nНе понял строки: {esc(', '.join(bad)[:200])}" if bad else "")
+    await state.clear()
+    await message.answer(note, parse_mode="HTML")
+    await texts_item(message, chat_id, key)
 

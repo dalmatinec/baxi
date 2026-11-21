@@ -103,3 +103,19 @@ async def say(bot: Bot, chat_id: int, html: str, *, reply_to: Message | None = N
         if pretty == html:
             raise
         return await bot.send_message(chat_id, html, **kwargs)  # премиум-эмодзи не прошли: шлём обычные
+
+
+async def say_photo(bot: Bot, chat_id: int, photo: str, html: str = "", *, reply_to: Message | None = None,
+                    thread: int | None = None, markup: InlineKeyboardMarkup | None = None) -> Message:
+    """Картинка с подписью (HTML, до 1024 символов), с теми же премиум-эмодзи, что и say."""
+    from bot.services import emoji
+    html = humanize(html) if html else ""
+    pretty = emoji.decorate(html) if html else ""
+    kwargs = dict(parse_mode="HTML", reply_parameters=reply_params(reply_to),
+                  message_thread_id=thread if reply_to is None else None, reply_markup=markup)
+    try:
+        return await bot.send_photo(chat_id, photo, caption=pretty or None, **kwargs)
+    except Exception:
+        if pretty == html:
+            raise
+        return await bot.send_photo(chat_id, photo, caption=html or None, **kwargs)

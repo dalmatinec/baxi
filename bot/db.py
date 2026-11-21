@@ -314,6 +314,15 @@ CREATE TABLE IF NOT EXISTS quiz_scores (
     points      INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (chat_id, user_id)
 );
+
+-- сообщения по часам: для «сообщений за 24 часа» в профиле (храним двое суток)
+CREATE TABLE IF NOT EXISTS user_hours (
+    chat_id  INTEGER NOT NULL,
+    user_id  INTEGER NOT NULL,
+    hour     INTEGER NOT NULL,     -- unix-время // 3600
+    n        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (chat_id, user_id, hour)
+);
 """
 
 # Колонки, которых не было в первой версии. Добавляются в старую базу при запуске.
@@ -561,8 +570,22 @@ async def touch_user(chat_id: int, user_id: int, name: str, username: str) -> ai
                name = excluded.name, username = excluded.username,
                msg_count = msg_count + 1, last_seen = excluded.last_seen""",
         (chat_id, user_id, name, username, time.time(), time.time()))
+    await conn().execute(
+        "INSERT INTO user_hours (chat_id, user_id, hour, n) VALUES (?, ?, ?, 1) "
+        "ON CONFLICT(chat_id, user_id, hour) DO UPDATE SET n = n + 1", (chat_id, user_id, int(time.time() // 3600)))
     await conn().commit()
     return await get_user(chat_id, user_id)
+
+
+async def messages_24h(chat_id: int, user_id: int) -> int:
+    async with conn().execute("SELECT COALESCE(SUM(n), 0) FROM user_hours WHERE chat_id = ? AND user_id = ? "
+                              "AND hour > ?", (chat_id, user_id, int(time.time() // 3600) - 24)) as cur:
+        return (await cur.fetchone())[0]
+
+
+async def prune_user_hours() -> None:
+    await conn().execute("DELETE FROM user_hours WHERE hour < ?", (int(time.time() // 3600) - 48,))
+    await conn().commit()
 
 
 async def add_user_silently(chat_id: int, user_id: int, name: str, username: str) -> None:
