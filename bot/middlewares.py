@@ -83,6 +83,9 @@ class GroupTracker(BaseMiddleware):
                 await db.add_daily(event.chat.id, user.id, name, is_mat(event.text or event.caption or ""))
                 from bot.economy import hooks  # опыт и монеты за сообщение (не чаще 2 раз в минуту)
                 await hooks.on_group_message(data["bot"], chat, event, name)
+                from bot.gamecore import core as gamecore  # ФК активной игры со списком
+                await gamecore.on_message(event.chat.id, user.id, event.text or event.caption,
+                                          bool(event.text and event.text.startswith("/")))
                 # ответили «ахаха» на чужое сообщение: автору плюс в «самого смешного»
                 if (rt and rt.from_user and not rt.from_user.is_bot and rt.from_user.id != user.id
                         and (is_laugh(event.text or "") or (event.sticker and event.sticker.emoji in LAUGH_EMOJI))):

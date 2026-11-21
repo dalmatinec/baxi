@@ -28,6 +28,8 @@ async def main() -> None:
     await guardlink.init()      # события модератора: варны, муты, баны
     from bot.services import texts as chat_texts
     await chat_texts.init()     # свои тексты чатов: картинки и кнопки
+    from bot.gamecore import core as gamecore
+    await gamecore.init()       # игры со списком: рулетка, топы, ФК
     await db.rescale_old_spend()   # один раз: старые дни по старым ценам приводим к реальным
     limit = await db.kv_get("daily_limit")
     if limit:

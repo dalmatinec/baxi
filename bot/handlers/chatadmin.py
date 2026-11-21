@@ -184,7 +184,7 @@ async def card(target, chat_id: int, viewer: int = 0) -> None:
         [("🎲 Фишки", f"mc:s:{cid}:fx"), ("🛡 Правила", f"mc:s:{cid}:rules")],
         [("📝 Триггеры", f"mc:s:{cid}:trig"), ("📣 Зазывала", f"mc:s:{cid}:call")],
         [("📊 Статистика", f"mc:s:{cid}:stats"), ("🧰 Перенос и экспорт", f"mc:s:{cid}:tools")],
-        [("🛡 Модерация", f"mc:g:{cid}"), ("✉️ Тексты", f"mc:tx:{cid}")],
+        [("🛡 Модерация", f"mc:g:{cid}"), ("✉️ Тексты", f"mc:te:{cid}")],
         [("💳 Подключить платную" if c["free"] or c["trial"] else "💳 Продлить аренду", f"rt:{cid}", "success"),
          ("🆘 Поддержка", f"mc:sup:{cid}")],
         [("👀 Пробный ответ", f"mc:try:{cid}"), ("🧹 Стереть память", f"mc:w:{cid}")],
@@ -942,7 +942,7 @@ async def texts_home(target, chat_id: int) -> None:
         keys = _text_keys(group)
         mine = len([k for k in keys if k in own])
         rows.append(f"{TEXT_ICONS.get(group, '📝')} {group} · {len(keys)}" + (f" · ✏️ {mine} своих" if mine else ""))
-        buttons.append((f"{TEXT_ICONS.get(group, '📝')} {group}", f"mc:txg:{chat_id}:{n}"))
+        buttons.append((f"{TEXT_ICONS.get(group, '📝')} {group}", f"mc:teg:{chat_id}:{n}"))
     text = (f"✉️ <b>Тексты</b> · {esc(c['title'] or str(chat_id))}\n━━━━━━━━━━━━━━\n" + "\n".join(rows) +
             "\n━━━━━━━━━━━━━━\n<i>Любое сообщение бота в этом чате можно переписать под себя: свой текст с "
             "премиум-эмодзи, картинка, кнопки-ссылки (например, реклама). Другие чаты это не меняет.</i>")
@@ -954,10 +954,10 @@ async def texts_group(target, chat_id: int, n: int) -> None:
     from bot.services import texts
     group = texts.groups()[n]
     own = await texts.custom_keys(chat_id)
-    rows = [[(("✏️ " if k in own else "") + texts.TEXTS[k][1], f"mc:txi:{chat_id}:{k}")] for k in _text_keys(group)]
+    rows = [[(("✏️ " if k in own else "") + texts.TEXTS[k][1], f"mc:tei:{chat_id}:{k}")] for k in _text_keys(group)]
     await _show(target, f"{TEXT_ICONS.get(group, '📝')} <b>{group}</b>\n━━━━━━━━━━━━━━\n"
                         "Нажми на текст, чтобы посмотреть и поменять. ✏️ значит в этом чате уже свой.",
-                _kb(rows + [[("⬅️ Разделы", f"mc:tx:{chat_id}")]]))
+                _kb(rows + [[("⬅️ Разделы", f"mc:te:{chat_id}")]]))
 
 
 async def texts_item(target, chat_id: int, key: str) -> None:
@@ -975,22 +975,22 @@ async def texts_item(target, chat_id: int, key: str) -> None:
     if len(text) > 4000:
         text = text[:3990] + "…"
     gi = texts.groups().index(group)
-    rows = [[("✏️ Текст", f"mc:txe:{chat_id}:{key}:text", "primary"), ("🖼 Картинка", f"mc:txe:{chat_id}:{key}:photo")],
-            [("🔘 Кнопки", f"mc:txe:{chat_id}:{key}:buttons"), ("👁 Как в чате", f"mc:txv:{chat_id}:{key}")]]
+    rows = [[("✏️ Текст", f"mc:tee:{chat_id}:{key}:text", "primary"), ("🖼 Картинка", f"mc:tee:{chat_id}:{key}:photo")],
+            [("🔘 Кнопки", f"mc:tee:{chat_id}:{key}:buttons"), ("👁 Как в чате", f"mc:tev:{chat_id}:{key}")]]
     extra = []
     if t.photo:
-        extra.append(("🗑 Убрать картинку", f"mc:txe:{chat_id}:{key}:nophoto"))
+        extra.append(("🗑 Убрать картинку", f"mc:tee:{chat_id}:{key}:nophoto"))
     if t.buttons:
-        extra.append(("🗑 Убрать кнопки", f"mc:txe:{chat_id}:{key}:nobuttons"))
+        extra.append(("🗑 Убрать кнопки", f"mc:tee:{chat_id}:{key}:nobuttons"))
     if extra:
         rows.append(extra)
     if own:
-        rows.append([("↩️ Вернуть как было", f"mc:txr:{chat_id}:{key}")])
-    rows.append([("⬅️ К разделу", f"mc:txg:{chat_id}:{gi}")])
+        rows.append([("↩️ Вернуть как было", f"mc:ter:{chat_id}:{key}")])
+    rows.append([("⬅️ К разделу", f"mc:teg:{chat_id}:{gi}")])
     await _show(target, text, _kb(rows))
 
 
-@router.callback_query(F.data.startswith(("mc:tx:", "mc:txg:", "mc:txi:", "mc:txe:", "mc:txv:", "mc:txr:")))
+@router.callback_query(F.data.startswith(("mc:te:", "mc:teg:", "mc:tei:", "mc:tee:", "mc:tev:", "mc:ter:")))
 async def cb_texts(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     from bot.services import texts
     parts = cb.data.split(":")
@@ -998,20 +998,20 @@ async def cb_texts(cb: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     if not await _guard(cb, bot, chat_id):
         return
     await state.clear()
-    if kind == "tx":
+    if kind == "te":
         return await texts_home(cb, chat_id)
-    if kind == "txg":
+    if kind == "teg":
         return await texts_group(cb, chat_id, int(parts[3]))
     key = parts[3]
     if key not in texts.TEXTS:
         return await cb.answer()
-    if kind == "txi":
+    if kind == "tei":
         return await texts_item(cb, chat_id, key)
-    if kind == "txr":
+    if kind == "ter":
         await texts.reset_chat_text(chat_id, key)
         await cb.answer("Вернул как было")
         return await texts_item(cb, chat_id, key)
-    if kind == "txv":   # прислать как будет в чате: с картинкой, кнопками и примерами вместо подстановок
+    if kind == "tev":   # прислать как будет в чате: с картинкой, кнопками и примерами вместо подстановок
         await cb.answer()
         t = await texts.template(key, chat_id)
         msg = texts.Msg(html=texts.sample(key, t.html), photo=t.photo, buttons=t.buttons)
