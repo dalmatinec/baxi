@@ -314,6 +314,15 @@ CREATE TABLE IF NOT EXISTS quiz_scores (
     points      INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (chat_id, user_id)
 );
+
+-- сообщения по часам: для «сообщений за 24 часа» в профиле (храним двое суток)
+CREATE TABLE IF NOT EXISTS user_hours (
+    chat_id  INTEGER NOT NULL,
+    user_id  INTEGER NOT NULL,
+    hour     INTEGER NOT NULL,     -- unix-время // 3600
+    n        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (chat_id, user_id, hour)
+);
 """
 
 # Колонки, которых не было в первой версии. Добавляются в старую базу при запуске.
@@ -363,10 +372,12 @@ NEW_COLUMNS = {
         "free": "INTEGER NOT NULL DEFAULT 0",             # бесплатный тариф: без нейросети
         "trial_used": "INTEGER NOT NULL DEFAULT 0",       # пробный уже был
         "last_nudge": "REAL NOT NULL DEFAULT 0",          # когда напоминали про платную версию
+        "guard_tease": "INTEGER NOT NULL DEFAULT 0",      # подкалывать тех, кого наказал модератор
     },
     "users": {
         "birthday": "TEXT NOT NULL DEFAULT ''",         # 'MM-DD'
         "bday_year": "INTEGER NOT NULL DEFAULT 0",      # в каком году уже поздравили
+        "first_seen": "REAL NOT NULL DEFAULT 0",        # когда впервые увидели в чате (вход или первое сообщение)
     },
     "history": {
         "reply_user_id": "INTEGER NOT NULL DEFAULT 0",
@@ -389,7 +400,8 @@ CHAT_FIELDS = {"bot_name", "aliases", "persona", "topic", "chance", "ai_share",
                "results_manual", "approved", "pending_since", "added_by", "rent_until", "rent_warned", "members",
                "shop", "added_name", "added_username", "quiz", "quiz_count", "quiet_from", "quiet_to",
                "quiet_until", "humor", "mat", "banned", "protect_admins", "call_text", "call_who", "call_style",
-               "call_max", "trial", "qday", "last_qday", "qday_queue", "revive", "last_revive", "free", "trial_used", "last_nudge"}
+               "call_max", "trial", "qday", "last_qday", "qday_queue", "revive", "last_revive", "free", "trial_used", "last_nudge",
+               "guard_tease"}
 AD_FIELDS = {"title", "media_kind", "file_id", "text_html", "buttons", "interval",
              "enabled", "delete_prev"}
 
@@ -436,6 +448,10 @@ async def _migrate() -> None:
         for name, ddl in columns.items():
             if name not in have:
                 await conn().execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+                if (table, name) == ("users", "first_seen"):  # старым людям: самое раннее сообщение из истории
+                    await conn().execute(
+                        "UPDATE users SET first_seen = COALESCE((SELECT MIN(h.ts) FROM history h WHERE "
+                        "h.chat_id = users.chat_id AND h.user_id = users.user_id), 0)")
 
 
 async def close() -> None:
@@ -548,22 +564,37 @@ async def migrate_chat(old_id: int, new_id: int) -> None:
 
 async def touch_user(chat_id: int, user_id: int, name: str, username: str) -> aiosqlite.Row:
     await conn().execute(
-        """INSERT INTO users (chat_id, user_id, name, username, msg_count, last_seen)
-           VALUES (?, ?, ?, ?, 1, ?)
+        """INSERT INTO users (chat_id, user_id, name, username, msg_count, last_seen, first_seen)
+           VALUES (?, ?, ?, ?, 1, ?, ?)
            ON CONFLICT(chat_id, user_id) DO UPDATE SET
                name = excluded.name, username = excluded.username,
                msg_count = msg_count + 1, last_seen = excluded.last_seen""",
-        (chat_id, user_id, name, username, time.time()))
+        (chat_id, user_id, name, username, time.time(), time.time()))
+    await conn().execute(
+        "INSERT INTO user_hours (chat_id, user_id, hour, n) VALUES (?, ?, ?, 1) "
+        "ON CONFLICT(chat_id, user_id, hour) DO UPDATE SET n = n + 1", (chat_id, user_id, int(time.time() // 3600)))
     await conn().commit()
     return await get_user(chat_id, user_id)
+
+
+async def messages_24h(chat_id: int, user_id: int) -> int:
+    async with conn().execute("SELECT COALESCE(SUM(n), 0) FROM user_hours WHERE chat_id = ? AND user_id = ? "
+                              "AND hour > ?", (chat_id, user_id, int(time.time() // 3600) - 24)) as cur:
+        return (await cur.fetchone())[0]
+
+
+async def prune_user_hours() -> None:
+    await conn().execute("DELETE FROM user_hours WHERE hour < ?", (int(time.time() // 3600) - 48,))
+    await conn().commit()
 
 
 async def add_user_silently(chat_id: int, user_id: int, name: str, username: str) -> None:
     """Новичок вступил: запоминаем, но сообщений у него ещё нет."""
     await conn().execute(
-        """INSERT INTO users (chat_id, user_id, name, username, last_seen) VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(chat_id, user_id) DO UPDATE SET name = excluded.name, username = excluded.username""",
-        (chat_id, user_id, name, username, time.time()))
+        """INSERT INTO users (chat_id, user_id, name, username, last_seen, first_seen) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(chat_id, user_id) DO UPDATE SET name = excluded.name, username = excluded.username,
+               first_seen = CASE WHEN first_seen = 0 THEN excluded.first_seen ELSE first_seen END""",
+        (chat_id, user_id, name, username, time.time(), time.time()))
     await conn().commit()
 
 
