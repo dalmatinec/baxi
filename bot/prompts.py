@@ -294,15 +294,27 @@ def _tokens(text: str) -> list[str]:
     return [t.replace("ё", "е") for t in _TOKEN.findall((text or "").lower())]
 
 
+# приветствия не считаем «повтором»: здороваться каждый раз одинаково нормально
+GREET = {"салам", "салем", "привет", "приветик", "прив", "здарова", "здаров", "дарова", "хай", "хей", "салют",
+         "здравствуй", "здравствуйте", "алейкум", "ассалам", "ассаламуалейкум", "уалейкум", "братан", "братишка"}
+
+
 def content_words(text: str, min_len: int = 3) -> set[str]:
-    return {t for t in _tokens(text) if len(t) >= min_len and t not in COMMON and not t.isdigit()}
+    return {t for t in _tokens(text)
+            if len(t) >= min_len and t not in COMMON and t not in GREET and not t.isdigit()}
+
+
+def is_greeting(text: str) -> bool:
+    """Короткое приветствие: «салам брат», «привет всем». На него бот здоровается в ответ, без фильтра повторов."""
+    toks = _tokens(text)
+    return 0 < len(toks) <= 4 and any(t in GREET for t in toks)
 
 
 def is_repeat(reply: str, recent: list[str], threshold: float = 0.5) -> bool:
     """Ответ похож на один из прошлых ответов бота: много общих слов или то же начало."""
-    words, start = content_words(reply), _tokens(reply)[:3]
+    words, start = content_words(reply), [t for t in _tokens(reply) if t not in GREET][:3]
     for old in recent:
-        if len(start) == 3 and _tokens(old)[:3] == start:
+        if len(start) == 3 and [t for t in _tokens(old) if t not in GREET][:3] == start:
             return True
         prev = content_words(old)
         if len(words) >= 2 and len(prev) >= 2 and len(words & prev) / len(words | prev) >= threshold:

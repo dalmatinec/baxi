@@ -149,7 +149,8 @@ async def _ask(chat, make_task, incoming: str | None = None) -> str | None:
     recent = await db.bot_replies(chat["chat_id"], 10)
     said = [t for t, _ in recent]
     names = await db.recent_names(chat["chat_id"])
-    banned = prompts.cooldown_words(recent, time.time())
+    greeting = prompts.is_greeting(incoming)   # на «салам брат» здороваемся в ответ, повторы тут не считаются
+    banned = set() if greeting else prompts.cooldown_words(recent, time.time())
     if banned:
         task += f"\nНе используй слова: {', '.join(sorted(banned))}."
     text = ""
@@ -160,7 +161,7 @@ async def _ask(chat, make_task, incoming: str | None = None) -> str | None:
             return None
         text = prompts.clean_reply(answer, chat["bot_name"])
         text = prompts.limit_commas(prompts.strip_names(prompts.drop_hello(text, incoming), names, said))
-        repeat = prompts.is_repeat(text, said + _fresh_texts(chat["chat_id"]))
+        repeat = not greeting and prompts.is_repeat(text, said + _fresh_texts(chat["chat_id"]))
         echo = prompts.echo_words(incoming, text)
         if not text or not (repeat or echo):
             break
@@ -171,7 +172,7 @@ async def _ask(chat, make_task, incoming: str | None = None) -> str | None:
             break
         hint = []
         if repeat:
-            hint.append("Ты уже говорил похожее, скажи по-другому, другими словами и о другом.")
+            hint.append("Ты уже говорил почти так же: ответь на то же сообщение по смыслу, но другими словами.")
         if echo:
             hint.append(f"Не повторяй словечки собеседника ({', '.join(sorted(echo))}), отвечай на смысл.")
         task += "\n" + " ".join(hint)

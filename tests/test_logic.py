@@ -465,3 +465,10 @@ def test_strong_cost():
     weak = ai.cost(1000, 100, 0, now=None, strong=False)
     strong = ai.cost(1000, 100, 0, now=None, strong=True)
     assert 3 < strong / weak < 5
+
+
+def test_greetings_not_repeats():
+    assert prompts.is_greeting("Салам брат") and prompts.is_greeting("привет всем")
+    assert not prompts.is_greeting("салам, а что по планам на завтра у всех")
+    assert not prompts.is_repeat("салам брат, как сам", ["салам брат, чё нового"])
+    assert prompts.cooldown_words([("салам брат как сам", 100), ("салам бро чё нового", 200)], 300) == set()
