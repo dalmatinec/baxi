@@ -30,7 +30,6 @@ GREETINGS = [
 ]
 
 FALLBACK_REPLIES = ["щас не до тебя, позже", "ага", "ну допустим", "отстань, я думаю", "хм"]
-CREATOR_FALLBACK = ["секунду, сейчас соображу 🙏", "понял тебя, дай минутку", "принял 👌"]
 
 
 def chat_lock(chat_id: int) -> asyncio.Lock:
@@ -157,10 +156,14 @@ async def _ask(chat, make_task, incoming: str | None = None) -> str | None:
     for attempt in range(2):
         answer = await ai.chat([{"role": "system", "content": system}, {"role": "user", "content": task}],
                                penalties=True)
+        if not answer and ai.LAST_FAIL == "net":   # сбой связи: ещё одна попытка через пару секунд
+            await asyncio.sleep(2.5)
+            answer = await ai.chat([{"role": "system", "content": system}, {"role": "user", "content": task}],
+                                   penalties=True)
         if not answer:
             return None
         text = prompts.clean_reply(answer, chat["bot_name"])
-        text = prompts.limit_commas(prompts.strip_names(prompts.drop_hello(text, incoming), names, said))
+        text = prompts.strip_names(prompts.drop_hello(text, incoming), names, said)
         repeat = not greeting and prompts.is_repeat(text, said + _fresh_texts(chat["chat_id"]))
         echo = prompts.echo_words(incoming, text)
         if not text or not (repeat or echo):
@@ -224,14 +227,36 @@ async def ai_answer(bot: Bot, chat, message: Message, author: str, text: str, ju
         await reactions.react(bot, chat, message)   # повторялся бы: вместо ответа реакция или молчим
         return
     if reply is None:
+        if ai.LAST_FAIL == "net":
+            # нейросеть не ответила даже со второй попытки: молчим, а не пишем «дай минутку»; владельцу сообщим
+            await _warn_owner_net(bot)
+            return
         if jump and not creator:
             return await phrase_answer(bot, chat, message, author)
-        if jump:
+        if jump or creator:
             return  # создателю фразами из базы не отвечаем: там бывают подколы
-        reply = (random.choice(CREATOR_FALLBACK) if creator
-                 else await db.random_phrase("reply") or await db.random_phrase("text")
+        reply = (await db.random_phrase("reply") or await db.random_phrase("text")
                  or random.choice(FALLBACK_REPLIES))
     await send_text(bot, chat, esc(reply), reply, reply_to=message, reply_name=author)
+
+
+_net_warned = 0.0
+
+
+async def _warn_owner_net(bot: Bot) -> None:
+    """Связи с нейросетью нет дольше 10 минут: раз в 2 часа пишем владельцу в личку, чтобы знал, в чём дело."""
+    global _net_warned
+    down = ai.net_down_minutes()
+    if down < 10 or time.time() - _net_warned < 7200:
+        return
+    _net_warned = time.time()
+    for uid in config.OWNER_IDS:
+        try:
+            await bot.send_message(uid, f"⚠️ Нет связи с нейросетью уже {int(down)} мин. Бот пока молчит на обращения, "
+                                        "игры и команды работают. Обычно это сеть сервера или сбой у сервиса: "
+                                        "проверь интернет на сервере и баланс DeepSeek.")
+        except Exception:
+            pass
 
 
 async def phrase_answer(bot: Bot, chat, message: Message, author: str) -> None:

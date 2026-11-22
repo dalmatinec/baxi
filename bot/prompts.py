@@ -310,7 +310,7 @@ def is_greeting(text: str) -> bool:
     return 0 < len(toks) <= 4 and any(t in GREET for t in toks)
 
 
-def is_repeat(reply: str, recent: list[str], threshold: float = 0.5) -> bool:
+def is_repeat(reply: str, recent: list[str], threshold: float = 0.6) -> bool:
     """Ответ похож на один из прошлых ответов бота: много общих слов или то же начало."""
     words, start = content_words(reply), [t for t in _tokens(reply) if t not in GREET][:3]
     for old in recent:
@@ -328,7 +328,7 @@ def cooldown_words(recent: list[tuple[str, float]], now: float, window: float = 
     last = [t for t, ts in recent[-2:] if now - ts <= window]
     if len(last) < 2:
         return set()
-    return content_words(last[0], 4) & content_words(last[1], 4)
+    return content_words(last[0], 5) & content_words(last[1], 5)
 
 
 _STRETCH = re.compile(r"(.)\1\1")   # три одинаковые буквы подряд: уааа, ооо, ахахаааа

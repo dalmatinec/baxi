@@ -84,6 +84,21 @@ CURRENT_CHAT: ContextVar = ContextVar("current_chat", default=None)
 gate = None
 # режим «меня обновляют» (services/maint): до этого времени нейросеть не вызывается вообще
 PAUSED_UNTIL = 0.0
+# почему последний chat() вернул None, и когда подряд не было связи с сервисом (для сообщения владельцу)
+LAST_FAIL = ""
+NET_FAILS: list[float] = []
+
+
+def _net_fail() -> None:
+    NET_FAILS.append(time.time())
+    del NET_FAILS[:-50]
+
+
+def net_down_minutes() -> float:
+    """Сколько минут подряд нет связи с сервисом нейросети (0, если последний запрос прошёл)."""
+    return (time.time() - NET_FAILS[0]) / 60 if len(NET_FAILS) >= 3 else 0.0
+
+
 # доля ответов людям через сильную модель, 0-100 % (владелец выбирает, хранится в kv strong_share)
 STRONG_SHARE = 0
 _strong_ok = True   # сильная модель недоступна (неверное имя, нет доступа): дальше всё через основную
@@ -108,7 +123,10 @@ async def chat_json_as(kind: str, messages: list[dict], **kw) -> dict | None:
 async def chat(messages: list[dict], max_tokens: int | None = None,
                temperature: float | None = None, json_mode: bool = False, kind: str = "reply",
                penalties: bool = False) -> str | None:
-    """Один запрос к модели. None, если ИИ выключен, лимит исчерпан, тариф чата не позволяет или ошибка."""
+    """Один запрос к модели. None, если ИИ выключен, лимит исчерпан, тариф чата не позволяет или ошибка.
+    Почему None, видно в LAST_FAIL: "limit" (лимит, пауза, тариф) или "net" (сервис не ответил или ошибка)."""
+    global LAST_FAIL
+    LAST_FAIL = "limit"
     if time.time() < PAUSED_UNTIL:
         return None
     if not await budget_left():
@@ -116,6 +134,7 @@ async def chat(messages: list[dict], max_tokens: int | None = None,
     row = CURRENT_CHAT.get()
     if row is not None and gate is not None and not gate(row):
         return None
+    LAST_FAIL = "net"
     global _strong_ok
     # только ответы людям и реплики в разговор; какой именно ответ пойдёт в сильную, решает случай по доле
     strong = bool(penalties and _strong_ok and config.AI_STRONG_MODEL and random.random() * 100 < STRONG_SHARE)
@@ -149,11 +168,14 @@ async def chat(messages: list[dict], max_tokens: int | None = None,
                 resp = await _http().post("/chat/completions", json=payload)
             if resp.status_code != 200:
                 log.warning("ИИ ответил %s: %s", resp.status_code, resp.text[:300])
+                _net_fail()
                 return None
             data = resp.json()
         except (httpx.HTTPError, ValueError) as exc:
             log.warning("ИИ недоступен: %s", exc)
+            _net_fail()
             return None
+    NET_FAILS.clear()
     usage = data.get("usage") or {}
     tok_in = int(usage.get("prompt_tokens", 0))
     tok_out = int(usage.get("completion_tokens", 0))
