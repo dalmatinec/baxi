@@ -134,6 +134,12 @@ def pick_phrase_kind(rnd: random.Random | None = None) -> str:
     return "text" if x < 0.6 else "sticker" if x < 0.85 else "gif"
 
 
+READ_MIN, READ_MAX = 1.5, 4.0   # человек сначала читает сообщение, секунды
+CHARS_PER_SEC = 7.0             # и печатает с телефона примерно так
+TYPE_MAX = 8.0                  # дольше не тянем, даже если ответ длинный
+
+
 def typing_delay(text: str) -> float:
-    """Сколько «печатать» перед отправкой, чтобы не отвечать мгновенно как робот."""
-    return min(1.0 + len(text) / 25, 5.0)
+    """Сколько в сумме должен занять ответ от прихода сообщения: прочитать + напечатать.
+    Время, пока думала нейросеть, сюда входит, поэтому лишнего ожидания не бывает."""
+    return random.uniform(READ_MIN, READ_MAX) + min(len(text) / CHARS_PER_SEC, TYPE_MAX)

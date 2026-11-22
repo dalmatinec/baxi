@@ -414,3 +414,15 @@ def test_mentioned_names():
     lena = [(prompts.name_key("Лена"), {"name": "Лена"})]
     assert prompts.mentioned(["позови Лену"], lena) and not prompts.mentioned(["ленивый"], lena)
     assert prompts.name_key("Ай") == ""
+
+
+def test_now_line_and_delay():
+    from datetime import datetime
+
+    from bot import brain, config
+    line = prompts.now_line(datetime(2026, 11, 22, 12, 34, tzinfo=config.TZ))
+    assert line.startswith("Сейчас воскресенье, 22 ноября, 12:34, день")
+    assert "ночь" in prompts.now_line(datetime(2026, 11, 22, 2, 0, tzinfo=config.TZ))
+    d = brain.typing_delay("нормально, а ты как")
+    assert 1.5 + 19 / 7 - 0.01 <= d <= 4.0 + 19 / 7 + 0.01
+    assert brain.typing_delay("x" * 500) <= brain.READ_MAX + brain.TYPE_MAX

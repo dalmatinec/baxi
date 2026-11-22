@@ -142,7 +142,7 @@ async def _ask(chat, make_task, incoming: str | None = None) -> str | None:
     здоровались; лишнее имя; хвост после третьей запятой. Повтор своих прошлых ответов или эхо сленга собеседника:
     одна перегенерация с подсказкой; если снова повтор, возвращаем SKIP (бот молчит). None: нейросеть не ответила."""
     system, history = await context(chat)
-    task = make_task(history)
+    task = prompts.now_line() + "\n" + make_task(history)
     if incoming is None:
         answer = await ai.chat([{"role": "system", "content": system}, {"role": "user", "content": task}])
         return prompts.clean_reply(answer or "", chat["bot_name"]) or None
@@ -180,12 +180,18 @@ async def _ask(chat, make_task, incoming: str | None = None) -> str | None:
     return text or None
 
 
-async def typing(bot: Bot, chat_id: int, text: str) -> None:
-    try:
-        await bot.send_chat_action(chat_id, ChatAction.TYPING)
-    except Exception:
-        pass
-    await asyncio.sleep(brain.typing_delay(text))
+async def typing(bot: Bot, chat_id: int, text: str, since: float | None = None) -> None:
+    """Пауза как у человека: «прочитал» и «печатает…». since: когда пришло сообщение, на которое отвечаем;
+    время, пока думала нейросеть, уже прошло и вычитается. Значок «печатает» держится 5 секунд, обновляем."""
+    left = brain.typing_delay(text) - (time.time() - since if since else 0)
+    while left > 0:
+        try:
+            await bot.send_chat_action(chat_id, ChatAction.TYPING)
+        except Exception:
+            pass
+        step = min(left, 4.5)
+        await asyncio.sleep(step)
+        left -= step
 
 
 async def remember_self(bot: Bot, chat, sent: Message, text: str, reply_name: str = "") -> None:
@@ -195,7 +201,8 @@ async def remember_self(bot: Bot, chat, sent: Message, text: str, reply_name: st
 
 async def send_text(bot: Bot, chat, text_html: str, plain: str, reply_to: Message | None = None,
                     reply_name: str = "", thread: int | None = None) -> None:
-    await typing(bot, chat["chat_id"], plain)
+    since = reply_to.date.timestamp() if reply_to is not None and reply_to.date else None
+    await typing(bot, chat["chat_id"], plain, since)
     sent = await say(bot, chat["chat_id"], text_html, reply_to=reply_to, thread=thread)
     await remember_self(bot, chat, sent, plain, reply_name)
 
