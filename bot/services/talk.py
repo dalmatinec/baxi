@@ -213,7 +213,9 @@ async def ai_answer(bot: Bot, chat, message: Message, author: str, text: str, ju
     reply = await _ask(chat, lambda history: build(history, author, text or "[без текста]"), incoming=text or "")
     creator = bool(message.from_user and message.from_user.id in config.CREATOR_IDS)
     if reply == SKIP:
-        return   # повторялся бы: молчим
+        from bot.services import reactions
+        await reactions.react(bot, chat, message)   # повторялся бы: вместо ответа реакция или молчим
+        return
     if reply is None:
         if jump and not creator:
             return await phrase_answer(bot, chat, message, author)

@@ -433,3 +433,19 @@ def test_slang_phrases():
     got = slang.found(["я щас на мели, зуб даю", "го катку"])
     assert "на мели = без денег" in got and "го катку = давай сыграем" in got
     assert len(slang.SLANG) > 300
+
+
+def test_reactions_choose_and_limits():
+    pytest.importorskip("aiogram")
+    from bot.services import reactions as r
+    assert r.choose("ахахах") == r.LAUGH and r.choose("ору") == r.LAUGH
+    assert r.choose("спасибо бро") == r.LOVE and r.choose("рахмет") == r.LOVE
+    assert r.choose("завтра в 7 сбор") == r.LIKE
+    assert r.short_thanks_or_laugh("спс") and not r.short_thanks_or_laugh("спасибо, а что там завтра по плану будет")
+    r._times.clear(); r._last_user.clear()
+    for i in range(4):
+        assert r.allowed(-1, i, 1000 + i)
+        r._times.setdefault(-1, []).append(1000 + i); r._last_user[-1] = i
+    assert not r.allowed(-1, 9, 1010)          # 4 в час
+    assert r.allowed(-1, 9, 5000)              # через час снова можно
+    assert not r.allowed(-1, 3, 5000)          # тому же человеку подряд нельзя

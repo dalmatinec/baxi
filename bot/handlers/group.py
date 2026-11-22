@@ -10,7 +10,7 @@ from aiogram.types import Message
 
 from bot import brain, config, db, presets
 from bot.middlewares import GROUPS, TRACKED, describe
-from bot.services import fun, maint, memory, perms, quiz, talk, triggers
+from bot.services import fun, maint, memory, perms, quiz, reactions, talk, triggers
 from bot.services.out import say
 
 log = logging.getLogger(__name__)
@@ -45,6 +45,11 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
     aliases = brain.parse_aliases(chat_row["bot_name"], chat_row["aliases"])
     addressed = brain.is_addressed(text, me.username or "", aliases, reply_to_bot)
 
+    # «спасибо» или «ахах» в ответ на сообщение бота: как человек, ставим реакцию вместо текста
+    if reply_to_bot and reactions.short_thanks_or_laugh(text) and not maint.is_on():
+        if await reactions.react(bot, chat_row, message):
+            return
+
     now = time.time()
     if not addressed:
         hour = datetime.now(config.TZ).hour
@@ -64,6 +69,7 @@ async def on_message(message: Message, bot: Bot, chat_row=None, user_row=None) -
     if act is brain.Act.PHRASE and (creator_hit or user_row["user_id"] in config.CREATOR_IDS):
         act = brain.Act.AI_JUMP  # про создателя говорит сам, а не фразой из базы
     if act is brain.Act.NONE:
+        await reactions.maybe(bot, chat_row, message)   # иногда просто реакция, без ответа
         return
     if maint.is_on():   # владелец обновляет бота: без ИИ, на обращения шуточная фраза, сам не влезает
         phrase = maint.pick(chat_id, user_row["user_id"]) if act is brain.Act.AI_REPLY else None
