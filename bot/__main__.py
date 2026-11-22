@@ -34,7 +34,11 @@ async def main() -> None:
     await maint.load()  # режим «меня обновляют» переживает перезапуск
     from bot.services import out
     await out.load_tags()  # чаты, где бот тегает человека в каждом сообщении
-    ai.STRONG_REPLIES = await db.kv_get("strong_replies", "0") == "1"   # ответы людям сильной моделью
+    share = await db.kv_get("strong_share", "")   # доля ответов людям сильной моделью
+    if not share:   # ещё не выбирали: у основного бота 60%, у ботов клиентов выключено
+        old = await db.kv_get("strong_replies", "")
+        share = "100" if old == "1" else "0" if old == "0" or not config.IS_MAIN else "60"
+    ai.STRONG_SHARE = int(share) if share.isdigit() else 0
     from bot.services import menu
     await menu.upgrade_start()  # новый порядок кнопок главного меню
     await stars.refresh_looks()

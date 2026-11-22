@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from contextvars import ContextVar
+import random
 import re
 import time
 
@@ -83,8 +84,8 @@ CURRENT_CHAT: ContextVar = ContextVar("current_chat", default=None)
 gate = None
 # режим «меня обновляют» (services/maint): до этого времени нейросеть не вызывается вообще
 PAUSED_UNTIL = 0.0
-# ответы людям через сильную модель (переключает владелец, хранится в kv strong_replies)
-STRONG_REPLIES = False
+# доля ответов людям через сильную модель, 0-100 % (владелец выбирает, хранится в kv strong_share)
+STRONG_SHARE = 0
 _strong_ok = True   # сильная модель недоступна (неверное имя, нет доступа): дальше всё через основную
 # штраф за повторы слов в ответах (frequency/presence penalty); если сервис его не примет, выключаем сами
 _penalty_ok = True
@@ -116,7 +117,8 @@ async def chat(messages: list[dict], max_tokens: int | None = None,
     if row is not None and gate is not None and not gate(row):
         return None
     global _strong_ok
-    strong = bool(penalties and STRONG_REPLIES and _strong_ok and config.AI_STRONG_MODEL)   # только ответы людям
+    # только ответы людям и реплики в разговор; какой именно ответ пойдёт в сильную, решает случай по доле
+    strong = bool(penalties and _strong_ok and config.AI_STRONG_MODEL and random.random() * 100 < STRONG_SHARE)
     payload = {
         "model": config.AI_STRONG_MODEL if strong else config.AI_MODEL,
         "messages": messages,
