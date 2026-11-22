@@ -271,6 +271,8 @@ async def cb_spend(cb: CallbackQuery) -> None:
     peak = "сейчас час пика, всё ×2" if ai.is_peak() else "сейчас обычные цены"
     text = ("🤖 <b>ИИ и расход</b>\n\n"
             + (f"Модель: <code>{config.AI_MODEL}</code>\n" if config.IS_MAIN else "")
+            + (f"🧠 Ответы людям: <b>{'сильная модель ' + config.AI_STRONG_MODEL if ai.STRONG_REPLIES else 'основная'}"
+               "</b>\n" if config.IS_MAIN else "")
             + f"Лимит в сутки на все чаты: <b>${config.DAILY_LIMIT_USD:.2f}</b>, "
               f"до ${config.DAILY_LIMIT_USD * 30:.0f} в месяц\n"
             f"Сегодня осталось: <b>${max(0, left):.3f}</b>\n"
@@ -285,7 +287,35 @@ async def cb_spend(cb: CallbackQuery) -> None:
     row = [((f"✓ ${v:g}" if abs(v - config.DAILY_LIMIT_USD) < 1e-9 else f"${v:g}"), f"lim:{v}") for v in steps]
     await show(cb, text, kb([[("⏰ По часам", "spend:hour"), ("💬 По чатам", "spend:chat_id"), ("🧩 На что", "spend:kind")],
                              [("🎚 Частота и доля ИИ для всех чатов", "cfg:cap")],
+                             [("🧠 Ответы людям: " + ("сильная ✅" if ai.STRONG_REPLIES else "основная"), "strong:t")],
                              row[:3], row[3:], [("✏️ Своя сумма", "lim:own")], [BACK_MENU]]))
+
+
+@router.callback_query(lambda c: c.data == "strong:t")
+async def cb_strong(cb: CallbackQuery) -> None:
+    """Ответы людям сильной моделью: понимает намёки и сленг лучше, но дороже примерно в 3-4 раза за ответ."""
+    if not ai.STRONG_REPLIES:
+        return await show(cb, "🧠 <b>Ответы людям сильной моделью</b>\n\n"
+                              f"Модель: <code>{config.AI_STRONG_MODEL}</code>. Лучше понимает намёки, сленг и шутки, "
+                              "реже путается. Только ответы людям и реплики в разговор, а заметки, итоги, шутки и "
+                              "викторины остаются на основной.\n\n"
+                              f"Цена за 1 млн токенов: вход ${config.STRONG_PRICE_IN:g} (у основной "
+                              f"${config.PRICE_IN:g}), ответ ${config.STRONG_PRICE_OUT:g} (у основной "
+                              f"${config.PRICE_OUT:g}). Расход в целом вырастет примерно в 2.5-3 раза, ответ может "
+                              "приходить на секунду-две дольше. Дневной лимит продолжает действовать.\n\nВключить?",
+                          kb([[("✅ Включить", "strong:on"), ("Отмена", "spend")]]))
+    ai.STRONG_REPLIES = False
+    await db.kv_set("strong_replies", "0")
+    await cb.answer("Ответы снова через основную модель")
+    await cb_spend(cb)
+
+
+@router.callback_query(lambda c: c.data == "strong:on")
+async def cb_strong_on(cb: CallbackQuery) -> None:
+    ai.STRONG_REPLIES = True
+    await db.kv_set("strong_replies", "1")
+    await cb.answer("🧠 Ответы людям через сильную модель")
+    await cb_spend(cb)
 
 
 @router.callback_query(lambda c: c.data.startswith("spend:"))

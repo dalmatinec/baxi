@@ -449,3 +449,19 @@ def test_reactions_choose_and_limits():
     assert not r.allowed(-1, 9, 1010)          # 4 в час
     assert r.allowed(-1, 9, 5000)              # через час снова можно
     assert not r.allowed(-1, 3, 5000)          # тому же человеку подряд нельзя
+
+
+def test_reply_task_quote_and_rules():
+    t = prompts.reply_task("ист", "Кот", "Деші", "чат, как вам пара: Сергей + WUTANG?")
+    assert "это не про Кот" in t and "Сергей + WUTANG" in t
+    assert "Это ответ" not in prompts.reply_task("ист", "Кот", "Деші")
+    assert "признай это" in prompts.STYLE and "не додумывай" in prompts.STYLE
+
+
+def test_strong_cost():
+    pytest.importorskip("httpx")
+    pytest.importorskip("aiosqlite")
+    from bot import ai
+    weak = ai.cost(1000, 100, 0, now=None, strong=False)
+    strong = ai.cost(1000, 100, 0, now=None, strong=True)
+    assert 3 < strong / weak < 5

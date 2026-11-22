@@ -41,11 +41,13 @@ def is_peak(now=None) -> bool:
     return False
 
 
-def cost(tok_in: int, tok_out: int, tok_cached: int = 0, now=None) -> float:
-    """Цена запроса как в счёте сервиса: вход вне кэша, вход из кэша (характер и правила), ответ, плюс часы пика."""
+def cost(tok_in: int, tok_out: int, tok_cached: int = 0, now=None, strong: bool = False) -> float:
+    """Цена запроса как в счёте сервиса: вход вне кэша, вход из кэша (характер и правила), ответ, плюс часы пика.
+    strong: запрос ушёл в сильную модель, у неё свои цены."""
     tok_cached = min(tok_cached, tok_in)
-    usd = ((tok_in - tok_cached) * config.PRICE_IN + tok_cached * config.PRICE_CACHE
-           + tok_out * config.PRICE_OUT) / 1e6
+    p_in, p_cache, p_out = ((config.STRONG_PRICE_IN, config.STRONG_PRICE_CACHE, config.STRONG_PRICE_OUT) if strong
+                            else (config.PRICE_IN, config.PRICE_CACHE, config.PRICE_OUT))
+    usd = ((tok_in - tok_cached) * p_in + tok_cached * p_cache + tok_out * p_out) / 1e6
     return usd * (config.PRICE_PEAK_X if is_peak(now) else 1)
 
 
@@ -81,11 +83,15 @@ CURRENT_CHAT: ContextVar = ContextVar("current_chat", default=None)
 gate = None
 # режим «меня обновляют» (services/maint): до этого времени нейросеть не вызывается вообще
 PAUSED_UNTIL = 0.0
+# ответы людям через сильную модель (переключает владелец, хранится в kv strong_replies)
+STRONG_REPLIES = False
+_strong_ok = True   # сильная модель недоступна (неверное имя, нет доступа): дальше всё через основную
 # штраф за повторы слов в ответах (frequency/presence penalty); если сервис его не примет, выключаем сами
 _penalty_ok = True
 # вид запроса для разбивки расхода в админке: reply ответы, memory заметки, results итоги и т.д.
 KINDS = {"reply": "💬 ответы в чате", "memory": "🧠 заметки о людях", "results": "📊 итоги дня",
          "event": "🎉 приветствия, вопрос дня, оживление", "quiz": "🎯 викторины", "joke": "😂 шутки",
+         "strong": "🧠 ответы сильной моделью",
          "roast": "🔥 прожарки", "summary": "📝 что тут было"}
 
 
@@ -109,8 +115,10 @@ async def chat(messages: list[dict], max_tokens: int | None = None,
     row = CURRENT_CHAT.get()
     if row is not None and gate is not None and not gate(row):
         return None
+    global _strong_ok
+    strong = bool(penalties and STRONG_REPLIES and _strong_ok and config.AI_STRONG_MODEL)   # только ответы людям
     payload = {
-        "model": config.AI_MODEL,
+        "model": config.AI_STRONG_MODEL if strong else config.AI_MODEL,
         "messages": messages,
         "max_tokens": max_tokens or config.AI_MAX_TOKENS,
         "temperature": config.AI_TEMPERATURE if temperature is None else temperature,
@@ -131,6 +139,12 @@ async def chat(messages: list[dict], max_tokens: int | None = None,
                 payload.pop("frequency_penalty")
                 payload.pop("presence_penalty")
                 resp = await _http().post("/chat/completions", json=payload)
+            if resp.status_code in (400, 401, 403, 404) and strong:
+                log.warning("Сильная модель %s не отвечает (%s), перехожу на основную: %s",
+                            config.AI_STRONG_MODEL, resp.status_code, resp.text[:200])
+                _strong_ok, strong = False, False
+                payload["model"] = config.AI_MODEL
+                resp = await _http().post("/chat/completions", json=payload)
             if resp.status_code != 200:
                 log.warning("ИИ ответил %s: %s", resp.status_code, resp.text[:300])
                 return None
@@ -141,9 +155,9 @@ async def chat(messages: list[dict], max_tokens: int | None = None,
     usage = data.get("usage") or {}
     tok_in = int(usage.get("prompt_tokens", 0))
     tok_out = int(usage.get("completion_tokens", 0))
-    usd = cost(tok_in, tok_out, cached_tokens(usage))
+    usd = cost(tok_in, tok_out, cached_tokens(usage), strong=strong)
     await db.add_spend(usd, tok_in, tok_out)
-    await db.add_ai_log(row["chat_id"] if row is not None else 0, kind, usd)
+    await db.add_ai_log(row["chat_id"] if row is not None else 0, "strong" if strong else kind, usd)
     if row is not None and on_spend is not None:
         await on_spend(row, usd)
     try:

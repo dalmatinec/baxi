@@ -34,6 +34,7 @@ async def main() -> None:
     await maint.load()  # режим «меня обновляют» переживает перезапуск
     from bot.services import out
     await out.load_tags()  # чаты, где бот тегает человека в каждом сообщении
+    ai.STRONG_REPLIES = await db.kv_get("strong_replies", "0") == "1"   # ответы людям сильной моделью
     from bot.services import menu
     await menu.upgrade_start()  # новый порядок кнопок главного меню
     await stars.refresh_looks()

@@ -209,8 +209,14 @@ async def send_text(bot: Bot, chat, text_html: str, plain: str, reply_to: Messag
 
 async def ai_answer(bot: Bot, chat, message: Message, author: str, text: str, jump: bool) -> None:
     """Ответ нейросети на сообщение. Не вышло (лимит, ошибка), отвечает фразой из базы."""
-    build = prompts.jump_task if jump else prompts.reply_task
-    reply = await _ask(chat, lambda history: build(history, author, text or "[без текста]"), incoming=text or "")
+    rt = message.reply_to_message
+    me_id = (await bot.me()).id if rt else 0
+    quoted = (rt.text or rt.caption or "") if rt and rt.from_user and rt.from_user.id == me_id else ""
+    if jump:
+        make = lambda history: prompts.jump_task(history, author, text or "[без текста]")  # noqa: E731
+    else:
+        make = lambda history: prompts.reply_task(history, author, text or "[без текста]", quoted)  # noqa: E731
+    reply = await _ask(chat, make, incoming=text or "")
     creator = bool(message.from_user and message.from_user.id in config.CREATOR_IDS)
     if reply == SKIP:
         from bot.services import reactions
