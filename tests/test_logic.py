@@ -424,8 +424,8 @@ def test_now_line_and_delay():
     assert line.startswith("Сейчас воскресенье, 22 ноября, 12:34, день")
     assert "ночь" in prompts.now_line(datetime(2026, 11, 22, 2, 0, tzinfo=config.TZ))
     d = brain.typing_delay("нормально, а ты как")
-    assert 1.5 + 19 / 7 - 0.01 <= d <= 4.0 + 19 / 7 + 0.01
-    assert brain.typing_delay("x" * 500) <= brain.READ_MAX + brain.TYPE_MAX
+    assert 1.0 + 19 / 7 - 0.01 <= d <= 3.0 + 19 / 7 + 0.01
+    assert brain.typing_delay("x" * 500) == 7.0
 
 
 def test_slang_phrases():
