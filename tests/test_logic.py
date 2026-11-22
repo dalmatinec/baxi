@@ -426,3 +426,10 @@ def test_now_line_and_delay():
     d = brain.typing_delay("нормально, а ты как")
     assert 1.5 + 19 / 7 - 0.01 <= d <= 4.0 + 19 / 7 + 0.01
     assert brain.typing_delay("x" * 500) <= brain.READ_MAX + brain.TYPE_MAX
+
+
+def test_slang_phrases():
+    from bot import slang
+    got = slang.found(["я щас на мели, зуб даю", "го катку"])
+    assert "на мели = без денег" in got and "го катку = давай сыграем" in got
+    assert len(slang.SLANG) > 300

@@ -8,7 +8,7 @@ import time
 from aiogram import Bot
 from aiogram.types import Message
 
-from bot import ai, config, db, nominations, prompts
+from bot import ai, config, db, jokes, nominations, prompts
 from bot.nominations import Nominees
 from bot.services import talk
 from bot.services.out import say
@@ -90,11 +90,24 @@ async def summary(bot: Bot, chat, message: Message, text: str) -> None:
 
 
 async def joke(bot: Bot, chat, message: Message, author: str) -> None:
+    """Шутка без повторов: чаще анекдот из базы, которого в этом чате ещё не было (60 дней), пересказанный
+    в характере бота; иногда своя от нейросети, не похожая на последние рассказанные. Один запрос, как раньше."""
+    chat_id = chat["chat_id"]
+    told = await db.jokes_told(chat_id)
+    told_texts = [r["text"] for r in told]
+    picked = jokes.pick({r["jid"] for r in told if r["jid"] >= 0}) if random.random() < 0.75 else None
     system, _ = await talk.context(chat)
     answer = await ai.chat_as("joke", [{"role": "system", "content": system},
-                            {"role": "user", "content": prompts.joke_task(author)}],
-                           max_tokens=220, temperature=1.2)
-    text = prompts.clean_reply(answer or "", chat["bot_name"]) or random.choice(FALLBACK_JOKES)
+                            {"role": "user", "content": prompts.joke_task(author, picked[1] if picked else "",
+                                                                          told_texts)}],
+                           max_tokens=220, temperature=1.1 if picked else 1.2)
+    text = prompts.clean_reply(answer or "", chat["bot_name"])
+    if text and not picked and prompts.is_repeat(text, told_texts[:30], 0.4):
+        text = ""   # своя вышла похожей на уже рассказанную: берём из базы
+    if not text:
+        picked = picked or jokes.pick({r["jid"] for r in told if r["jid"] >= 0})
+        text = picked[1] if picked else random.choice(FALLBACK_JOKES)
+    await db.add_joke_told(chat_id, picked[0] if picked else -1, text)
     await talk.send_text(bot, chat, esc(text), text, reply_to=message, reply_name=author)
 
 

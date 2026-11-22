@@ -303,6 +303,14 @@ CREATE TABLE IF NOT EXISTS call_list (
     PRIMARY KEY (chat_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS jokes_told (
+    chat_id     INTEGER NOT NULL,
+    jid         INTEGER NOT NULL,                -- номер шутки в bot/jokes.py, -1 это своя от нейросети
+    text        TEXT    NOT NULL DEFAULT '',
+    ts          REAL    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS jokes_told_chat ON jokes_told (chat_id, ts);
+
 CREATE TABLE IF NOT EXISTS kv (
     key         TEXT    PRIMARY KEY,            -- служебные настройки: канал бэкапов и т.п.
     value       TEXT    NOT NULL DEFAULT ''
@@ -629,6 +637,20 @@ async def people_index(chat_id: int) -> list:
             "LEFT JOIN chats c ON c.chat_id = u.chat_id "
             "WHERE u.chat_id = ? OR (u.notes != '' AND COALESCE(c.share_notes, 1) = 1)", (chat_id,)) as cur:
         return list(await cur.fetchall())
+
+
+async def jokes_told(chat_id: int, days: int = 60) -> list:
+    """Шутки, рассказанные в чате за последние days дней, от новых к старым."""
+    async with conn().execute("SELECT jid, text FROM jokes_told WHERE chat_id = ? AND ts > ? ORDER BY ts DESC",
+                              (chat_id, time.time() - days * 86400)) as cur:
+        return list(await cur.fetchall())
+
+
+async def add_joke_told(chat_id: int, jid: int, text: str) -> None:
+    await conn().execute("INSERT INTO jokes_told (chat_id, jid, text, ts) VALUES (?, ?, ?, ?)",
+                         (chat_id, jid, text[:500], time.time()))
+    await conn().execute("DELETE FROM jokes_told WHERE ts < ?", (time.time() - 90 * 86400,))
+    await conn().commit()
 
 
 async def tag_map() -> dict[int, tuple[int, str]]:
