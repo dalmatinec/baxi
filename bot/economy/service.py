@@ -202,55 +202,94 @@ class Duel:
     accepted: bool = False
     rolls: dict = field(default_factory=dict)     # кто сколько выбросил
     created: float = field(default_factory=time.time)
+    id: int = 0
 
 
-DUELS: dict[int, Duel] = {}       # одна игра в кости на чат
+# Несколько игр в кости в чате одновременно (до DUEL_MAX). Каждый человек может быть только в одной игре чата,
+# поэтому его кубик всегда однозначно относится к его игре, а ставки и игроки не путаются.
+DUELS: dict[int, Duel] = {}       # номер игры → игра
 DUEL_TIMEOUT = 180
+DUEL_MAX = 10
+_next_id = 0
+
+
+def _alive(d: Duel) -> bool:
+    return time.time() - d.created <= DUEL_TIMEOUT
+
+
+def chat_duels(chat_id: int) -> list[Duel]:
+    return [d for d in DUELS.values() if d.chat_id == chat_id and _alive(d)]
+
+
+def duel_of(chat_id: int, user_id: int) -> Duel | None:
+    """Игра, в которой человек сейчас участвует в этом чате."""
+    return next((d for d in chat_duels(chat_id) if user_id in (d.a, d.b)), None)
+
+
+def get_duel(duel_id: int) -> Duel | None:
+    d = DUELS.get(duel_id)
+    return d if d and _alive(d) else None
 
 
 def active_duel(chat_id: int) -> Duel | None:
-    """Игра в чате, если она ещё не протухла (протухшие разбирает refund_expired)."""
-    d = DUELS.get(chat_id)
-    return d if d and time.time() - d.created <= DUEL_TIMEOUT else None
+    """Совместимость: любая живая игра в чате."""
+    games = chat_duels(chat_id)
+    return games[0] if games else None
 
 
-async def start_duel(chat_id: int, a: int, a_name: str, b: int, b_name: str, bet: int) -> str:
+async def start_duel(chat_id: int, a: int, a_name: str, b: int, b_name: str, bet: int) -> str | Duel:
+    """Вызов на кости. Возвращает игру или текст, почему нельзя."""
+    global _next_id
     await refund_expired()
     if not catalog.DICE_MIN <= bet <= catalog.DICE_MAX:
         return f"ставка от {catalog.DICE_MIN} до {catalog.DICE_MAX} 🪙"
-    if active_duel(chat_id):
-        return "в чате уже идёт игра в кости, подождите"
     if a == b:
         return "с собой играть нельзя 🙃"
+    if duel_of(chat_id, a):
+        return "ты уже в игре, доиграй сначала 🎲"
+    if duel_of(chat_id, b):
+        return f"{b_name} сейчас уже играет, подожди"
+    if len(chat_duels(chat_id)) >= DUEL_MAX:
+        return f"в чате уже {DUEL_MAX} игр в кости, подождите, пока кто-нибудь доиграет"
     w = await store.wallet(a, a_name)
     if w["coins"] < bet:
         return f"у тебя только {w['coins']} 🪙"
-    DUELS[chat_id] = Duel(chat_id, a, a_name, b, b_name, bet)
-    return ""
+    _next_id += 1
+    d = Duel(chat_id, a, a_name, b, b_name, bet, id=_next_id)
+    DUELS[d.id] = d
+    return d
 
 
-async def accept_duel(chat_id: int, user_id: int) -> str:
-    d = active_duel(chat_id)
+def _pick(chat_id: int, user_id: int, duel_id: int | None) -> Duel | None:
+    if duel_id:
+        d = get_duel(duel_id)
+        return d if d and d.chat_id == chat_id else None
+    return duel_of(chat_id, user_id)   # старые кнопки без номера игры
+
+
+async def accept_duel(chat_id: int, user_id: int, duel_id: int | None = None) -> tuple[str, Duel | None]:
+    d = _pick(chat_id, user_id, duel_id)
     if not d or d.accepted:
-        return "игра уже закончилась"
+        return "игра уже закончилась", None
     if user_id != d.b:
-        return "это не тебе вызов"
+        return "это не тебе вызов", None
     await store.wallet(d.b, d.b_name)
     if not await store.spend(d.a, d.bet):
-        DUELS.pop(chat_id, None)
-        return "у вызвавшего уже не хватает монет"
+        DUELS.pop(d.id, None)
+        return "у вызвавшего уже не хватает монет", None
     if not await store.spend(d.b, d.bet):
         await store.add_coins(d.a, d.bet)
-        DUELS.pop(chat_id, None)
-        return f"у тебя не хватает монет, нужно {d.bet} 🪙"
+        DUELS.pop(d.id, None)
+        return f"у тебя не хватает монет, нужно {d.bet} 🪙", None
     d.accepted, d.created = True, time.time()
-    return ""
+    return "", d
 
 
 async def roll(chat_id: int, user_id: int, value: int) -> tuple[str, Duel | None]:
-    """Кубик от участника. Возвращает ('wait'|'tie'|'done'|'', дуэль). Чужие кубики игнорируются."""
-    d = active_duel(chat_id)
-    if not d or not d.accepted or user_id not in (d.a, d.b) or user_id in d.rolls:
+    """Кубик от участника. Возвращает ('wait'|'tie'|'done'|'', игра). Кубик идёт в игру того, кто кинул;
+    кубики людей не из игры и лишние кубики игнорируются."""
+    d = duel_of(chat_id, user_id)
+    if not d or not d.accepted or user_id in d.rolls:
         return "", None
     if user_id == d.b and d.a not in d.rolls:
         return "", None   # первым кидает тот, кто вызвал
@@ -263,16 +302,16 @@ async def roll(chat_id: int, user_id: int, value: int) -> tuple[str, Duel | None
         return "tie", d
     winner = d.a if d.rolls[d.a] > d.rolls[d.b] else d.b
     await store.add_coins(winner, d.bet * 2)
-    DUELS.pop(chat_id, None)
+    DUELS.pop(d.id, None)
     return "done", d
 
 
-async def give_up(chat_id: int, user_id: int) -> tuple[str, Duel | None]:
+async def give_up(chat_id: int, user_id: int, duel_id: int | None = None) -> tuple[str, Duel | None]:
     """Сдаться. До принятия: вызов просто отменяется. После: банк забирает соперник."""
-    d = active_duel(chat_id)
+    d = _pick(chat_id, user_id, duel_id)
     if not d or user_id not in (d.a, d.b):
         return "", None
-    DUELS.pop(chat_id, None)
+    DUELS.pop(d.id, None)
     if not d.accepted:
         return "cancel", d
     await store.add_coins(d.b if user_id == d.a else d.a, d.bet * 2)
@@ -282,9 +321,9 @@ async def give_up(chat_id: int, user_id: int) -> tuple[str, Duel | None]:
 async def refund_expired() -> list[Duel]:
     """Возвращает ставки, если игру в кости бросили посередине."""
     gone = []
-    for chat_id, d in list(DUELS.items()):
+    for duel_id, d in list(DUELS.items()):
         if time.time() - d.created > DUEL_TIMEOUT:
-            DUELS.pop(chat_id, None)
+            DUELS.pop(duel_id, None)
             if d.accepted:
                 await store.add_coins(d.a, d.bet)
                 await store.add_coins(d.b, d.bet)
