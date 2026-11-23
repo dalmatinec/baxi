@@ -473,6 +473,12 @@ async def _seed_phrases() -> None:
         await conn().executemany("DELETE FROM phrases WHERE kind = 'text' AND content = ?", [(p,) for p in DROPPED])
         await conn().execute("INSERT OR REPLACE INTO kv (key, value) VALUES ('phrases_clean', '1')")
         await conn().commit()
+    async with conn().execute("SELECT value FROM kv WHERE key = 'phrases_clean2'") as cur:
+        done2 = await cur.fetchone()
+    if not done2:   # приветствие про какого-то «олега» в чужих чатах звучало странно
+        await conn().execute("DELETE FROM phrases WHERE kind = 'greet' AND content LIKE '%олег%'")
+        await conn().execute("INSERT OR REPLACE INTO kv (key, value) VALUES ('phrases_clean2', '1')")
+        await conn().commit()
     async with conn().execute("SELECT value FROM kv WHERE key = 'seed_version'") as cur:
         row = await cur.fetchone()
     if row and int(row[0] or 0) >= SEED_VERSION:

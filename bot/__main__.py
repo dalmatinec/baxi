@@ -35,9 +35,9 @@ async def main() -> None:
     from bot.services import out
     await out.load_tags()  # чаты, где бот тегает человека в каждом сообщении
     share = await db.kv_get("strong_share", "")   # доля ответов людям сильной моделью
-    if not share:   # ещё не выбирали: у основного бота 60%, у ботов клиентов выключено
+    if not share:   # ещё не выбирали: выключено
         old = await db.kv_get("strong_replies", "")
-        share = "100" if old == "1" else "0" if old == "0" or not config.IS_MAIN else "60"
+        share = "100" if old == "1" else "0"
     ai.STRONG_SHARE = int(share) if share.isdigit() else 0
     from bot.services import menu
     await menu.upgrade_start()  # новый порядок кнопок главного меню

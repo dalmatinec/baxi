@@ -362,6 +362,11 @@ def strip_names(reply: str, names: list[str], recent: list[str], every: int = 5)
     return reply
 
 
+def drop_commas(reply: str) -> str:
+    """Убирает запятые между словами, как пишут в чатах («ну да конечно»). Числа вроде 1,5 не трогает."""
+    return re.sub(r"(?<!\d),(?!\d)\s*", " ", reply).replace("  ", " ").strip()
+
+
 def limit_commas(reply: str, keep: int = 2) -> str:
     """Больше двух запятых: обрезаем на третьей, если до неё осталась нормальная фраза (3+ слова)."""
     if reply.count(",") <= keep:

@@ -56,7 +56,7 @@ async def rules(chat) -> list[str]:
     return [x for x in out if x]
 
 
-_style_cache: dict[int, tuple[float, str]] = {}
+_style_cache: dict[int, tuple[float, str, float]] = {}
 
 
 async def chat_style(chat_id: int) -> str:
@@ -65,9 +65,17 @@ async def chat_style(chat_id: int) -> str:
     if hit and time.time() - hit[0] < 3600:
         return hit[1]
     rows = await db.recent_history(chat_id, 200)
-    hint = prompts.chat_style([r["text"] for r in rows if not r["is_bot"]])
-    _style_cache[chat_id] = (time.time(), hint)
+    texts = [r["text"] for r in rows if not r["is_bot"] and r["text"]]
+    hint = prompts.chat_style(texts)
+    commas = sum(t.count(",") for t in texts) / len(texts) if texts else 0.0
+    _style_cache[chat_id] = (time.time(), hint, commas)
     return hint
+
+
+def few_commas(chat_id: int) -> bool:
+    """В чате почти не ставят запятые (меньше одной на сообщение): бот тоже пишет без них."""
+    hit = _style_cache.get(chat_id)
+    return hit is None or hit[2] < 1.0
 
 
 _people_cache: dict[int, tuple[float, list]] = {}
@@ -97,7 +105,7 @@ async def about_people(chat, texts: list[str], skip: set[int]) -> list[str]:
 async def context(chat) -> tuple[str, str]:
     """Системный промпт с заметками об участниках и текст последних сообщений."""
     rows = await db.recent_history(chat["chat_id"], config.CONTEXT_MESSAGES)
-    ids = list(dict.fromkeys(r["user_id"] for r in rows if not r["is_bot"]))[-8:]
+    ids = list(dict.fromkeys(r["user_id"] for r in rows if not r["is_bot"]))[-12:]
     users = await db.users_by_ids(chat["chat_id"], ids)
     vips = await db.vip_ids(ids)
     notes = [f"{u['name']}: {u['notes']}" for u in users if u["notes"]]
@@ -163,6 +171,8 @@ async def _ask(chat, make_task, incoming: str | None = None) -> str | None:
             return None
         text = prompts.clean_reply(answer, chat["bot_name"])
         text = prompts.strip_names(prompts.drop_hello(text, incoming), names, said)
+        if few_commas(chat["chat_id"]):
+            text = prompts.drop_commas(text)
         repeat = not greeting and prompts.is_repeat(text, said + _fresh_texts(chat["chat_id"]))
         echo = prompts.echo_words(incoming, text)
         if not text or not (repeat or echo):
@@ -301,18 +311,11 @@ async def phrase_answer(bot: Bot, chat, message: Message, author: str) -> None:
 
 
 async def greet(bot: Bot, chat, user_id: int, name: str, thread: int | None = None) -> None:
-    text = await _ask(chat, lambda history: prompts.greet_task(name, history))
-    if text and name.lower() in text.lower():
-        # имя в тексте делаем кликабельным, чтобы новичку пришло уведомление
-        i = text.lower().index(name.lower())
-        html_text = esc(text[:i]) + mention(user_id, text[i:i + len(name)]) + esc(text[i + len(name):])
-    elif text:
-        html_text = f"{mention(user_id, name)}, {esc(text)}"
-        text = f"{name}, {text}"
-    else:
-        tpl = await db.random_phrase("greet") or random.choice(GREETINGS)
-        text = tpl.replace("{name}", name) if "{name}" in tpl else tpl.format(name=name)
-        html_text = esc(text).replace(esc(name), mention(user_id, name), 1)
+    """Приветствие новичка без нейросети: короткая фраза из базы, имя кликабельное. Раньше это делала нейросеть,
+    и она шутила про ник каждого и отвечала заодно на чужие вопросы, а ещё тратила деньги на каждый вход."""
+    tpl = await db.random_phrase("greet") or random.choice(GREETINGS)
+    text = tpl.replace("{name}", name)
+    html_text = esc(text).replace(esc(name), mention(user_id, name), 1)
     await send_text(bot, chat, html_text, text, thread=thread)
 
 

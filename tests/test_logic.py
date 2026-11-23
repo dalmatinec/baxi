@@ -488,3 +488,8 @@ def test_strong_allowed():
     assert not ai.strong_allowed({**base, "rent_until": t.time() + 3 * 86400, "plan_days": 7})
     assert ai.strong_allowed({**base, "rent_until": t.time() + 25 * 86400})    # старая аренда, остаток большой
     assert not ai.strong_allowed(None)
+
+
+def test_drop_commas():
+    assert prompts.drop_commas("altyn adam, заходи, тут уютно") == "altyn adam заходи тут уютно"
+    assert prompts.drop_commas("курс 1,5 раза, понял") == "курс 1,5 раза понял"
