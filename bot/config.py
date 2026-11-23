@@ -58,12 +58,6 @@ PRICE_CACHE = _float("PRICE_CACHE", 0.003)  # вход из кэша: харак
 if (PRICE_IN, PRICE_OUT) == (0.30, 1.20):  # старые цифры из прежнего .env.example: это цены пика, считаем по новым
     PRICE_IN, PRICE_OUT = 0.15, 0.60
 PRICE_PEAK_X = _float("PRICE_PEAK_X", 2.0)
-# Сильная модель только для ответов людям (включает владелец: /admin → ИИ и расход → «🧠 Ответы людям»).
-# Заметки, итоги, шутки и прочее остаются на основной. Цены DeepSeek V4 Pro в обычные часы.
-AI_STRONG_MODEL = os.getenv("AI_STRONG_MODEL", "deepseek-v4-pro")
-STRONG_PRICE_IN = _float("STRONG_PRICE_IN", 0.66)
-STRONG_PRICE_OUT = _float("STRONG_PRICE_OUT", 1.98)
-STRONG_PRICE_CACHE = _float("STRONG_PRICE_CACHE", 0.022)
 # часы пика по UTC (пн-пт), у DeepSeek 01:00-04:00 и 06:00-10:00, это 06-09 и 11-15 по Алматы
 PEAK_HOURS_UTC = os.getenv("PEAK_HOURS_UTC", "1-4,6-10")
 # Сколько долларов в сутки можно потратить. Кончились, бот отвечает фразами из базы.
