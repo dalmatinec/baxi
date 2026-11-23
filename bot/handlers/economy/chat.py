@@ -28,7 +28,8 @@ _TAIL = r"(@\w+)?\s*[!?.]*\s*$"
 COMMANDS = [
     ("wallet", re.compile(r"^\s*(кошел[её]к|баланс|ранг|мой ранг|мой уровень|/wallet|/me|/rank)" + _TAIL, re.I)),
     ("tops", re.compile(r"^\s*(топы|/top)" + _TAIL, re.I)),
-    ("profile", re.compile(r"^\s*(профиль|мой профиль|магазин|/shop|/profile)" + _TAIL, re.I)),
+    # «профиль» и /profile в чатах отвечает модератор (Бакси Гард), здесь только магазин
+    ("profile", re.compile(r"^\s*(магазин|/shop)" + _TAIL, re.I)),
     ("bonus", re.compile(r"^\s*(бонус|/bonus)" + _TAIL, re.I)),
     ("pet", re.compile(r"^\s*(питомец|мой питомец|/pet)" + _TAIL, re.I)),
     ("feed", re.compile(r"^\s*(покормить|покорми|/feed)" + _TAIL, re.I)),
