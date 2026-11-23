@@ -6,6 +6,8 @@ GET  /v1/chat/{chat_id}/trusted   {"admins": [id, ...], "vip": [id, ...]}  их 
 POST /v1/events                   событие модератора, ответ {"ok": true}
 GET  /v1/user/{user_id}           ник человека: красивый, простой, эмодзи (для модератора и сайта)
 GET  /v1/users?ids=1,2,3          то же пачкой: {"users": {"1": {...}, ...}}
+GET  /v1/chat/{chat_id}/user/{user_id}  для профиля в модераторе: {"reputation", "rep_place", "rank",
+                                  "rank_level", "coins", "level"}
 GET  /v1/ping                     {"ok": true}
 
 Без BAXI_API_KEY в .env сервер не поднимается (так и у копий клиентов)."""
@@ -122,12 +124,27 @@ async def users(request: web.Request) -> web.Response:
     return _json({"users": {str(i): await guardlink.nick_info(i) for i in ids}})
 
 
+async def chat_user(request: web.Request) -> web.Response:
+    """Репутация, ранг и монеты человека: модератор показывает их в профиле."""
+    from bot.economy import catalog, store
+    chat_id, user_id = int(request.match_info["chat_id"]), int(request.match_info["user_id"])
+    row = await db.get_user(chat_id, user_id)
+    name = row["name"] if row else ""
+    rep = await db.rep_get(chat_id, user_id)
+    rank = await store.chat_rank(chat_id, user_id, name)
+    wallet = await store.wallet(user_id, name)
+    return _json({"reputation": rep, "rep_place": await db.rep_place(chat_id, user_id) if rep else 0,
+                  "rank": f"{rank['level']} · {catalog.title_for(rank['level'])}", "rank_level": rank["level"],
+                  "coins": wallet["coins"], "level": wallet["level"]})
+
+
 def make_app(bot) -> web.Application:
     app = web.Application(middlewares=[auth], client_max_size=64 * 1024)
     app[BOT] = bot
     app.router.add_get("/v1/ping", ping)
     app.router.add_get(r"/v1/chat/{chat_id:-?\d+}", chat_info)
     app.router.add_get(r"/v1/chat/{chat_id:-?\d+}/trusted", trusted)
+    app.router.add_get(r"/v1/chat/{chat_id:-?\d+}/user/{user_id:\d+}", chat_user)
     app.router.add_post("/v1/events", events)
     app.router.add_get(r"/v1/user/{user_id:\d+}", user)
     app.router.add_get("/v1/users", users)

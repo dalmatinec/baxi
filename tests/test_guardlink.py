@@ -208,3 +208,14 @@ def test_card_lines(tmp_path, monkeypatch):
         status, lines = await guardlink.card_lines(CHAT, 5)
         assert status == "🛡 сейчас чисто" and len(lines) == 2
     run(tmp_path, monkeypatch, fn)
+
+
+def test_chat_user_stats(tmp_path, monkeypatch):
+    async def fn(c):
+        await db.ensure_chat(CHAT, "Тест")
+        await db.touch_user(CHAT, 5, "Вася", "vasya")
+        await db.rep_change(CHAT, 6, 5, 3)
+        data = await (await c.get(f"/v1/chat/{CHAT}/user/5", headers=H)).json()
+        assert data["reputation"] == 3 and data["rep_place"] == 1 and data["rank_level"] >= 1 and "coins" in data
+        assert (await c.get(f"/v1/chat/{CHAT}/user/5")).status == 401
+    run(tmp_path, monkeypatch, fn)
