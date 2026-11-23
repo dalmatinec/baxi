@@ -29,7 +29,6 @@ GREETINGS = [
     "{name}, привет-привет! правила простые: не душнить",
 ]
 
-FALLBACK_REPLIES = ["щас не до тебя, позже", "ага", "ну допустим", "отстань, я думаю", "хм"]
 
 
 def chat_lock(chat_id: int) -> asyncio.Lock:
@@ -233,10 +232,11 @@ async def ai_answer(bot: Bot, chat, message: Message, author: str, text: str, ju
             return
         if jump and not creator:
             return await phrase_answer(bot, chat, message, author)
-        if jump or creator:
-            return  # создателю фразами из базы не отвечаем: там бывают подколы
-        reply = (await db.random_phrase("reply") or await db.random_phrase("text")
-                 or random.choice(FALLBACK_REPLIES))
+        if not jump and not creator:
+            # к боту обратились, а нейросеть сейчас нельзя (лимит, тариф): реакция вместо пустой заготовки
+            from bot.services import reactions
+            await reactions.react(bot, chat, message)
+        return
     await send_text(bot, chat, esc(reply), reply, reply_to=message, reply_name=author)
 
 

@@ -94,6 +94,24 @@ def _net_fail() -> None:
     del NET_FAILS[:-50]
 
 
+def strong_allowed(row) -> bool:
+    """Сильная модель только для чатов с арендой от 30 дней или бессрочных. Пробные, бесплатные и короткие
+    аренды на основной модели, чтобы их дневной лимит не кончался к обеду."""
+    if row is None:
+        return False
+    try:
+        if not row["approved"] or row["free"] or row["trial"]:
+            return False
+        if not row["rent_until"]:
+            return True   # бессрочно
+        days = row["plan_days"]
+    except (IndexError, KeyError):
+        return False
+    if days is None or days < 0:   # выдано до этого обновления: судим по остатку
+        return row["rent_until"] - time.time() >= 20 * 86400
+    return days >= 30
+
+
 def net_down_minutes() -> float:
     """Сколько минут подряд нет связи с сервисом нейросети (0, если последний запрос прошёл)."""
     return (time.time() - NET_FAILS[0]) / 60 if len(NET_FAILS) >= 3 else 0.0
@@ -137,7 +155,8 @@ async def chat(messages: list[dict], max_tokens: int | None = None,
     LAST_FAIL = "net"
     global _strong_ok
     # только ответы людям и реплики в разговор; какой именно ответ пойдёт в сильную, решает случай по доле
-    strong = bool(penalties and _strong_ok and config.AI_STRONG_MODEL and random.random() * 100 < STRONG_SHARE)
+    strong = bool(penalties and _strong_ok and config.AI_STRONG_MODEL and random.random() * 100 < STRONG_SHARE
+                  and strong_allowed(row))
     payload = {
         "model": config.AI_STRONG_MODEL if strong else config.AI_MODEL,
         "messages": messages,

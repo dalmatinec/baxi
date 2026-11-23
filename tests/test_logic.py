@@ -472,3 +472,19 @@ def test_greetings_not_repeats():
     assert not prompts.is_greeting("салам, а что по планам на завтра у всех")
     assert not prompts.is_repeat("салам брат, как сам", ["салам брат, чё нового"])
     assert prompts.cooldown_words([("салам брат как сам", 100), ("салам бро чё нового", 200)], 300) == set()
+
+
+def test_strong_allowed():
+    pytest.importorskip("httpx")
+    pytest.importorskip("aiosqlite")
+    import time as t
+
+    from bot import ai
+    base = {"approved": 1, "free": 0, "trial": 0, "rent_until": 0, "plan_days": -1}
+    assert ai.strong_allowed(base)                                            # бессрочно
+    assert not ai.strong_allowed({**base, "trial": 1, "rent_until": t.time() + 86400})
+    assert not ai.strong_allowed({**base, "free": 1})
+    assert ai.strong_allowed({**base, "rent_until": t.time() + 3 * 86400, "plan_days": 30})
+    assert not ai.strong_allowed({**base, "rent_until": t.time() + 3 * 86400, "plan_days": 7})
+    assert ai.strong_allowed({**base, "rent_until": t.time() + 25 * 86400})    # старая аренда, остаток большой
+    assert not ai.strong_allowed(None)

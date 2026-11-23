@@ -336,7 +336,8 @@ NEW_COLUMNS = {
         "act_locked": "INTEGER NOT NULL DEFAULT 0",
         "share_notes": "INTEGER NOT NULL DEFAULT 1",     # общая память: бот узнаёт людей по заметкам из других чатов
         "tag_user": "INTEGER NOT NULL DEFAULT 0",
-        "reactions": "INTEGER NOT NULL DEFAULT 1",       # бот иногда ставит реакции 👍 ❤ 😁        # владелец задал: в каждом сообщении бота тегать этого человека
+        "reactions": "INTEGER NOT NULL DEFAULT 1",
+        "plan_days": "INTEGER NOT NULL DEFAULT -1",       # на сколько дней выдана аренда (0 навсегда, -1 неизвестно)       # бот иногда ставит реакции 👍 ❤ 😁        # владелец задал: в каждом сообщении бота тегать этого человека
         "last_results": "TEXT NOT NULL DEFAULT ''",
         "last_pairpoll": "TEXT NOT NULL DEFAULT ''",
         "results_manual": "REAL NOT NULL DEFAULT 0",      # когда последний раз звали «итоги»
@@ -394,7 +395,7 @@ NEW_COLUMNS = {
 
 CHAT_FIELDS = {"bot_name", "aliases", "persona", "topic", "chance", "ai_share",
                "cooldown", "greet", "games", "ads", "title", "active", "last_jump",
-               "pairpoll", "results", "rep", "bday", "results_hour", "last_results", "last_pairpoll", "card_style", "act_locked", "share_notes", "tag_user", "reactions",
+               "pairpoll", "results", "rep", "bday", "results_hour", "last_results", "last_pairpoll", "card_style", "act_locked", "share_notes", "tag_user", "reactions", "plan_days",
                "results_manual", "approved", "pending_since", "added_by", "rent_until", "rent_warned", "members",
                "shop", "added_name", "added_username", "quiz", "quiz_count", "quiet_from", "quiet_to",
                "quiet_until", "humor", "mat", "banned", "protect_admins", "call_text", "call_who", "call_style",
@@ -463,8 +464,15 @@ def phrase_kind(cat: str) -> str:
 
 
 async def _seed_phrases() -> None:
-    """Добавляет стартовые фразы новой версии (повторы пропускаются)."""
-    from bot.phrases_seed import PHRASES, SEED_VERSION
+    """Добавляет стартовые фразы новой версии (повторы пропускаются) и один раз убирает пустые заготовки."""
+    from bot.phrases_seed import DROPPED, PHRASES, SEED_VERSION
+    async with conn().execute("SELECT value FROM kv WHERE key = 'phrases_clean'") as cur:
+        done = await cur.fetchone()
+    if not done:   # «можно я просто посижу рядом?» и прочие: выглядели как тупняк
+        await conn().execute("DELETE FROM phrases WHERE kind = 'reply'")
+        await conn().executemany("DELETE FROM phrases WHERE kind = 'text' AND content = ?", [(p,) for p in DROPPED])
+        await conn().execute("INSERT OR REPLACE INTO kv (key, value) VALUES ('phrases_clean', '1')")
+        await conn().commit()
     async with conn().execute("SELECT value FROM kv WHERE key = 'seed_version'") as cur:
         row = await cur.fetchone()
     if row and int(row[0] or 0) >= SEED_VERSION:

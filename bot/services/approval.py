@@ -202,7 +202,7 @@ async def approve(bot: Bot, chat_id: int, rent_days: int = 0, announce: bool = T
         start = max(time.time(), chat["rent_until"] or 0)
         rent_until = start + rent_days * 86400
     await db.update_chat(chat_id, approved=1, pending_since=0, rent_until=rent_until, rent_warned=0,
-                         trial=1 if trial else 0, free=0)
+                         trial=1 if trial else 0, free=0, plan_days=0 if trial else rent_days)
     if announce:
         period = "🎁 пробный период" if trial else "📅 аренда"
         tail = "🎲 что я умею: /games" + (f"\n{period} до {until_text(rent_until)}" if rent_until else "")
