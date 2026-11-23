@@ -291,9 +291,7 @@ async def roll(chat_id: int, user_id: int, value: int) -> tuple[str, Duel | None
     d = duel_of(chat_id, user_id)
     if not d or not d.accepted or user_id in d.rolls:
         return "", None
-    if user_id == d.b and d.a not in d.rolls:
-        return "", None   # первым кидает тот, кто вызвал
-    d.rolls[user_id] = value
+    d.rolls[user_id] = value   # кто первым кинул, тот и первый: очерёдность не важна
     d.created = time.time()   # пока кидают, игра не протухает
     if len(d.rolls) < 2:
         return "wait", d

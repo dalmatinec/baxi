@@ -44,7 +44,7 @@ COMMANDS = [
 DICE_HELP = ("🎲 <b>Дуэль костей</b>\n\n"
              "1. Ответь на сообщение соперника: <b>кости 100</b> (100 это ставка в монетах)\n"
              "2. Соперник жмёт ✅ Принять, ставки уходят в банк\n"
-             "3. Каждый по разу кидает 🎲 в чат: сначала тот, кто вызвал\n"
+             "3. Каждый по разу кидает 🎲 в чат, кто первый, без разницы\n"
              "4. У кого больше, тот забирает банк. Ничья: перебрасываете\n\n"
              "Можно до 10 игр в чате одновременно, у каждого своя: бот не путает, чей кубик\n\n"
              "💸 Подарить монеты: ответь <b>передать 100</b>")
@@ -180,9 +180,11 @@ async def on_dice(message: Message, bot: Bot) -> None:
     await asyncio.sleep(DICE_DELAY)
     a, b = mention(d.a, d.a_name), mention(d.b, d.b_name)
     if result == "wait":
-        text = f"{a} выбросил <b>{value}</b>. Теперь {b}, кидай 🎲"
+        other = b if message.from_user.id == d.a else a
+        me = a if message.from_user.id == d.a else b
+        text = f"{me} выбросил <b>{value}</b>. Теперь {other}, кидай 🎲"
     elif result == "tie":
-        text = f"🤝 Ничья {value}:{value}! Перебрасываем, {a} снова первый 🎲"
+        text = f"🤝 Ничья {value}:{value}! Перебрасывайте, оба кидайте 🎲"
     else:
         va, vb = d.rolls[d.a], d.rolls[d.b]
         win_id, win_name = (d.a, d.a_name) if va > vb else (d.b, d.b_name)
