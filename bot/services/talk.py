@@ -4,6 +4,7 @@
 import asyncio
 import logging
 import random
+import re
 import time
 
 from aiogram import Bot
@@ -213,8 +214,9 @@ async def remember_self(bot: Bot, chat, sent: Message, text: str, reply_name: st
 
 
 async def send_text(bot: Bot, chat, text_html: str, plain: str, reply_to: Message | None = None,
-                    reply_name: str = "", thread: int | None = None) -> None:
-    since = reply_to.date.timestamp() if reply_to is not None and reply_to.date else None
+                    reply_name: str = "", thread: int | None = None, since: float | None = None) -> None:
+    """since: когда бот получил сообщение (часы сервера). Время Telegram в сообщении не берём: если часы сервера
+    убежали вперёд, пауза пропадала совсем."""
     await typing(bot, chat["chat_id"], plain, since)
     sent = await say(bot, chat["chat_id"], text_html, reply_to=reply_to, thread=thread)
     await remember_self(bot, chat, sent, plain, reply_name)
@@ -222,6 +224,7 @@ async def send_text(bot: Bot, chat, text_html: str, plain: str, reply_to: Messag
 
 async def ai_answer(bot: Bot, chat, message: Message, author: str, text: str, jump: bool) -> None:
     """Ответ нейросети на сообщение. Не вышло (лимит, ошибка), отвечает фразой из базы."""
+    got = time.time()   # пауза «читает, печатает» считается от этого момента
     rt = message.reply_to_message
     me_id = (await bot.me()).id if rt else 0
     quoted = (rt.text or rt.caption or "") if rt and rt.from_user and rt.from_user.id == me_id else ""
@@ -247,7 +250,7 @@ async def ai_answer(bot: Bot, chat, message: Message, author: str, text: str, ju
             from bot.services import reactions
             await reactions.react(bot, chat, message)
         return
-    await send_text(bot, chat, esc(reply), reply, reply_to=message, reply_name=author)
+    await send_text(bot, chat, esc(reply), reply, reply_to=message, reply_name=author, since=got)
 
 
 _net_warned = 0.0
@@ -311,12 +314,29 @@ async def phrase_answer(bot: Bot, chat, message: Message, author: str) -> None:
 
 
 async def greet(bot: Bot, chat, user_id: int, name: str, thread: int | None = None) -> None:
-    """Приветствие новичка без нейросети: короткая фраза из базы, имя кликабельное. Раньше это делала нейросеть,
-    и она шутила про ник каждого и отвечала заодно на чужие вопросы, а ещё тратила деньги на каждый вход."""
-    tpl = await db.random_phrase("greet") or random.choice(GREETINGS)
-    text = tpl.replace("{name}", name)
-    html_text = esc(text).replace(esc(name), mention(user_id, name), 1)
-    await send_text(bot, chat, html_text, text, thread=thread)
+    """Приветствие новичка: примерно поровну то фраза из базы, то нейросеть в характере бота. Нейросеть не видит
+    переписку (раньше заодно отвечала на чужие вопросы) и не обсуждает ник. Имя всегда кликабельное, в начале."""
+    text = ""
+    if random.random() < 0.5:
+        system = prompts.system_prompt(chat["bot_name"], plans_persona(chat), chat["topic"], chat["title"] or "", [],
+                                       await rules(chat))
+        answer = await ai.chat_as("event", [{"role": "system", "content": system},
+                                           {"role": "user", "content": prompts.greet_task(name)}], max_tokens=80)
+        text = prompts.drop_commas(prompts.clean_reply(answer or "", chat["bot_name"]))
+        if text and name.lower() in text.lower():   # имя модель всё равно могла вставить: убираем, добавим сами
+            text = re.sub(re.escape(name), "", text, flags=re.I).strip(" ,!.") or ""
+    if text:
+        html_text, plain = f"{mention(user_id, name)} {esc(text)}", f"{name} {text}"
+    else:
+        tpl = await db.random_phrase("greet") or random.choice(GREETINGS)
+        plain = prompts.drop_commas(tpl.replace("{name}", name))
+        html_text = esc(plain).replace(esc(name), mention(user_id, name), 1)
+    await send_text(bot, chat, html_text, plain, thread=thread)
+
+
+def plans_persona(chat) -> str:
+    from bot.services import plans
+    return plans.persona(chat)
 
 
 async def in_character(bot: Bot, chat_id: int, situation: str, fallbacks: list[str], tail_html: str = "",

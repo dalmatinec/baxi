@@ -423,8 +423,9 @@ def test_now_line_and_delay():
     line = prompts.now_line(datetime(2026, 11, 22, 12, 34, tzinfo=config.TZ))
     assert line.startswith("Сейчас воскресенье, 22 ноября, 12:34, день")
     assert "ночь" in prompts.now_line(datetime(2026, 11, 22, 2, 0, tzinfo=config.TZ))
-    d = brain.typing_delay("нормально, а ты как")
-    assert 1.0 + 19 / 7 - 0.01 <= d <= 3.0 + 19 / 7 + 0.01
+    for _ in range(50):
+        assert 4.0 <= brain.typing_delay("ну да") <= 7.0
+        assert 4.0 <= brain.typing_delay("нормально, а ты как") <= 7.0
     assert brain.typing_delay("x" * 500) == 7.0
 
 
