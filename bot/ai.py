@@ -98,6 +98,10 @@ def net_down_minutes() -> float:
 
 # штраф за повторы слов в ответах (frequency/presence penalty); если сервис его не примет, выключаем сами
 _penalty_ok = True
+# У DeepSeek V4 (deepseek-flash) режим «размышления» включён по умолчанию: модель сначала пишет скрытые
+# рассуждения (платные токены ответа, медленнее), а при маленьком max_tokens ответ вообще выходит пустым.
+# Боту для чата он не нужен, выключаем. Если сервис параметр не знает (другие модели), убираем его сами.
+_thinking_param = True
 # вид запроса для разбивки расхода в админке: reply ответы, memory заметки, results итоги и т.д.
 KINDS = {"reply": "💬 ответы в чате", "memory": "🧠 заметки о людях", "results": "📊 итоги дня",
          "event": "🎉 приветствия, вопрос дня, оживление", "quiz": "🎯 викторины", "joke": "😂 шутки",
@@ -135,7 +139,9 @@ async def chat(messages: list[dict], max_tokens: int | None = None,
         "temperature": config.AI_TEMPERATURE if temperature is None else temperature,
         "stream": False,
     }
-    global _penalty_ok
+    global _penalty_ok, _thinking_param
+    if _thinking_param and config.AI_NO_THINKING:
+        payload["thinking"] = {"type": "disabled"}
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
     if penalties and _penalty_ok and config.AI_FREQ_PENALTY:
@@ -144,6 +150,11 @@ async def chat(messages: list[dict], max_tokens: int | None = None,
     async with _slots:
         try:
             resp = await _http().post("/chat/completions", json=payload)
+            if resp.status_code == 400 and "thinking" in payload and "thinking" in resp.text.lower():
+                log.warning("Сервис не знает параметр thinking, убираю его: %s", resp.text[:200])
+                _thinking_param = False
+                payload.pop("thinking")
+                resp = await _http().post("/chat/completions", json=payload)
             if resp.status_code == 400 and "frequency_penalty" in payload:
                 log.warning("Сервис не принял штраф за повторы, выключаю его: %s", resp.text[:200])
                 _penalty_ok = False
