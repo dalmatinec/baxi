@@ -620,6 +620,13 @@ async def set_notes(chat_id: int, user_id: int, notes: str, at_count: int) -> No
     await conn().commit()
 
 
+async def set_notes_at(chat_id: int, user_id: int, at_count: int) -> None:
+    """Отметить, что заметку пытались обновить на этом сообщении (даже если не вышло), чтобы не дёргать
+    нейросеть на каждом следующем сообщении."""
+    await conn().execute("UPDATE users SET notes_at = ? WHERE chat_id = ? AND user_id = ?", (at_count, chat_id, user_id))
+    await conn().commit()
+
+
 # ---------- история ----------
 
 async def add_history(chat_id: int, message_id: int, user_id: int, name: str, text: str,

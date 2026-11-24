@@ -31,12 +31,18 @@ async def _update(chat_id: int, user_id: int) -> None:
         if user is None:
             return
         messages = await db.user_messages(chat_id, user_id, 30)
-        if len(messages) < 5:
+        if len(messages) < 5:   # одни стикеры и фото: подождём ещё, но не проверяем на каждом сообщении
+            await db.set_notes_at(chat_id, user_id, user["msg_count"])
             return
         notes = await ai.chat_as("memory", prompts.memory_messages(user["name"], user["notes"], messages),
                               max_tokens=200, temperature=0.3)
         if notes:
             await db.set_notes(chat_id, user_id, " ".join(notes.split())[:300], user["msg_count"])
+        else:
+            # нейросеть не ответила (лимит, сбой): раньше бот пробовал снова на каждом сообщении человека
+            # и мог жечь деньги; теперь следующая попытка через 10 сообщений
+            step = config.MEMORY_EVERY if user["notes"] else config.MEMORY_FIRST
+            await db.set_notes_at(chat_id, user_id, user["msg_count"] - step + 10)
     except Exception:
         log.exception("Заметки о юзере %s не обновились", user_id)
     finally:
