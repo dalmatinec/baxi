@@ -297,32 +297,33 @@ async def forecast(place: dict) -> dict | None:
     return data
 
 
-def card(place: dict, w: dict, now: datetime | None = None) -> str:
-    """Карточка погоды (HTML), как утвердили."""
+def _day(day: tuple | None) -> str:
+    if not day:
+        return "нет данных"
+    code, lo, hi = day
+    e, t = WMO.get(code, ("🌡", ""))
+    return f"{e} {temp(lo)}…{temp(hi)}" + (f", {t.lower()}" if t else "")
+
+
+async def card(place: dict, w: dict, now: datetime | None = None) -> str:
+    """Карточка погоды (HTML) по шаблону, который владелец может поменять в админке (Тексты → Погода и курсы).
+    Эмодзи в ней, как и везде, заменяются на премиум из эмодзи-пака бота."""
+    from bot.services import texts
     now = now or datetime.now(ZoneInfo(place["tz"]))
     emoji, text = WMO.get(w["code"], ("🌡", ""))
-    title = esc(place["name"]) + (f", {esc(place['country'])}" if place["country"] else "")
-    lines = [f"{emoji} <b>{title}</b>",
-             f"🕐 {now:%H:%M} · {DAYS[now.weekday()]}, {now.day} {MONTHS[now.month - 1]}", "",
-             f"🌡 <b>{temp(w['t'])}</b> (ощущается как {temp(w['feels'])})"]
-    if text:
-        lines.append(f"{emoji} {text}")
-    if w["days"]:
-        _, lo, hi = w["days"][0]
-        lines.append(f"📈 Днём до {temp(hi)}, ночью до {temp(lo)}")
-    lines += ["", f"💨 Ветер {round(w['wind'])} м/с, {wind_dir(w['wdeg'])}", f"💧 Влажность {round(w['hum'])}%"]
-    if w.get("rain") is not None:
-        lines.append(f"🌧 Осадки: {round(w['rain'])}% в ближайшие 6 часов")
-    if w.get("aqi") is not None:
-        lines.append(f"🌫 Воздух: {aqi_text(w['aqi'])}")
-    lines += ["", f"🌅 Восход {w['sunrise']} · 🌇 Закат {w['sunset']}"]
-    names = ["Завтра", "Послезавтра"]
-    if len(w["days"]) > 1:
-        lines.append("")
-    for i, (code, lo, hi) in enumerate(w["days"][1:3]):
-        e, t = WMO.get(code, ("🌡", ""))
-        lines.append(f"📅 {names[i]}: {e} {temp(lo)}…{temp(hi)}" + (f", {t.lower()}" if t else ""))
-    return "\n".join(lines)
+    today = w["days"][0] if w["days"] else None
+    return await texts.render(
+        "wx_card", иконка=emoji,
+        город=esc(place["name"]) + (f", {esc(place['country'])}" if place["country"] else ""),
+        время=f"{now:%H:%M}", день=f"{DAYS[now.weekday()]}, {now.day} {MONTHS[now.month - 1]}",
+        темп=temp(w["t"]), ощущается=temp(w["feels"]), погода=text or "нет данных",
+        днём=temp(today[2]) if today else "?", ночью=temp(today[1]) if today else "?",
+        ветер=f"{round(w['wind'])} м/с, {wind_dir(w['wdeg'])}", влажность=f"{round(w['hum'])}%",
+        осадки=f"{round(w['rain'])}% в ближайшие 6 часов" if w.get("rain") is not None else "нет данных",
+        воздух=aqi_text(w["aqi"]) if w.get("aqi") is not None else "нет данных",
+        восход=w["sunrise"], закат=w["sunset"],
+        завтра=_day(w["days"][1] if len(w["days"]) > 1 else None),
+        послезавтра=_day(w["days"][2] if len(w["days"]) > 2 else None))
 
 
 async def weather_html(city: str) -> str | None:
@@ -333,7 +334,7 @@ async def weather_html(city: str) -> str | None:
     w = await forecast(place)
     if not w:
         return "🌤 Погода сейчас не отвечает, попробуй через пару минут"
-    return card(place, w)
+    return await card(place, w)
 
 
 HELP = ("🌤 <b>Погода</b>\n\n"

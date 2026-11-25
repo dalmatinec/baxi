@@ -19,7 +19,6 @@ log = logging.getLogger(__name__)
 NBK_URL = "https://nationalbank.kz/rss/rates_all.xml"
 GECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
 
-FIAT = [("USD", "🇺🇸", "Доллар"), ("EUR", "🇪🇺", "Евро"), ("CNY", "🇨🇳", "Юань"), ("RUB", "🇷🇺", "Рубль")]
 CRYPTO = [("bitcoin", "₿", "Bitcoin"), ("the-open-network", "💎", "TON"), ("ethereum", "🔷", "Ethereum")]
 
 _cache: dict[str, tuple[float, dict | None]] = {}
@@ -100,31 +99,31 @@ async def _crypto() -> dict | None:
     return data or (hit[1] if hit else None)
 
 
-def card(fiat: dict | None, crypto: dict | None, now: datetime | None = None) -> str:
+async def card(fiat: dict | None, crypto: dict | None, now: datetime | None = None) -> str:
+    """Карточка курсов по шаблону, который владелец может поменять в админке (Тексты → Погода и курсы)."""
+    from bot.services import texts
     now = now or datetime.now(config.TZ)
-    lines = [f"💱 <b>Курс валют</b> · {now:%H:%M}", ""]
-    if fiat:
-        for code, flag, name in FIAT:
-            if code in fiat:
-                rate, pct = fiat[code]
-                lines.append(f"{flag} {name}: <b>{rate:.2f} ₸</b>{arrow(pct)}")
-    else:
-        lines.append("курсы Нацбанка сейчас не отвечают")
-    if crypto:
-        lines += ["", "🪙 <b>Крипта</b>"]
-        t = crypto.get("tether") or {}
-        if t.get("kzt"):
-            lines.append(f"💵 USDT (TRC20): <b>{money(t['kzt'])} ₸</b> · ${t.get('usd', 1):.2f}")
-        for cid, emoji, name in CRYPTO:
-            c = crypto.get(cid) or {}
-            if c.get("usd"):
-                lines.append(f"{emoji} {name}: <b>${money(c['usd'])}</b>{arrow(c.get('usd_24h_change'))}")
-    lines += ["", "<i>по курсу Нацбанка РК · крипта по CoinGecko, ▲▼ за сутки</i>"]
-    return "\n".join(lines)
+    fiat, crypto = fiat or {}, crypto or {}
+
+    def cur(code: str) -> str:
+        if code not in fiat:
+            return "нет данных"
+        rate, pct = fiat[code]
+        return f"<b>{rate:.2f} ₸</b>{arrow(pct)}"
+
+    def coin(cid: str) -> str:
+        c = crypto.get(cid) or {}
+        return f"<b>${money(c['usd'])}</b>{arrow(c.get('usd_24h_change'))}" if c.get("usd") else "нет данных"
+
+    t = crypto.get("tether") or {}
+    usdt = f"<b>{money(t['kzt'])} ₸</b> · ${t.get('usd', 1):.2f}" if t.get("kzt") else "нет данных"
+    return await texts.render("rates_card", время=f"{now:%H:%M}", доллар=cur("USD"), евро=cur("EUR"),
+                              юань=cur("CNY"), рубль=cur("RUB"), usdt=usdt, btc=coin("bitcoin"),
+                              ton=coin("the-open-network"), eth=coin("ethereum"))
 
 
 async def rates_html() -> str:
-    return card(await _fiat(), await _crypto())
+    return await card(await _fiat(), await _crypto())
 
 
 HELP = ("💱 <b>Курсы</b>\n\n"
