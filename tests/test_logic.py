@@ -469,3 +469,12 @@ def test_greetings_not_repeats():
 def test_drop_commas():
     assert prompts.drop_commas("altyn adam, заходи, тут уютно") == "altyn adam заходи тут уютно"
     assert prompts.drop_commas("курс 1,5 раза, понял") == "курс 1,5 раза понял"
+
+
+def test_weather_helpers():
+    pytest.importorskip("httpx")
+    from bot.services import weather as w
+    assert w.temp(4.4) == "+4°" and w.temp(-2.6) == "−3°" and w.temp(0.2) == "0°"
+    assert w.wind_dir(315) == "северо-западный" and w.wind_dir(0) == "северный"
+    assert "астана" in w.variants("астане") and "дубай" in w.variants("дубае") and "шымкент" in w.variants("шымкенте")
+    assert w.aqi_text(72) == "умеренный (AQI 72)"

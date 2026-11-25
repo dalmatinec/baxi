@@ -24,7 +24,8 @@ HELP_KB = InlineKeyboardMarkup(inline_keyboard=[
      InlineKeyboardButton(text="🎁 Бонус", callback_data="eco:b")],
     [InlineKeyboardButton(text="🐾 Питомец", callback_data="eco:pet"),
      InlineKeyboardButton(text="🎲 Дуэль костей", callback_data="eco:dice")],
-    [InlineKeyboardButton(text="🛒 Магазин", callback_data="eco:shop")],
+    [InlineKeyboardButton(text="🛒 Магазин", callback_data="eco:shop"),
+     InlineKeyboardButton(text="🌤 Погода", callback_data="gm:weather")],
 ] + ([[InlineKeyboardButton(text="📖 Всё о Бакси и команды", url=f"{config.SITE_URL}/baxi#commands")]]
      if config.SITE_URL else []))
 
@@ -156,6 +157,10 @@ async def on_game_button(cb: CallbackQuery, bot: Bot) -> None:
     if not chat or not chat["approved"] or not chat["games"]:
         return await cb.answer("игры в этом чате выключены", show_alert=True)
     action, chat_id = cb.data[3:], chat["chat_id"]
+    if action == "weather":
+        from bot.services import weather
+        await cb.answer()
+        return await say(bot, chat_id, weather.HELP.replace("{city}", config.WEATHER_CITY))
     if action == "tops":
         from bot.handlers.economy.common import TOPS_KB_ROWS, kb
         await cb.answer()
