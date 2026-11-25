@@ -1,4 +1,5 @@
-"""Погода в чате и в личке: «погода», «погода москва», «бакси погода в дубае», /weather астана."""
+"""Погода и курсы в чате и в личке: «погода», «погода москва», «бакси погода в дубае», /weather астана;
+«курс», «курс доллара», «крипта», /rates."""
 
 import re
 
@@ -56,3 +57,35 @@ async def on_weather(message: Message, bot: Bot, city: str, explicit: bool) -> N
         return await say(bot, message.chat.id, f"🌤 не нашёл город <b>{esc(city or config.WEATHER_CITY)}</b>, "
                                                "напиши по-другому, например: погода алматы", reply_to=message)
     await say(bot, message.chat.id, html, reply_to=message)
+
+
+# ---------- курсы валют и крипты ----------
+
+_RATES_CMD = re.compile(r"^/(?:rates|kurs|crypto)(?:@\w+)?$", re.I)
+_RATES = re.compile(r"^(?:а\s+)?(?:(?P<name>[^\s,]+)[,\s]+)?(?:а\s+)?(?:какой\s+|скажи\s+|покажи\s+)?"
+                    r"(?:курсы?(?:\s+(?:валют[ыа]?|доллара|долара|бакса|евро|рубля|юаня|тенге|крипты|крипта|"
+                    r"биткоина|битка|usdt|тона|тон))?|крипта|крипту)\s*[?!.]*$", re.I)
+
+
+def is_rates(text: str, bot_name: str = "") -> bool:
+    t = (text or "").strip()
+    if not t or len(t) > 40:
+        return False
+    if _RATES_CMD.match(t):
+        return True
+    m = _RATES.match(t)
+    if not m:
+        return False
+    name = (m.group("name") or "").lower()
+    own = (bot_name or "").split()[0].lower() if bot_name else ""
+    return not name or name in (own, "бакси", "бот", "какой", "скажи", "покажи", "а")
+
+
+def _rates_filter(message: Message, chat_row=None) -> bool:
+    return is_rates(message.text or "", chat_row["bot_name"] if chat_row is not None else "")
+
+
+@router.message(F.text, _rates_filter)
+async def on_rates(message: Message, bot: Bot) -> None:
+    from bot.services import rates
+    await say(bot, message.chat.id, await rates.rates_html(), reply_to=message)

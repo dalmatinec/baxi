@@ -26,6 +26,7 @@ HELP_KB = InlineKeyboardMarkup(inline_keyboard=[
      InlineKeyboardButton(text="🎲 Дуэль костей", callback_data="eco:dice")],
     [InlineKeyboardButton(text="🛒 Магазин", callback_data="eco:shop"),
      InlineKeyboardButton(text="🌤 Погода", callback_data="gm:weather")],
+    [InlineKeyboardButton(text="💱 Курсы и крипта", callback_data="gm:rates")],
 ] + ([[InlineKeyboardButton(text="📖 Всё о Бакси и команды", url=f"{config.SITE_URL}/baxi#commands")]]
      if config.SITE_URL else []))
 
@@ -161,6 +162,10 @@ async def on_game_button(cb: CallbackQuery, bot: Bot) -> None:
         from bot.services import weather
         await cb.answer()
         return await say(bot, chat_id, weather.HELP.replace("{city}", config.WEATHER_CITY))
+    if action == "rates":
+        from bot.services import rates
+        await cb.answer()
+        return await say(bot, chat_id, await rates.rates_html())
     if action == "tops":
         from bot.handlers.economy.common import TOPS_KB_ROWS, kb
         await cb.answer()

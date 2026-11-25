@@ -478,3 +478,13 @@ def test_weather_helpers():
     assert w.wind_dir(315) == "северо-западный" and w.wind_dir(0) == "северный"
     assert "астана" in w.variants("астане") and "дубай" in w.variants("дубае") and "шымкент" in w.variants("шымкенте")
     assert w.aqi_text(72) == "умеренный (AQI 72)"
+
+
+def test_rates_parse():
+    pytest.importorskip("httpx")
+    from bot.services import rates
+    xml = ("<item><title>USD</title><description>458.28</description><quant>1</quant><change>+3.14</change></item>"
+           "<item><title>RUB</title><description>5.59</description><quant>1</quant><change>0</change></item>")
+    got = rates.parse_nbk(xml)
+    assert round(got["USD"][0], 2) == 458.28 and 0.6 < got["USD"][1] < 0.8 and rates.arrow(got["RUB"][1]) == ""
+    assert rates.money(59332) == "59 332" and rates.money(0.931) == "0.93"
