@@ -9,6 +9,14 @@
   * если админ включил, подкалывает наказанного в своём характере.
 Предупреждения репутацию не трогают.
 
+Ещё три события не про наказания:
+  * greet_mode: в чате включено (on=true) или выключено приветствие модератора. Пока включено, Бакси сам
+    на вход новичка не здоровается, а ждёт join;
+  * join: модератор поприветствовал новичка (после капчи, если она есть), Бакси добавляет свою фразу;
+  * nick: человек купил в модераторе свой ник (head, body, tail в HTML), Бакси показывает его во всех
+    упоминаниях. Пустой body: ник убран.
+Монеты за ник модератор списывает через POST /v1/coins/spend (см. services/api.py).
+
 Модератора Бакси спрашивает сам (GUARD_API_URL) только для экрана «🛡 Модерация» в карточке чата."""
 
 import logging
@@ -44,9 +52,31 @@ CREATE TABLE IF NOT EXISTS guard_events (
     ts       INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS guard_events_chat ON guard_events (chat_id, ts);
+CREATE TABLE IF NOT EXISTS guard_chats (
+    chat_id  INTEGER PRIMARY KEY,
+    greets   INTEGER NOT NULL DEFAULT 0,          -- приветствие модератора включено: сами не здороваемся
+    updated  INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS guard_nicks (
+    user_id  INTEGER PRIMARY KEY,
+    head     TEXT    NOT NULL DEFAULT '',         -- премиум-эмодзи перед ником (HTML)
+    body     TEXT    NOT NULL DEFAULT '',         -- сам ник с жирным, курсивом и т.п. (HTML, внутри ссылки)
+    tail     TEXT    NOT NULL DEFAULT '',         -- премиум-эмодзи после ника
+    plain    TEXT    NOT NULL DEFAULT '',
+    updated  INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS guard_spends (
+    ref      TEXT    PRIMARY KEY,                 -- номер списания от модератора: повтор не спишет дважды
+    user_id  INTEGER NOT NULL,
+    amount   INTEGER NOT NULL,
+    reason   TEXT    NOT NULL DEFAULT '',
+    ts       INTEGER NOT NULL
+);
 """
 
-EVENT_TYPES = ("warn", "unwarn", "mute", "unmute", "ban", "unban", "kick", "spam")
+EVENT_TYPES = ("warn", "unwarn", "mute", "unmute", "ban", "unban", "kick", "spam", "join", "greet_mode", "nick")
+SIGNALS = ("join", "greet_mode", "nick")   # не наказания: в историю не пишутся
+GREET_COOLDOWN = 20        # фраза на вход не чаще раза в 20 секунд на чат (наплыв не превращается в стену)
 PUNISH = ("mute", "ban", "kick")
 KEEP_DAYS = 30
 TEASE_COOLDOWN = 600       # подкалывает не чаще раза в 10 минут на чат
@@ -58,6 +88,8 @@ TEASE_FALLBACKS = [
     "{name}, правила они такие, для всех 😅",
 ]
 _last_tease: dict[int, float] = {}
+_last_greet: dict[int, float] = {}
+_greets: set[int] = set()     # чаты, где здоровается модератор
 _client: httpx.AsyncClient | None = None
 _guard_bot = {"username": "", "checked": 0.0}
 
@@ -65,6 +97,16 @@ _guard_bot = {"username": "", "checked": 0.0}
 async def init() -> None:
     await db.conn().executescript(SCHEMA)
     await db.conn().commit()
+    async with db.conn().execute("SELECT chat_id FROM guard_chats WHERE greets = 1") as cur:
+        _greets.update(r[0] for r in await cur.fetchall())
+    from bot import textutil
+    async with db.conn().execute("SELECT user_id, head, body, tail FROM guard_nicks WHERE body != ''") as cur:
+        textutil.GUARD_NICK.update({r[0]: (r[1], r[2], r[3]) for r in await cur.fetchall()})
+
+
+def guard_greets(chat_id: int) -> bool:
+    """В чате приветствует модератор: Бакси на вход сам не здоровается, ждёт событие join."""
+    return chat_id in _greets
 
 
 def enabled() -> bool:
@@ -93,8 +135,13 @@ def parse_event(data: dict) -> dict:
         return int(value)
     ev = {"type": kind, "chat_id": num("chat_id"), "user_id": num("user_id"), "by_id": num("by_id"),
           "until": num("until"), "reason": str(data.get("reason") or "")[:300], "warns": num("warns", -1),
-          "warn_limit": num("warn_limit", 0), "ts": num("ts") or now()}
-    if not ev["chat_id"] or not ev["user_id"]:
+          "warn_limit": num("warn_limit", 0), "ts": num("ts") or now(),
+          "name": str(data.get("name") or "")[:64], "on": bool(data.get("on")),
+          "head": str(data.get("head") or "")[:600], "body": str(data.get("body") or "")[:600],
+          "tail": str(data.get("tail") or "")[:600], "plain": str(data.get("plain") or "")[:64]}
+    need_chat = kind != "nick"
+    need_user = kind != "greet_mode"
+    if (need_chat and not ev["chat_id"]) or (need_user and not ev["user_id"]):
         raise ValueError("ids")
     return ev
 
@@ -286,8 +333,70 @@ async def maybe_tease(bot, ev: dict) -> None:
         log.exception("Подколка не отправилась")
 
 
+async def on_signal(bot, ev: dict) -> None:
+    """join, greet_mode, nick."""
+    c = db.conn()
+    if ev["type"] == "greet_mode":
+        await c.execute("INSERT INTO guard_chats (chat_id, greets, updated) VALUES (?, ?, ?) ON CONFLICT (chat_id) "
+                        "DO UPDATE SET greets = excluded.greets, updated = excluded.updated",
+                        (ev["chat_id"], int(ev["on"]), now()))
+        await c.commit()
+        (_greets.add if ev["on"] else _greets.discard)(ev["chat_id"])
+    elif ev["type"] == "nick":
+        from bot import textutil
+        await c.execute("INSERT INTO guard_nicks (user_id, head, body, tail, plain, updated) VALUES (?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT (user_id) DO UPDATE SET head = excluded.head, body = excluded.body, "
+                        "tail = excluded.tail, plain = excluded.plain, updated = excluded.updated",
+                        (ev["user_id"], ev["head"], ev["body"], ev["tail"], ev["plain"], now()))
+        await c.commit()
+        if ev["body"]:
+            textutil.GUARD_NICK[ev["user_id"]] = (ev["head"], ev["body"], ev["tail"])
+        else:
+            textutil.GUARD_NICK.pop(ev["user_id"], None)
+    elif ev["type"] == "join":
+        await greet_after_guard(bot, ev)
+
+
+async def greet_after_guard(bot, ev: dict) -> None:
+    """Модератор поприветствовал новичка: Бакси добавляет свою фразу, если в чате включено «здороваться»."""
+    chat = await db.get_chat(ev["chat_id"])
+    if not chat or not chat["active"] or not chat["approved"] or not chat["greet"]:
+        return
+    t = time.time()
+    if t - _last_greet.get(ev["chat_id"], 0) < GREET_COOLDOWN:
+        return
+    _last_greet[ev["chat_id"]] = t
+    from bot import ai
+    from bot.services import talk
+    ai.CURRENT_CHAT.set(chat)
+    try:
+        async with talk.chat_lock(ev["chat_id"]):
+            await talk.greet(bot, chat, ev["user_id"], ev["name"] or "новичок")
+    except Exception:
+        log.exception("Не поздоровался после модератора в чате %s", ev["chat_id"])
+
+
+async def spend_coins(user_id: int, amount: int, ref: str, reason: str) -> dict:
+    """Списать монеты по просьбе модератора. Один ref списывается один раз (повтор запроса безопасен)."""
+    from bot.economy import store
+    c = db.conn()
+    cur = await c.execute("INSERT OR IGNORE INTO guard_spends (ref, user_id, amount, reason, ts) VALUES (?, ?, ?, ?, ?)",
+                          (ref, user_id, amount, reason[:100], now()))
+    await c.commit()
+    if cur.rowcount == 0:
+        return {"ok": True, "repeat": True, "coins": (await store.wallet(user_id))["coins"]}
+    if not await store.spend(user_id, amount):
+        await c.execute("DELETE FROM guard_spends WHERE ref = ?", (ref,))
+        await c.commit()
+        return {"ok": False, "error": "not_enough", "coins": (await store.wallet(user_id))["coins"]}
+    return {"ok": True, "coins": (await store.wallet(user_id))["coins"]}
+
+
 async def handle(bot, ev: dict) -> None:
     """Всё по событию: запомнить, убрать из игр, подколоть."""
+    if ev["type"] in SIGNALS:
+        await on_signal(bot, ev)
+        return
     await apply_event(ev)
     if ev["type"] in PUNISH:
         await on_punished(bot, ev["chat_id"], ev["user_id"], ev["type"])

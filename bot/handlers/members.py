@@ -33,6 +33,9 @@ async def on_join(message: Message, bot: Bot, chat_row=None) -> None:
             continue
         if not chat_row["greet"]:
             continue
+        from bot.services import guardlink
+        if guardlink.guard_greets(message.chat.id):
+            continue   # здоровается модератор (после капчи), Бакси добавит фразу по его событию join
         try:
             async with talk.chat_lock(message.chat.id):
                 await talk.greet(bot, chat_row, user.id, name, thread=talk.thread_of(message))

@@ -219,3 +219,61 @@ def test_chat_user_stats(tmp_path, monkeypatch):
         assert data["reputation"] == 3 and data["rep_place"] == 1 and data["rank_level"] >= 1 and "coins" in data
         assert (await c.get(f"/v1/chat/{CHAT}/user/5")).status == 401
     run(tmp_path, monkeypatch, fn)
+
+
+def test_coins_spend_and_wallet(tmp_path, monkeypatch):
+    async def fn(c):
+        from bot.economy import store
+        await store.add_coins(42, 6000, "Вася")
+        w = await (await c.get("/v1/wallet/42", headers=H)).json()
+        assert w["coins"] == 6000
+        body = {"user_id": 42, "amount": 5000, "ref": "nick:42:1", "reason": "ник"}
+        r = await (await c.post("/v1/coins/spend", headers=H, json=body)).json()
+        assert r == {"ok": True, "coins": 1000}
+        r = await (await c.post("/v1/coins/spend", headers=H, json=body)).json()   # повтор не списывает
+        assert r["ok"] and r["repeat"] and r["coins"] == 1000
+        r = await (await c.post("/v1/coins/spend", headers=H, json={**body, "ref": "nick:42:2"})).json()
+        assert r == {"ok": False, "error": "not_enough", "coins": 1000}
+        r = await (await c.post("/v1/coins/spend", headers=H, json={**body, "ref": "nick:42:2", "amount": 1000})).json()
+        assert r == {"ok": True, "coins": 0}            # неудачный ref можно повторить, когда монеты появились
+        assert (await c.post("/v1/coins/spend", headers=H, json={"user_id": 42, "amount": -5, "ref": "x"})).status == 400
+        assert (await c.post("/v1/coins/spend", json=body)).status == 401
+    run(tmp_path, monkeypatch, fn)
+
+
+def test_signals_greet_mode_nick_join(tmp_path, monkeypatch):
+    async def fn(c):
+        from bot import textutil
+        from bot.services import talk
+        await db.ensure_chat(CHAT, "Тест")
+        await db.update_chat(CHAT, approved=1, active=1, greet=1)
+        r = await c.post("/v1/events", headers=H, json={"type": "greet_mode", "chat_id": CHAT, "on": True})
+        assert r.status == 200 and guardlink.guard_greets(CHAT)
+        await c.post("/v1/events", headers=H, json={"type": "greet_mode", "chat_id": CHAT, "on": False})
+        assert not guardlink.guard_greets(CHAT)
+        # ник из модератора
+        nick = {"type": "nick", "user_id": 42, "head": '<tg-emoji emoji-id="1">🔥</tg-emoji> ',
+                "body": "<b>Вася</b>", "tail": "", "plain": "Вася"}
+        assert (await c.post("/v1/events", headers=H, json=nick)).status == 200
+        assert textutil.mention(42, "Василий") == '<tg-emoji emoji-id="1">🔥</tg-emoji> ' \
+                                                 '<a href="tg://user?id=42"><b>Вася</b></a>'
+        await c.post("/v1/events", headers=H, json={**nick, "body": ""})
+        assert textutil.mention(42, "Василий") == '<a href="tg://user?id=42">Василий</a>'
+        # приветствие после модератора
+        greeted = []
+
+        async def fake_greet(bot, chat, user_id, name, thread=None):
+            greeted.append((user_id, name))
+        monkeypatch.setattr(talk, "greet", fake_greet)
+        guardlink._last_greet.clear()
+        join = {"type": "join", "chat_id": CHAT, "user_id": 50, "name": "Новичок"}
+        await c.post("/v1/events", headers=H, json=join)
+        await c.post("/v1/events", headers=H, json={**join, "user_id": 51})       # наплыв: вторая фраза позже
+        assert greeted == [(50, "Новичок")]
+        await db.update_chat(CHAT, greet=0)
+        guardlink._last_greet.clear()
+        await c.post("/v1/events", headers=H, json=join)
+        assert greeted == [(50, "Новичок")]                                          # «здороваться» выключено
+        assert (await c.post("/v1/events", headers=H, json={"type": "join", "chat_id": CHAT})).status == 400
+        assert (await guardlink.day_counts(CHAT, 0)) == {}                           # в историю не попали
+    run(tmp_path, monkeypatch, fn)

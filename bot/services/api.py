@@ -8,6 +8,10 @@ GET  /v1/user/{user_id}           ник человека: красивый, п�
 GET  /v1/users?ids=1,2,3          то же пачкой: {"users": {"1": {...}, ...}}
 GET  /v1/chat/{chat_id}/user/{user_id}  для профиля в модераторе: {"reputation", "rep_place", "rank",
                                   "rank_level", "coins", "level"}
+GET  /v1/wallet/{user_id}         монеты человека: {"coins", "level"}
+POST /v1/coins/spend              {"user_id", "amount", "ref", "reason"} списать монеты (ник в модераторе):
+                                  {"ok": true, "coins"} или {"ok": false, "error": "not_enough", "coins"};
+                                  тот же ref второй раз не списывает
 GET  /v1/ping                     {"ok": true}
 
 Без BAXI_API_KEY в .env сервер не поднимается (так и у копий клиентов)."""
@@ -124,6 +128,24 @@ async def users(request: web.Request) -> web.Response:
     return _json({"users": {str(i): await guardlink.nick_info(i) for i in ids}})
 
 
+async def wallet(request: web.Request) -> web.Response:
+    from bot.economy import store
+    w = await store.wallet(int(request.match_info["user_id"]))
+    return _json({"coins": w["coins"], "level": w["level"]})
+
+
+async def coins_spend(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+        user_id, amount = int(data["user_id"]), int(data["amount"])
+        ref = str(data["ref"])[:80]
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return _json({"ok": False, "error": "bad request"}, 400)
+    if user_id <= 0 or not 0 < amount <= 100_000_000 or not ref:
+        return _json({"ok": False, "error": "bad request"}, 400)
+    return _json(await guardlink.spend_coins(user_id, amount, ref, str(data.get("reason") or "")))
+
+
 async def chat_user(request: web.Request) -> web.Response:
     """Репутация, ранг и монеты человека: модератор показывает их в профиле."""
     from bot.economy import catalog, store
@@ -148,6 +170,8 @@ def make_app(bot) -> web.Application:
     app.router.add_post("/v1/events", events)
     app.router.add_get(r"/v1/user/{user_id:\d+}", user)
     app.router.add_get("/v1/users", users)
+    app.router.add_get(r"/v1/wallet/{user_id:\d+}", wallet)
+    app.router.add_post("/v1/coins/spend", coins_spend)
     return app
 
 

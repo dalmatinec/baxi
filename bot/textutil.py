@@ -12,10 +12,17 @@ def esc(text: str) -> str:
 
 # Вид VIP-участников: user_id → (id премиум-эмодзи, запасной эмодзи, ник). Заполняет services/stars.refresh_looks
 VIP_LOOK: dict[int, tuple[str, str, str]] = {}
+# Ник, купленный в модераторе: user_id → (премиум-эмодзи до, ник в HTML, эмодзи после). Заполняет guardlink
+GUARD_NICK: dict[int, tuple[str, str, str]] = {}
 
 
 def mention(user_id: int, name: str) -> str:
-    """Кликабельное имя. У VIP: свой премиум-эмодзи (или 👑) и жирный ник, который он задал сам."""
+    """Кликабельное имя. Ник из модератора важнее всего: со своим шрифтом и премиум-эмодзи (эмодзи стоят вне
+    ссылки: Telegram не пускает их внутрь). У VIP: свой премиум-эмодзи (или 👑) и жирный ник."""
+    nick = GUARD_NICK.get(user_id)
+    if nick is not None:
+        head, body, tail = nick
+        return f'{head}<a href="tg://user?id={user_id}">{body}</a>{tail}'
     look = VIP_LOOK.get(user_id)
     if look is None:
         return f'<a href="tg://user?id={user_id}">{esc(name) or "аноним"}</a>'
