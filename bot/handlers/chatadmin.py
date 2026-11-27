@@ -166,7 +166,7 @@ def status_line(c) -> str:
 async def card(target, chat_id: int, viewer: int = 0) -> None:
     c = await db.get_chat(chat_id)
     week = sum((await db.days_totals(chat_id, last_days(7))).values())
-    lines = [f"⚙️ <b>{esc(c['title'] or str(chat_id))}</b>", status_line(c),
+    lines = [f"⚙️ <b>{esc(c['title'] or str(chat_id))}</b>", f"🆔 <code>{chat_id}</code>", status_line(c),
              f"👥 {c['members'] or '?'} участников · 💬 {week} сообщ. за неделю", "",
              f"🎭 <b>{esc(c['bot_name'])}</b>, {esc(short(c['persona'], 70))}",
              f"📌 {esc(short(c['topic'], 70))}",

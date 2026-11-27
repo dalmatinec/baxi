@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 _locks: dict[int, asyncio.Lock] = {}
 
 GREETINGS = [
-    "о, {name} подъехал, заходи не стесняйся",
+    "{name} подъехал, заходи не стесняйся",
     "{name}, привет! ты к нам надолго?",
     "смотрите кто пришёл, {name}! рассказывай, кто такой",
     "{name}, здарова. тут все свои, почти",
@@ -313,6 +313,27 @@ async def phrase_answer(bot: Bot, chat, message: Message, author: str) -> None:
                     f"{who['name']}, {phrase}", thread=thread_of(message))
 
 
+_greeted: dict[int, list[str]] = {}   # последние приветствия в чате, чтобы не повторяться
+
+
+def _remember_greet(chat_id: int, text: str) -> None:
+    items = _greeted.setdefault(chat_id, [])
+    items.append(text)
+    del items[:-8]
+
+
+async def _greet_phrase(chat_id: int) -> str:
+    """Фраза из базы, которой не было среди 8 последних приветствий в этом чате."""
+    recent = set(_greeted.get(chat_id, []))
+    tpl = ""
+    for _ in range(6):
+        tpl = await db.random_phrase("greet") or random.choice(GREETINGS)
+        if tpl not in recent:
+            break
+    _remember_greet(chat_id, tpl)
+    return tpl
+
+
 async def greet(bot: Bot, chat, user_id: int, name: str, thread: int | None = None) -> None:
     """Приветствие новичка: примерно поровну то фраза из базы, то нейросеть в характере бота. Нейросеть не видит
     переписку (раньше заодно отвечала на чужие вопросы) и не обсуждает ник. Имя всегда кликабельное, в начале."""
@@ -320,15 +341,20 @@ async def greet(bot: Bot, chat, user_id: int, name: str, thread: int | None = No
     if random.random() < 0.5:
         system = prompts.system_prompt(chat["bot_name"], plans_persona(chat), chat["topic"], chat["title"] or "", [],
                                        await rules(chat))
+        recent = [t for t in _greeted.get(chat["chat_id"], []) if "{name}" not in t]
         answer = await ai.chat_as("event", [{"role": "system", "content": system},
-                                           {"role": "user", "content": prompts.greet_task(name)}], max_tokens=80)
+                                           {"role": "user", "content": prompts.greet_task(name, recent)}],
+                                  max_tokens=80)
         text = prompts.drop_commas(prompts.clean_reply(answer or "", chat["bot_name"]))
         if text and name.lower() in text.lower():   # имя модель всё равно могла вставить: убираем, добавим сами
             text = re.sub(re.escape(name), "", text, flags=re.I).strip(" ,!.") or ""
+        text = re.sub(r"^(?:о|оу|ооо|опа)[,!\s]+", "", text, flags=re.I).strip()   # не все с «о, ...»
+        if text:
+            _remember_greet(chat["chat_id"], text)
     if text:
         html_text, plain = f"{mention(user_id, name)} {esc(text)}", f"{name} {text}"
     else:
-        tpl = await db.random_phrase("greet") or random.choice(GREETINGS)
+        tpl = await _greet_phrase(chat["chat_id"])
         plain = prompts.drop_commas(tpl.replace("{name}", name))
         html_text = esc(plain).replace(esc(name), mention(user_id, name), 1)
     await send_text(bot, chat, html_text, plain, thread=thread)
