@@ -277,3 +277,25 @@ def test_signals_greet_mode_nick_join(tmp_path, monkeypatch):
         assert (await c.post("/v1/events", headers=H, json={"type": "join", "chat_id": CHAT})).status == 400
         assert (await guardlink.day_counts(CHAT, 0)) == {}                           # в историю не попали
     run(tmp_path, monkeypatch, fn)
+
+
+def test_chat_move_from_guard(tmp_path, monkeypatch):
+    async def fn(c):
+        new = CHAT - 1
+        body = {"src": CHAT, "dst": new, "by_id": 111}
+        r = await c.post("/v1/chat/move", headers=H, json=body)
+        assert r.status == 404 and (await r.json())["error"] == "no_src"
+        await db.ensure_chat(CHAT, "Старый")
+        rent = int(time.time()) + 10 * 86400
+        await db.update_chat(CHAT, approved=1, active=1, rent_until=rent)
+        r = await c.post("/v1/chat/move", headers=H, json=body)
+        assert (await r.json())["error"] == "no_dst"                 # Бакси ещё нет в новом чате
+        await db.ensure_chat(new, "Новый")
+        r = await (await c.post("/v1/chat/move", headers=H, json=body)).json()
+        assert r["ok"] and "counts" in r
+        assert (await db.get_chat(new))["rent_until"] == rent       # аренда ушла в новый чат
+        assert (await db.get_chat(CHAT))["rent_until"] == 0
+        r = await (await c.post("/v1/chat/move", headers=H, json=body)).json()
+        assert r["ok"] and r["already"]                               # повтор ничего не делает
+        assert (await c.post("/v1/chat/move", json=body)).status == 401
+    run(tmp_path, monkeypatch, fn)

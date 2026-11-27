@@ -12,6 +12,9 @@ GET  /v1/wallet/{user_id}         монеты человека: {"coins", "leve
 POST /v1/coins/spend              {"user_id", "amount", "ref", "reason"} списать монеты (ник в модераторе):
                                   {"ok": true, "coins"} или {"ok": false, "error": "not_enough", "coins"};
                                   тот же ref второй раз не списывает
+POST /v1/chat/move                {"src", "dst", "by_id"} модератор перенёс чат: Бакси переносит своё (аренду,
+                                  репутацию, память о людях, триггеры). {"ok": true, "counts"} или
+                                  {"ok": false, "error": "no_src" | "no_dst" | "same"}; повтор: {"ok": true, "already": true}
 GET  /v1/ping                     {"ok": true}
 
 Без BAXI_API_KEY в .env сервер не поднимается (так и у копий клиентов)."""
@@ -160,6 +163,36 @@ async def chat_user(request: web.Request) -> web.Response:
                   "coins": wallet["coins"], "level": wallet["level"]})
 
 
+async def chat_move(request: web.Request) -> web.Response:
+    """Перенос из модератора: права человека модератор уже проверил (владелец или админ с правом настроек)."""
+    try:
+        data = await request.json()
+        src, dst, by_id = int(data["src"]), int(data["dst"]), int(data.get("by_id") or 0)
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return _json({"ok": False, "error": "bad request"}, 400)
+    if src == dst:
+        return _json({"ok": False, "error": "same"}, 400)
+    a, b = await db.get_chat(src), await db.get_chat(dst)
+    if a is None:
+        return _json({"ok": False, "error": "no_src"}, 404)
+    if b is None or not b["active"]:
+        return _json({"ok": False, "error": "no_dst"}, 404)
+    if await db.kv_get(f"moved:{src}:{dst}"):
+        return _json({"ok": True, "already": True, "counts": {}})
+    from bot import notify
+    from bot.services import triggers
+    counts = await db.move_chat(src, dst)
+    triggers.forget(dst)
+    await db.kv_set(f"moved:{src}:{dst}", str(int(time.time())))
+    bot = request.app[BOT]
+    try:
+        await notify.owners(bot, f"📦 Перенос чата из модератора: {a['title'] or src} → {b['title'] or dst} "
+                                 f"(перенёс {by_id})")
+    except Exception:
+        log.exception("Не сообщил о переносе")
+    return _json({"ok": True, "counts": counts})
+
+
 def make_app(bot) -> web.Application:
     app = web.Application(middlewares=[auth], client_max_size=64 * 1024)
     app[BOT] = bot
@@ -172,6 +205,7 @@ def make_app(bot) -> web.Application:
     app.router.add_get("/v1/users", users)
     app.router.add_get(r"/v1/wallet/{user_id:\d+}", wallet)
     app.router.add_post("/v1/coins/spend", coins_spend)
+    app.router.add_post("/v1/chat/move", chat_move)
     return app
 
 
