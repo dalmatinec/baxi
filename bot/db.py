@@ -1,5 +1,6 @@
 """База SQLite: чаты, юзеры, история сообщений, фразы, реклама, расход на ИИ."""
 
+import logging
 import json
 import time
 from datetime import datetime, timedelta
@@ -1690,37 +1691,68 @@ async def _columns(table: str) -> list[str]:
 
 
 async def move_chat(src: int, dst: int) -> dict:
-    """Переносит всё из старого чата в новый: настройки, людей с памятью и ДР, репутацию, викторину,
-    триггеры, список зазывалы, одобрение и остаток аренды. Старый чат теряет аренду и одобрение."""
+    """Переносит всё из старого чата в новый: настройки, людей с памятью и ДР, репутацию, ранги, викторину,
+    статистику, триггеры, список зазывалы, одобрение и остаток аренды. Старый чат теряет аренду и одобрение.
+    Повторный перенос безопасен: очки сливаются по большему значению, а не складываются, и аренда не теряется."""
     old = await get_chat(src)
     await apply_settings(dst, await chat_settings(src))
-    await update_chat(dst, approved=1, pending_since=0, rent_until=old["rent_until"], trial=old["trial"],
-                      rent_warned=0, added_by=old["added_by"] or 0, added_name=old["added_name"],
-                      added_username=old["added_username"])
+    if old["approved"] or old["rent_until"]:   # при повторном переносе старый чат уже пустой: аренду не трогаем
+        await update_chat(dst, approved=1, pending_since=0, rent_until=old["rent_until"], trial=old["trial"],
+                          rent_warned=0, added_by=old["added_by"] or 0, added_name=old["added_name"],
+                          added_username=old["added_username"])
     counts = {}
-    for table in MOVE_TABLES:
-        cols = [c for c in await _columns(table) if c != "chat_id"]
-        names = ", ".join(cols)
-        cur = await conn().execute(f"INSERT OR IGNORE INTO {table} (chat_id, {names}) "
-                                   f"SELECT ?, {names} FROM {table} WHERE chat_id = ?", (dst, src))
+    # очки: у кого в новом чате уже есть строка, берём большее (повторный перенос ничего не удвоит)
+    for table, col in (("rep_points", "points"), ("quiz_scores", "points")):
+        cur = await conn().execute(
+            f"INSERT INTO {table} (chat_id, user_id, {col}) SELECT ?, user_id, {col} FROM {table} WHERE chat_id = ? "
+            f"ON CONFLICT(chat_id, user_id) DO UPDATE SET {col} = MAX({col}, excluded.{col})", (dst, src))
         counts[table] = cur.rowcount
+    cols = [c for c in await _columns("call_list") if c != "chat_id"]
+    names = ", ".join(cols)
+    await conn().execute(f"INSERT OR IGNORE INTO call_list (chat_id, {names}) "
+                         f"SELECT ?, {names} FROM call_list WHERE chat_id = ?", (dst, src))
+    # ранги в чате (таблица экономики): опыт по большему, уровень пересчитываем
+    try:
+        from bot.economy.catalog import level_for
+        async with conn().execute("SELECT user_id, name, xp, last_award FROM eco_chat WHERE chat_id = ?",
+                                  (src,)) as cur:
+            ranks = list(await cur.fetchall())
+        for r in ranks:
+            await conn().execute(
+                "INSERT INTO eco_chat (chat_id, user_id, name, xp, level, last_award) VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(chat_id, user_id) DO UPDATE SET xp = MAX(xp, excluded.xp), "
+                "level = MAX(level, excluded.level), name = CASE WHEN name = '' THEN excluded.name ELSE name END",
+                (dst, r["user_id"], r["name"], r["xp"], level_for(r["xp"]), r["last_award"]))
+        counts["ranks"] = len(ranks)
+    except Exception as exc:   # таблицы экономики может не быть у бота клиента
+        logging.getLogger(__name__).warning("Перенос рангов %s → %s не вышел: %s", src, dst, exc)
+    # статистика по дням (итоги, топ болтунов): по большему
+    cols = [c for c in await _columns("daily_stats") if c not in ("chat_id", "day", "user_id")]
+    if cols:
+        names = ", ".join(cols)
+        sets = ", ".join(f"{c} = MAX({c}, excluded.{c})" if c != "name" else "name = excluded.name" for c in cols)
+        await conn().execute(
+            f"INSERT INTO daily_stats (chat_id, day, user_id, {names}) SELECT ?, day, user_id, {names} "
+            f"FROM daily_stats WHERE chat_id = ? ON CONFLICT(chat_id, day, user_id) DO UPDATE SET {sets}", (dst, src))
     cols = [c for c in await _columns("triggers") if c not in ("id", "chat_id")]
     names = ", ".join(cols)
     cur = await conn().execute(f"INSERT INTO triggers (chat_id, {names}) SELECT ?, {names} FROM triggers "
                                "WHERE chat_id = ? AND word NOT IN (SELECT word FROM triggers WHERE chat_id = ?)",
                                (dst, src, dst))
     counts["triggers"] = cur.rowcount
-    # люди: заметки бота и дни рождения. Кого бот уже видел в новом чате, тем дописываем пустые поля
+    # люди: заметки бота, дни рождения, счётчик сообщений. Кого бот уже видел в новом чате, дописываем
     cols = [c for c in await _columns("users") if c != "chat_id"]
     names = ", ".join(cols)
     cur = await conn().execute(f"INSERT OR IGNORE INTO users (chat_id, {names}) SELECT ?, {names} FROM users "
                                "WHERE chat_id = ?", (dst, src))
     counts["users"] = cur.rowcount
     await conn().execute(
-        "UPDATE users SET notes = (SELECT o.notes FROM users o WHERE o.chat_id = ? AND o.user_id = users.user_id), "
+        "UPDATE users SET notes = CASE WHEN notes = '' OR notes IS NULL THEN (SELECT o.notes FROM users o "
+        "WHERE o.chat_id = ? AND o.user_id = users.user_id) ELSE notes END, "
         "birthday = COALESCE(NULLIF(birthday, ''), (SELECT o.birthday FROM users o WHERE o.chat_id = ? "
-        "AND o.user_id = users.user_id)) WHERE chat_id = ? AND (notes = '' OR notes IS NULL) "
-        "AND user_id IN (SELECT user_id FROM users WHERE chat_id = ?)", (src, src, dst, src))
+        "AND o.user_id = users.user_id)), "
+        "msg_count = MAX(msg_count, (SELECT o.msg_count FROM users o WHERE o.chat_id = ? AND o.user_id = users.user_id)) "
+        "WHERE chat_id = ? AND user_id IN (SELECT user_id FROM users WHERE chat_id = ?)", (src, src, src, dst, src))
     await conn().execute("UPDATE chats SET rent_until = 0, approved = 0, trial = 0, pending_since = 0 "
                          "WHERE chat_id = ?", (src,))
     await conn().commit()
