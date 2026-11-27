@@ -47,6 +47,7 @@ AI_MODEL = os.getenv("AI_MODEL", "deepseek-chat")
 AI_TIMEOUT = _float("AI_TIMEOUT", 40)
 AI_MAX_TOKENS = _int("AI_MAX_TOKENS", 160)
 AI_TEMPERATURE = _float("AI_TEMPERATURE", 1.1)
+AI_NO_THINKING = os.getenv("AI_NO_THINKING", "1") != "0"   # выключить «размышления» модели: дешевле и быстрее
 AI_FREQ_PENALTY = _float("AI_FREQ_PENALTY", 0.5)   # штраф за повторы слов в ответах в чате, 0 выключает
 AI_PRES_PENALTY = _float("AI_PRES_PENALTY", 0.3)   # штраф за уже упомянутые темы
 
@@ -58,19 +59,13 @@ PRICE_CACHE = _float("PRICE_CACHE", 0.003)  # вход из кэша: харак
 if (PRICE_IN, PRICE_OUT) == (0.30, 1.20):  # старые цифры из прежнего .env.example: это цены пика, считаем по новым
     PRICE_IN, PRICE_OUT = 0.15, 0.60
 PRICE_PEAK_X = _float("PRICE_PEAK_X", 2.0)
-# Сильная модель только для ответов людям (включает владелец: /admin → ИИ и расход → «🧠 Ответы людям»).
-# Заметки, итоги, шутки и прочее остаются на основной. Цены DeepSeek V4 Pro в обычные часы.
-AI_STRONG_MODEL = os.getenv("AI_STRONG_MODEL", "deepseek-v4-pro")
-STRONG_PRICE_IN = _float("STRONG_PRICE_IN", 0.66)
-STRONG_PRICE_OUT = _float("STRONG_PRICE_OUT", 1.98)
-STRONG_PRICE_CACHE = _float("STRONG_PRICE_CACHE", 0.022)
 # часы пика по UTC (пн-пт), у DeepSeek 01:00-04:00 и 06:00-10:00, это 06-09 и 11-15 по Алматы
 PEAK_HOURS_UTC = os.getenv("PEAK_HOURS_UTC", "1-4,6-10")
 # Сколько долларов в сутки можно потратить. Кончились, бот отвечает фразами из базы.
 DAILY_LIMIT_USD = _float("DAILY_LIMIT_USD", 0.20)
 
 # Сколько последних сообщений чата видит нейросеть
-CONTEXT_MESSAGES = _int("CONTEXT_MESSAGES", 20)
+CONTEXT_MESSAGES = _int("CONTEXT_MESSAGES", 35)   # сколько последних сообщений бот видит при ответе
 # Сколько сообщений чата хранить в базе (для памяти о юзерах нужно больше, чем контекст)
 HISTORY_KEEP = _int("HISTORY_KEEP", 5000)   # сообщений на чат в базе, ~1.5 МБ; в запрос идут только последние 20
 # Через сколько сообщений юзера обновлять заметки о нём (0 = не обновлять)
@@ -78,6 +73,7 @@ MEMORY_EVERY = _int("MEMORY_EVERY", 50)   # заметку о человеке �
 MEMORY_FIRST = _int("MEMORY_FIRST", 20)   # первую заметку о новичке пишем пораньше, чтобы бот быстрее его узнал
 
 TZ = ZoneInfo(os.getenv("TZ_NAME", "Asia/Almaty"))
+WEATHER_CITY = os.getenv("WEATHER_CITY", "Алматы")   # город для «погода» без названия
 DATA_DIR = ROOT / os.getenv("DATA_DIR", "data")
 DB_PATH = DATA_DIR / "bot.db"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

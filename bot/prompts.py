@@ -234,11 +234,11 @@ def jump_task(history: str, author: str, text: str) -> str:
             f"Напиши одну короткую реплику по теме разговора.")
 
 
-def greet_task(name: str, history: str) -> str:
-    return (f"Последние сообщения чата:\n{history}\n\n"
-            f"В чат только что вступил новый человек, его зовут {name}. "
-            f"Поздоровайся с ним по-своему, в своём характере, одной-двумя фразами. "
-            f"Каждый раз здоровайся по-новому, без шаблонных фраз вроде 'добро пожаловать'.")
+def greet_task(name: str) -> str:
+    return ("В чат только что зашёл новый человек. Поздоровайся с ним коротко, одной фразой до 8 слов, "
+            "в своём характере, по-разному каждый раз. Не обсуждай и не комментируй его ник или имя, не шути про "
+            "них, имя не пиши вообще (его подставят сами). Не отвечай никому другому, только приветствие. "
+            "Без запятых, как пишут в чате. Ответь только этой фразой.")
 
 
 def memory_messages(name: str, old_notes: str, messages: list[str]) -> list[dict]:
@@ -360,6 +360,11 @@ def strip_names(reply: str, names: list[str], recent: list[str], every: int = 5)
         if cut.strip():
             reply = cut.strip()
     return reply
+
+
+def drop_commas(reply: str) -> str:
+    """Убирает запятые между словами, как пишут в чатах («ну да конечно»). Числа вроде 1,5 не трогает."""
+    return re.sub(r"(?<!\d),(?!\d)\s*", " ", reply).replace("  ", " ").strip()
 
 
 def limit_commas(reply: str, keep: int = 2) -> str:

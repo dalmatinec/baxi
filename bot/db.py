@@ -480,6 +480,12 @@ async def _seed_phrases() -> None:
         await conn().executemany("DELETE FROM phrases WHERE kind = 'text' AND content = ?", [(p,) for p in DROPPED])
         await conn().execute("INSERT OR REPLACE INTO kv (key, value) VALUES ('phrases_clean', '1')")
         await conn().commit()
+    async with conn().execute("SELECT value FROM kv WHERE key = 'phrases_clean2'") as cur:
+        done2 = await cur.fetchone()
+    if not done2:   # приветствие про какого-то «олега» в чужих чатах звучало странно
+        await conn().execute("DELETE FROM phrases WHERE kind = 'greet' AND content LIKE '%олег%'")
+        await conn().execute("INSERT OR REPLACE INTO kv (key, value) VALUES ('phrases_clean2', '1')")
+        await conn().commit()
     async with conn().execute("SELECT value FROM kv WHERE key = 'seed_version'") as cur:
         row = await cur.fetchone()
     if row and int(row[0] or 0) >= SEED_VERSION:
@@ -619,6 +625,13 @@ async def active_users(chat_id: int, days: int = 7, limit: int = 300) -> list[ai
 async def set_notes(chat_id: int, user_id: int, notes: str, at_count: int) -> None:
     await conn().execute("UPDATE users SET notes = ?, notes_at = ? WHERE chat_id = ? AND user_id = ?",
                          (notes, at_count, chat_id, user_id))
+    await conn().commit()
+
+
+async def set_notes_at(chat_id: int, user_id: int, at_count: int) -> None:
+    """Отметить, что заметку пытались обновить на этом сообщении (даже если не вышло), чтобы не дёргать
+    нейросеть на каждом следующем сообщении."""
+    await conn().execute("UPDATE users SET notes_at = ? WHERE chat_id = ? AND user_id = ?", (at_count, chat_id, user_id))
     await conn().commit()
 
 

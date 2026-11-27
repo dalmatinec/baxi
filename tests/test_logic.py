@@ -423,8 +423,9 @@ def test_now_line_and_delay():
     line = prompts.now_line(datetime(2026, 11, 22, 12, 34, tzinfo=config.TZ))
     assert line.startswith("Сейчас воскресенье, 22 ноября, 12:34, день")
     assert "ночь" in prompts.now_line(datetime(2026, 11, 22, 2, 0, tzinfo=config.TZ))
-    d = brain.typing_delay("нормально, а ты как")
-    assert 1.0 + 19 / 7 - 0.01 <= d <= 3.0 + 19 / 7 + 0.01
+    for _ in range(50):
+        assert 4.0 <= brain.typing_delay("ну да") <= 7.0
+        assert 4.0 <= brain.typing_delay("нормально, а ты как") <= 7.0
     assert brain.typing_delay("x" * 500) == 7.0
 
 
@@ -458,15 +459,6 @@ def test_reply_task_quote_and_rules():
     assert "признай это" in prompts.STYLE and "не додумывай" in prompts.STYLE
 
 
-def test_strong_cost():
-    pytest.importorskip("httpx")
-    pytest.importorskip("aiosqlite")
-    from bot import ai
-    weak = ai.cost(1000, 100, 0, now=None, strong=False)
-    strong = ai.cost(1000, 100, 0, now=None, strong=True)
-    assert 3 < strong / weak < 5
-
-
 def test_greetings_not_repeats():
     assert prompts.is_greeting("Салам брат") and prompts.is_greeting("привет всем")
     assert not prompts.is_greeting("салам, а что по планам на завтра у всех")
@@ -474,17 +466,25 @@ def test_greetings_not_repeats():
     assert prompts.cooldown_words([("салам брат как сам", 100), ("салам бро чё нового", 200)], 300) == set()
 
 
-def test_strong_allowed():
-    pytest.importorskip("httpx")
-    pytest.importorskip("aiosqlite")
-    import time as t
+def test_drop_commas():
+    assert prompts.drop_commas("altyn adam, заходи, тут уютно") == "altyn adam заходи тут уютно"
+    assert prompts.drop_commas("курс 1,5 раза, понял") == "курс 1,5 раза понял"
 
-    from bot import ai
-    base = {"approved": 1, "free": 0, "trial": 0, "rent_until": 0, "plan_days": -1}
-    assert ai.strong_allowed(base)                                            # бессрочно
-    assert not ai.strong_allowed({**base, "trial": 1, "rent_until": t.time() + 86400})
-    assert not ai.strong_allowed({**base, "free": 1})
-    assert ai.strong_allowed({**base, "rent_until": t.time() + 3 * 86400, "plan_days": 30})
-    assert not ai.strong_allowed({**base, "rent_until": t.time() + 3 * 86400, "plan_days": 7})
-    assert ai.strong_allowed({**base, "rent_until": t.time() + 25 * 86400})    # старая аренда, остаток большой
-    assert not ai.strong_allowed(None)
+
+def test_weather_helpers():
+    pytest.importorskip("httpx")
+    from bot.services import weather as w
+    assert w.temp(4.4) == "+4°" and w.temp(-2.6) == "−3°" and w.temp(0.2) == "0°"
+    assert w.wind_dir(315) == "северо-западный" and w.wind_dir(0) == "северный"
+    assert "астана" in w.variants("астане") and "дубай" in w.variants("дубае") and "шымкент" in w.variants("шымкенте")
+    assert w.aqi_text(72) == "умеренный (AQI 72)"
+
+
+def test_rates_parse():
+    pytest.importorskip("httpx")
+    from bot.services import rates
+    xml = ("<item><title>USD</title><description>458.28</description><quant>1</quant><change>+3.14</change></item>"
+           "<item><title>RUB</title><description>5.59</description><quant>1</quant><change>0</change></item>")
+    got = rates.parse_nbk(xml)
+    assert round(got["USD"][0], 2) == 458.28 and 0.6 < got["USD"][1] < 0.8 and rates.arrow(got["RUB"][1]) == ""
+    assert rates.money(59332) == "59 332" and rates.money(0.931) == "0.93"

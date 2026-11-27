@@ -45,8 +45,9 @@ COMMANDS = [
 DICE_HELP = ("🎲 <b>Дуэль костей</b>\n\n"
              "1. Ответь на сообщение соперника: <b>кости 100</b> (100 это ставка в монетах)\n"
              "2. Соперник жмёт ✅ Принять, ставки уходят в банк\n"
-             "3. Каждый по разу кидает 🎲 в чат: сначала тот, кто вызвал\n"
+             "3. Каждый по разу кидает 🎲 в чат, кто первый, без разницы\n"
              "4. У кого больше, тот забирает банк. Ничья: перебрасываете\n\n"
+             "Можно до 10 игр в чате одновременно, у каждого своя: бот не путает, чей кубик\n\n"
              "💸 Подарить монеты: ответь <b>передать 100</b>")
 DICE_DELAY = 3.5   # столько крутится кубик в Telegram, ждём, чтобы не спойлерить результат
 
@@ -156,14 +157,14 @@ async def _with_target(bot: Bot, message: Message, name: str, amount: int) -> No
                                          сколько=amount)
         await say(bot, chat_id, text, reply_to=message)
         return
-    why = await service.start_duel(chat_id, user.id, a_name, target.id, b_name, amount)
-    if why:
-        await say(bot, chat_id, why, reply_to=message)
+    d = await service.start_duel(chat_id, user.id, a_name, target.id, b_name, amount)
+    if isinstance(d, str):
+        await say(bot, chat_id, d, reply_to=message)
         return
     text = await texts.render("eco_dice_call", от=mention(user.id, a_name), кому=mention(target.id, b_name),
                               ставка=amount)
     await say(bot, chat_id, text, reply_to=message,
-              markup=kb([[("✅ Принять", "eco:da", "success"), ("🏳 Сдаться", "eco:dd")]]))
+              markup=kb([[("✅ Принять", f"eco:da:{d.id}", "success"), ("🏳 Сдаться", f"eco:dd:{d.id}")]]))
 
 
 # ---------- кубики от участников ----------
@@ -180,9 +181,11 @@ async def on_dice(message: Message, bot: Bot) -> None:
     await asyncio.sleep(DICE_DELAY)
     a, b = mention(d.a, d.a_name), mention(d.b, d.b_name)
     if result == "wait":
-        text = f"{a} выбросил <b>{value}</b>. Теперь {b}, кидай 🎲"
+        other = b if message.from_user.id == d.a else a
+        me = a if message.from_user.id == d.a else b
+        text = f"{me} выбросил <b>{value}</b>. Теперь {other}, кидай 🎲"
     elif result == "tie":
-        text = f"🤝 Ничья {value}:{value}! Перебрасываем, {a} снова первый 🎲"
+        text = f"🤝 Ничья {value}:{value}! Перебрасывайте, оба кидайте 🎲"
     else:
         va, vb = d.rolls[d.a], d.rolls[d.b]
         win_id, win_name = (d.a, d.a_name) if va > vb else (d.b, d.b_name)
@@ -228,7 +231,9 @@ async def on_button(cb: CallbackQuery, bot: Bot) -> None:
             await cb.answer()
             await say(bot, chat_id, DICE_HELP)
         elif action in ("da", "dd"):
-            await _duel_button(cb, chat_id, user, action)
+            parts = cb.data.split(":")
+            duel_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+            await _duel_button(cb, chat_id, user, action, duel_id)
         else:
             await cb.answer()
     except Exception:
@@ -244,17 +249,17 @@ async def _edit(cb: CallbackQuery, text: str, markup=None) -> None:
         await cb.message.answer(text, parse_mode="HTML", reply_markup=markup)
 
 
-async def _duel_button(cb: CallbackQuery, chat_id: int, user: User, action: str) -> None:
+async def _duel_button(cb: CallbackQuery, chat_id: int, user: User, action: str, duel_id: int | None) -> None:
+    """Кнопки помнят номер своей игры: при нескольких играх в чате каждая кнопка трогает только свою."""
     if action == "da":
-        why = await service.accept_duel(chat_id, user.id)
+        why, d = await service.accept_duel(chat_id, user.id, duel_id)
         if why:
             return await cb.answer(why, show_alert=True)
-        d = service.active_duel(chat_id)
         await _edit(cb, await texts.render("eco_dice_go", банк=d.bet * 2, первый=mention(d.a, d.a_name),
                                            второй=mention(d.b, d.b_name)),
-                    kb([[("🏳 Сдаться", "eco:dd")]]))
+                    kb([[("🏳 Сдаться", f"eco:dd:{d.id}")]]))
         return
-    result, d = await service.give_up(chat_id, user.id)
+    result, d = await service.give_up(chat_id, user.id, duel_id)
     if not result:
         return await cb.answer("ты не участвуешь в этой игре", show_alert=True)
     loser = mention(user.id, d.a_name if user.id == d.a else d.b_name)

@@ -1,12 +1,12 @@
 from aiogram import Router
 
 from bot.handlers import (adshop, admin, chatadmin, chatwizard, commands, economy, fun, games, group, members,
-                          owner_chat, private, stars)
+                          owner_chat, private, stars, weather)
 
 
 def setup() -> Router:
     """Порядок важен: сначала админка и служебные события, потом игры, потом обычная болтовня."""
     root = Router(name="root")
-    root.include_routers(admin.router, members.router, owner_chat.router, economy.router, commands.router, fun.router, games.router, group.router, stars.router, adshop.router, chatadmin.router, chatwizard.router,
+    root.include_routers(admin.router, members.router, owner_chat.router, economy.router, weather.router, commands.router, fun.router, games.router, group.router, stars.router, adshop.router, chatadmin.router, chatwizard.router,
                          private.router)
     return root

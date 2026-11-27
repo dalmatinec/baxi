@@ -4,6 +4,7 @@
 import asyncio
 import logging
 import random
+import re
 import time
 
 from aiogram import Bot
@@ -56,7 +57,7 @@ async def rules(chat) -> list[str]:
     return [x for x in out if x]
 
 
-_style_cache: dict[int, tuple[float, str]] = {}
+_style_cache: dict[int, tuple[float, str, float]] = {}
 
 
 async def chat_style(chat_id: int) -> str:
@@ -65,9 +66,17 @@ async def chat_style(chat_id: int) -> str:
     if hit and time.time() - hit[0] < 3600:
         return hit[1]
     rows = await db.recent_history(chat_id, 200)
-    hint = prompts.chat_style([r["text"] for r in rows if not r["is_bot"]])
-    _style_cache[chat_id] = (time.time(), hint)
+    texts = [r["text"] for r in rows if not r["is_bot"] and r["text"]]
+    hint = prompts.chat_style(texts)
+    commas = sum(t.count(",") for t in texts) / len(texts) if texts else 0.0
+    _style_cache[chat_id] = (time.time(), hint, commas)
     return hint
+
+
+def few_commas(chat_id: int) -> bool:
+    """В чате почти не ставят запятые (меньше одной на сообщение): бот тоже пишет без них."""
+    hit = _style_cache.get(chat_id)
+    return hit is None or hit[2] < 1.0
 
 
 _people_cache: dict[int, tuple[float, list]] = {}
@@ -97,7 +106,7 @@ async def about_people(chat, texts: list[str], skip: set[int]) -> list[str]:
 async def context(chat) -> tuple[str, str]:
     """Системный промпт с заметками об участниках и текст последних сообщений."""
     rows = await db.recent_history(chat["chat_id"], config.CONTEXT_MESSAGES)
-    ids = list(dict.fromkeys(r["user_id"] for r in rows if not r["is_bot"]))[-8:]
+    ids = list(dict.fromkeys(r["user_id"] for r in rows if not r["is_bot"]))[-12:]
     users = await db.users_by_ids(chat["chat_id"], ids)
     vips = await db.vip_ids(ids)
     notes = [f"{u['name']}: {u['notes']}" for u in users if u["notes"]]
@@ -163,6 +172,8 @@ async def _ask(chat, make_task, incoming: str | None = None) -> str | None:
             return None
         text = prompts.clean_reply(answer, chat["bot_name"])
         text = prompts.strip_names(prompts.drop_hello(text, incoming), names, said)
+        if few_commas(chat["chat_id"]):
+            text = prompts.drop_commas(text)
         repeat = not greeting and prompts.is_repeat(text, said + _fresh_texts(chat["chat_id"]))
         echo = prompts.echo_words(incoming, text)
         if not text or not (repeat or echo):
@@ -203,8 +214,9 @@ async def remember_self(bot: Bot, chat, sent: Message, text: str, reply_name: st
 
 
 async def send_text(bot: Bot, chat, text_html: str, plain: str, reply_to: Message | None = None,
-                    reply_name: str = "", thread: int | None = None) -> None:
-    since = reply_to.date.timestamp() if reply_to is not None and reply_to.date else None
+                    reply_name: str = "", thread: int | None = None, since: float | None = None) -> None:
+    """since: когда бот получил сообщение (часы сервера). Время Telegram в сообщении не берём: если часы сервера
+    убежали вперёд, пауза пропадала совсем."""
     await typing(bot, chat["chat_id"], plain, since)
     sent = await say(bot, chat["chat_id"], text_html, reply_to=reply_to, thread=thread)
     await remember_self(bot, chat, sent, plain, reply_name)
@@ -212,6 +224,7 @@ async def send_text(bot: Bot, chat, text_html: str, plain: str, reply_to: Messag
 
 async def ai_answer(bot: Bot, chat, message: Message, author: str, text: str, jump: bool) -> None:
     """Ответ нейросети на сообщение. Не вышло (лимит, ошибка), отвечает фразой из базы."""
+    got = time.time()   # пауза «читает, печатает» считается от этого момента
     rt = message.reply_to_message
     me_id = (await bot.me()).id if rt else 0
     quoted = (rt.text or rt.caption or "") if rt and rt.from_user and rt.from_user.id == me_id else ""
@@ -237,7 +250,7 @@ async def ai_answer(bot: Bot, chat, message: Message, author: str, text: str, ju
             from bot.services import reactions
             await reactions.react(bot, chat, message)
         return
-    await send_text(bot, chat, esc(reply), reply, reply_to=message, reply_name=author)
+    await send_text(bot, chat, esc(reply), reply, reply_to=message, reply_name=author, since=got)
 
 
 _net_warned = 0.0
@@ -301,19 +314,29 @@ async def phrase_answer(bot: Bot, chat, message: Message, author: str) -> None:
 
 
 async def greet(bot: Bot, chat, user_id: int, name: str, thread: int | None = None) -> None:
-    text = await _ask(chat, lambda history: prompts.greet_task(name, history))
-    if text and name.lower() in text.lower():
-        # имя в тексте делаем кликабельным, чтобы новичку пришло уведомление
-        i = text.lower().index(name.lower())
-        html_text = esc(text[:i]) + mention(user_id, text[i:i + len(name)]) + esc(text[i + len(name):])
-    elif text:
-        html_text = f"{mention(user_id, name)}, {esc(text)}"
-        text = f"{name}, {text}"
+    """Приветствие новичка: примерно поровну то фраза из базы, то нейросеть в характере бота. Нейросеть не видит
+    переписку (раньше заодно отвечала на чужие вопросы) и не обсуждает ник. Имя всегда кликабельное, в начале."""
+    text = ""
+    if random.random() < 0.5:
+        system = prompts.system_prompt(chat["bot_name"], plans_persona(chat), chat["topic"], chat["title"] or "", [],
+                                       await rules(chat))
+        answer = await ai.chat_as("event", [{"role": "system", "content": system},
+                                           {"role": "user", "content": prompts.greet_task(name)}], max_tokens=80)
+        text = prompts.drop_commas(prompts.clean_reply(answer or "", chat["bot_name"]))
+        if text and name.lower() in text.lower():   # имя модель всё равно могла вставить: убираем, добавим сами
+            text = re.sub(re.escape(name), "", text, flags=re.I).strip(" ,!.") or ""
+    if text:
+        html_text, plain = f"{mention(user_id, name)} {esc(text)}", f"{name} {text}"
     else:
         tpl = await db.random_phrase("greet") or random.choice(GREETINGS)
-        text = tpl.replace("{name}", name) if "{name}" in tpl else tpl.format(name=name)
-        html_text = esc(text).replace(esc(name), mention(user_id, name), 1)
-    await send_text(bot, chat, html_text, text, thread=thread)
+        plain = prompts.drop_commas(tpl.replace("{name}", name))
+        html_text = esc(plain).replace(esc(name), mention(user_id, name), 1)
+    await send_text(bot, chat, html_text, plain, thread=thread)
+
+
+def plans_persona(chat) -> str:
+    from bot.services import plans
+    return plans.persona(chat)
 
 
 async def in_character(bot: Bot, chat_id: int, situation: str, fallbacks: list[str], tail_html: str = "",

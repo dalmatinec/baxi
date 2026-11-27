@@ -271,7 +271,6 @@ async def cb_spend(cb: CallbackQuery) -> None:
     peak = "сейчас час пика, всё ×2" if ai.is_peak() else "сейчас обычные цены"
     text = ("🤖 <b>ИИ и расход</b>\n\n"
             + (f"Модель: <code>{config.AI_MODEL}</code>\n" if config.IS_MAIN else "")
-            + (f"🧠 Сильная модель: <b>{ai.STRONG_SHARE}%</b> ответов людям\n" if config.IS_MAIN else "")
             + f"Лимит в сутки на все чаты: <b>${config.DAILY_LIMIT_USD:.2f}</b>, "
               f"до ${config.DAILY_LIMIT_USD * 30:.0f} в месяц\n"
             f"Сегодня осталось: <b>${max(0, left):.3f}</b>\n"
@@ -286,35 +285,8 @@ async def cb_spend(cb: CallbackQuery) -> None:
     row = [((f"✓ ${v:g}" if abs(v - config.DAILY_LIMIT_USD) < 1e-9 else f"${v:g}"), f"lim:{v}") for v in steps]
     await show(cb, text, kb([[("⏰ По часам", "spend:hour"), ("💬 По чатам", "spend:chat_id"), ("🧩 На что", "spend:kind")],
                              [("🎚 Частота и доля ИИ для всех чатов", "cfg:cap")],
-                             [(f"🧠 Сильная модель: {ai.STRONG_SHARE}%", "strong:t")],
                              row[:3], row[3:], [("✏️ Своя сумма", "lim:own")], [BACK_MENU]]))
 
-
-STRONG_STEPS = (0, 20, 40, 60, 80, 100)
-
-
-@router.callback_query(lambda c: c.data == "strong:t")
-async def cb_strong(cb: CallbackQuery) -> None:
-    """Доля ответов людям через сильную модель: лучше понимает намёки, но каждый такой ответ дороже в 3-4 раза."""
-    row = [((f"✓ {v}%" if v == ai.STRONG_SHARE else f"{v}%"), f"strong:{v}") for v in STRONG_STEPS]
-    await show(cb, "🧠 <b>Сильная модель для ответов людям</b>\n\n"
-                   f"Сейчас: <b>{ai.STRONG_SHARE}%</b> ответов через <code>{config.AI_STRONG_MODEL}</code>, "
-                   "остальные через основную.\n\n"
-                   "Сильная лучше понимает намёки, сленг и шутки, реже путается. Касается только ответов людям и "
-                   "реплик в разговор: заметки, итоги, шутки и викторины всегда на основной. Какой ответ пойдёт в "
-                   "сильную, решает случай, в среднем как раз выбранная доля.\n\n"
-                   f"Цена за 1 млн токенов: вход ${config.STRONG_PRICE_IN:g} (у основной ${config.PRICE_IN:g}), "
-                   f"ответ ${config.STRONG_PRICE_OUT:g} (у основной ${config.PRICE_OUT:g}). Примерно: 60% даёт "
-                   "расход в 2-2.3 раза больше, 100% в 2.5-3 раза. Дневной лимит продолжает действовать.",
-               kb([row[:3], row[3:], [("⬅️ Расход", "spend")]]))
-
-
-@router.callback_query(lambda c: c.data.startswith("strong:") and c.data[7:].isdigit())
-async def cb_strong_set(cb: CallbackQuery) -> None:
-    ai.STRONG_SHARE = max(0, min(100, int(cb.data[7:])))
-    await db.kv_set("strong_share", str(ai.STRONG_SHARE))
-    await cb.answer(f"🧠 Сильная модель: {ai.STRONG_SHARE}% ответов")
-    await cb_strong(cb)
 
 
 @router.callback_query(lambda c: c.data.startswith("spend:"))
