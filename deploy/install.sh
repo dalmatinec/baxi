@@ -21,9 +21,9 @@ id linkhub >/dev/null 2>&1 || useradd --system --home "$DIR" --shell /usr/sbin/n
 
 if [ ! -f .env ]; then
     cp .env.example .env
-    read -rp "Токен бота от @BotFather: " TOKEN
+    read -rsp "Токен бота от @BotFather (ввод скрыт): " TOKEN; echo
     read -rp "Твой Telegram ID (несколько через запятую): " OWNERS
-    read -rp "Ключ API нейросети, можно пусто: " AIKEY
+    read -rsp "Ключ API нейросети DeepSeek, можно пусто (ввод скрыт): " AIKEY; echo
     sed -i "s|^BOT_TOKEN=.*|BOT_TOKEN=$TOKEN|; s|^OWNER_IDS=.*|OWNER_IDS=$OWNERS|; s|^AI_API_KEY=.*|AI_API_KEY=$AIKEY|" .env
 fi
 mkdir -p data

@@ -43,7 +43,7 @@ OWNER_IDS = {int(x) for x in os.getenv("OWNER_IDS", "").replace(" ", "").split("
 # Нейросеть: любой сервис с API в формате OpenAI. Адрес и модель меняются в .env
 AI_BASE_URL = os.getenv("AI_BASE_URL", "https://api.deepseek.com").rstrip("/")
 AI_API_KEY = os.getenv("AI_API_KEY", "")
-AI_MODEL = os.getenv("AI_MODEL", "deepseek-chat")
+AI_MODEL = os.getenv("AI_MODEL", "deepseek-flash")   # DeepSeek V4.1 Flash; старое имя deepseek-chat в документации больше нет
 AI_TIMEOUT = _float("AI_TIMEOUT", 40)
 AI_MAX_TOKENS = _int("AI_MAX_TOKENS", 160)
 AI_TEMPERATURE = _float("AI_TEMPERATURE", 1.1)

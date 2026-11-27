@@ -127,8 +127,9 @@ def test_ban_removes_from_games_and_lists(tmp_path, monkeypatch):
         await store.add_coins(5, 500)
         await store.add_coins(9, 500)
         before = (await store.wallet(5))["coins"], (await store.wallet(9))["coins"]
-        assert await service.start_duel(CHAT, 5, "Вася", 9, "Петя", 100) == ""
-        assert await service.accept_duel(CHAT, 9) == ""
+        duel = await service.start_duel(CHAT, 5, "Вася", 9, "Петя", 100)
+        assert not isinstance(duel, str), duel
+        assert (await service.accept_duel(CHAT, 9, duel.id))[0] == ""
         await c.post("/v1/events", headers=H, json=event("ban"))
         assert service.active_duel(CHAT) is None
         assert ((await store.wallet(5))["coins"], (await store.wallet(9))["coins"]) == before   # ставки вернулись
