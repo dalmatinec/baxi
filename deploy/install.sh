@@ -3,6 +3,7 @@
 #   bash /opt/linkhub/deploy/install.sh
 # При первом запуске спросит токен, свой Telegram ID и ключ нейросети, запишет в /opt/linkhub/.env
 set -euo pipefail
+trap 'echo "❌ Остановился на строке $LINENO: $BASH_COMMAND"' ERR
 
 DIR=/opt/linkhub
 cd "$DIR" || { echo "Сначала: git clone https://github.com/dalmatinec/baxi $DIR"; exit 1; }
