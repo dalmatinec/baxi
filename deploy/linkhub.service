@@ -26,8 +26,8 @@ PrivateTmp=true
 # instances: сюда основной бот пишет сроки оплаты копий white label (папки может не быть)
 ReadWritePaths=/opt/linkhub/data -/opt/linkhub/instances
 # память: с 260 МБ systemd начинает поджимать, выше 300 МБ перезапускает (а не весь сервер встаёт)
-MemoryHigh=260M
-MemoryMax=300M
+MemoryHigh=380M
+MemoryMax=450M
 
 [Install]
 WantedBy=multi-user.target

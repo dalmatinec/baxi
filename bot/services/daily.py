@@ -277,6 +277,8 @@ async def send_results(bot: Bot, chat_id: int, built: dict, reply_to=None, prefi
 
     from bot.services.out import reply_params
     images = await render_cards(bot, built["card"]) if cards else []
+    if images:
+        trim_memory()   # картинки итогов съедают память разово, сразу отдаём обратно
     if len(images) == 2:
         caption = (prefix + built["caption"])[:1024]
         media = [InputMediaPhoto(media=BufferedInputFile(images[0], "itogi.jpg"), caption=caption, parse_mode="HTML"),
@@ -327,6 +329,18 @@ async def greet_birthdays(bot: Bot, chat) -> None:
                   f"🎂 <b>День рождения:</b> {mention(user['user_id'], user['name'])}!\n\n{esc(text)}")
 
 
+def trim_memory() -> None:
+    """Отдаёт системе память, которую Python уже освободил, но держал у себя (после картинок итогов, больших
+    ответов и т.п.). Без этого бот медленно «толстеет» и упирается в лимит systemd."""
+    import ctypes
+    import gc
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass
+
+
 # ---------- планировщик ----------
 
 async def tick(bot: Bot) -> None:
@@ -337,6 +351,8 @@ async def tick(bot: Bot) -> None:
     day = db.today()
     if now.hour == 4 and now.minute == 30:
         await db.prune_ai_log()   # разбивку расхода держим 40 дней
+    if now.minute in (0, 30):
+        trim_memory()
     for chat in await db.list_chats():
         ai.CURRENT_CHAT.set(chat)
         try:

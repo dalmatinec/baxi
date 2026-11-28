@@ -107,13 +107,13 @@ async def health_text() -> str:
         warn.append("мало свободной памяти")
     if disk.free < 1024 ** 3:
         warn.append("меньше 1 ГБ на диске")
-    if rss > 250 * 1024 * 1024:
+    if rss > config.MEM_LIMIT_MB * 0.85 * 1024 * 1024:
         warn.append("бот ест много памяти, скоро systemd его перезапустит")
     if beat is None or beat > 300:
         warn.append("пульс давно не обновлялся")
     status = "🟢 Всё в порядке" if not warn else "🟠 Внимание: " + ", ".join(warn)
     text = (f"🩺 <b>Состояние сервера</b>\n\n{status}\n\n"
-            f"🤖 Бот ест: <b>{_mb(rss)}</b> из 300 МБ лимита\n"
+            f"🤖 Бот ест: <b>{_mb(rss)}</b> из {config.MEM_LIMIT_MB} МБ лимита\n"
             f"🧠 Память сервера: свободно <b>{_mb(avail)}</b> из {_mb(total)}"
             + (f", в подкачке {_mb(swap_used)}" if swap_used > 0 else "") + "\n"
             f"💽 Диск: свободно <b>{disk.free / 1024 ** 3:.1f} ГБ</b> из {disk.total / 1024 ** 3:.0f} ГБ\n"
@@ -122,7 +122,7 @@ async def health_text() -> str:
             f"💓 Пульс: {'нет' if beat is None else f'{int(beat)} с назад'}\n"
             f"💾 Последний бэкап: {'не было' if not last_backup else f'{int((now - last_backup) / 3600)} ч. назад'}\n"
             f"💬 Чатов: {len(await db.list_chats())}\n\n"
-            "<b>Защита:</b> автозапуск после перезагрузки, перезапуск при падении, лимит памяти 300 МБ, "
+            f"<b>Защита:</b> автозапуск после перезагрузки, перезапуск при падении, лимит памяти {config.MEM_LIMIT_MB} МБ, "
             "сторож раз в 5 минут (перезапустит зависшего бота и напишет тебе, если мало места), "
             "логи не больше 300 МБ, ежедневный бэкап. Ставится командой <code>bash /opt/linkhub/deploy/harden.sh</code>")
     return text

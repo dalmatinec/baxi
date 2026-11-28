@@ -73,6 +73,7 @@ MEMORY_EVERY = _int("MEMORY_EVERY", 50)   # заметку о человеке �
 MEMORY_FIRST = _int("MEMORY_FIRST", 20)   # первую заметку о новичке пишем пораньше, чтобы бот быстрее его узнал
 
 TZ = ZoneInfo(os.getenv("TZ_NAME", "Asia/Almaty"))
+MEM_LIMIT_MB = _int("MEM_LIMIT_MB", 450)   # как MemoryMax в deploy/linkhub.service, для экрана здоровья
 WEATHER_CITY = os.getenv("WEATHER_CITY", "Алматы")   # город для «погода» без названия
 DATA_DIR = ROOT / os.getenv("DATA_DIR", "data")
 DB_PATH = DATA_DIR / "bot.db"
